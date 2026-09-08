@@ -1,0 +1,144 @@
+#!/bin/sh /etc/rc.common
+# Hermes Agent under procd.
+#
+# Three things this script is responsible for, none of which the agent does for itself:
+#
+#   1. Refusing to start when the configuration cannot work. A gateway that boots with
+#      no key and no model spends its life logging the same failure, and on a router
+#      nobody is watching the log. Better to say why once and stay down.
+#   2. Keeping secrets out of the process table and out of UCI. Keys are read from
+#      root-only files and handed over as environment variables, so `ps` shows nothing
+#      and `uci show` shows nothing.
+#   3. Putting a ceiling on memory. Upstream's gateway is known to grow its RSS over
+#      long uptimes; on a server that is an annoyance, on a 1 GB router it is the whole
+#      box. procd's cgroup limit turns an unbounded leak into a restart.
+
+USE_PROCD=1
+START=95
+STOP=10
+
+PROG=/usr/bin/hermes
+NAME=hermes-agent
+CONF=/etc/hermes-agent
+
+# Read a secret from a file into stdout, or nothing if it is missing or empty.
+# Never echoes the path's contents to the log.
+read_secret() {
+	[ -n "$1" ] && [ -r "$1" ] && head -n1 "$1" | tr -d ' \t\r\n'
+}
+
+start_service() {
+	local enabled data_dir base_url model key_file mem_max respawn
+	local mcp_url mcp_token_file key mcp_token
+	local toolsets tl
+
+	config_load hermes
+	config_get_bool enabled main enabled 0
+	[ "$enabled" -eq 1 ] || {
+		echo "$NAME: disabled in /etc/config/hermes; not starting" >&2
+		return 0
+	}
+
+	config_get data_dir       main data_dir '/srv/hermes'
+	config_get base_url       main base_url ''
+	config_get model          main model ''
+	config_get key_file       main key_file "$CONF/provider.key"
+	config_get mem_max        main mem_max_mb '512'
+	config_get_bool respawn   main respawn 1
+	config_get mcp_url        main router_mcp_url ''
+	config_get mcp_token_file main router_mcp_token_file ''
+
+	key=$(read_secret "$key_file")
+
+	# Refuse rather than flap. Each branch names the one thing to fix, because the
+	# person reading this in logread has no other source of truth.
+	[ -n "$base_url" ] || { echo "$NAME: base_url is empty in /etc/config/hermes" >&2; return 1; }
+	[ -n "$model" ]    || { echo "$NAME: model is empty in /etc/config/hermes" >&2; return 1; }
+	if [ -z "$key" ]; then
+		echo "$NAME: no API key in $key_file. Write the key there as a single line:" >&2
+		echo "$NAME:   printf '%s' 'sk-...' > $key_file && chmod 600 $key_file" >&2
+		return 1
+	fi
+
+	# The data directory is deliberately not created on the overlay by default. If it
+	# is missing we make it, but a router whose overlay is a few megabytes should have
+	# data_dir pointed at external storage instead, and this is where that gets said.
+	if [ ! -d "$data_dir" ]; then
+		mkdir -p "$data_dir" 2>/dev/null || {
+			echo "$NAME: cannot create $data_dir" >&2; return 1; }
+		echo "$NAME: created $data_dir on the root filesystem. Sessions and memory grow" >&2
+		echo "$NAME: without bound; move data_dir to external storage if space is tight." >&2
+	fi
+	chmod 0700 "$data_dir" 2>/dev/null
+
+	procd_open_instance
+	procd_set_param command "$PROG" gateway run
+
+	# Secrets go in the environment, never on the command line: argv is world-readable
+	# through /proc, and this box may have more than one person on it.
+	procd_set_param env \
+		HERMES_HOME="$data_dir" \
+		HERMES_DISABLE_LAZY_INSTALLS=1 \
+		PYTHONDONTWRITEBYTECODE=0 \
+		OPENAI_BASE_URL="$base_url" \
+		OPENAI_API_KEY="$key" \
+		HERMES_MODEL="$model"
+
+	# HERMES_DISABLE_LAZY_INSTALLS is not optional here. Left unset, Hermes pip-installs
+	# missing pieces at runtime, and a router has no compiler, often no free space, and
+	# sometimes no route to PyPI. Upstream's own container image sets it for the same
+	# reason.
+	#
+	# PYTHONDONTWRITEBYTECODE is explicitly 0, the opposite of upstream's image: the
+	# package ships precompiled bytecode, and on a Cortex-A53 reparsing the whole module
+	# graph on every start is the difference between a second and a minute.
+
+	if [ -n "$mcp_url" ]; then
+		mcp_token=$(read_secret "$mcp_token_file")
+		if [ -n "$mcp_token" ]; then
+			procd_append_param env OPENWRT_MCP_URL="$mcp_url" OPENWRT_MCP_TOKEN="$mcp_token"
+		else
+			# Not fatal: the agent is useful without touching the router at all, and
+			# refusing to start over an optional integration would be the wrong call.
+			echo "$NAME: router_mcp_url is set but no token in $mcp_token_file;" >&2
+			echo "$NAME: starting without router access. Pair with: openwrt-mcp pair hermes" >&2
+		fi
+	fi
+
+	# Toolsets as one comma-separated value, which is the form the CLI takes.
+	toolsets=""
+	config_list_foreach main toolsets append_toolset
+	[ -n "$toolsets" ] && procd_append_param command --toolsets "${toolsets#,}"
+
+	[ "$respawn" -eq 1 ] && procd_set_param respawn 3600 5 0
+
+	# The ceiling. Without it a leaking gateway takes the router with it; with it, the
+	# kernel kills one process and procd brings it back.
+	[ "${mem_max:-0}" -gt 0 ] 2>/dev/null && \
+		procd_set_param limits core="0" && \
+		procd_add_jail_mount_rw "$data_dir" && \
+		procd_set_param cgroup "memory.max=$((mem_max * 1024 * 1024))"
+
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param pidfile /var/run/$NAME.pid
+	procd_close_instance
+}
+
+append_toolset() {
+	toolsets="$toolsets,$1"
+}
+
+service_triggers() {
+	procd_add_reload_trigger "hermes"
+}
+
+reload_service() {
+	# Every setting this script reads is turned into an environment variable or an
+	# argument at start time, so there is nothing a running process would pick up.
+	restart
+}
+
+stop_service() {
+	return 0
+}

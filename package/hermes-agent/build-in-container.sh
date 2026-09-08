@@ -1,0 +1,87 @@
+#!/bin/sh
+# Build the hermes-agent package inside the OpenWrt release it targets, then package it.
+#
+# Two containers, each doing the one thing it is right for:
+#
+#   openwrt/rootfs:<arch>-<release>   assembles the tree. It has the exact CPython and
+#                                     the exact musl the router has, so pip resolves the
+#                                     same wheels the router would.
+#   alpine:edge                       runs `apk mkpkg`. apk v3 is the only writer of the
+#                                     package format, and OpenWrt's own rootfs ships
+#                                     apk-tools without mkpkg, so the writer has to come
+#                                     from somewhere. alpine:edge is 8 MB; the OpenWrt
+#                                     SDK, the other way to get it, is 241 MB.
+#
+# OpenWrt publishes its OCI platform string as the package architecture, so the images
+# need --platform linux/<apk-arch>. Plain linux/arm64 finds no manifest at all.
+set -eu
+
+ARCH=${1:-aarch64_generic}
+RELEASE=${RELEASE:-25.12.4}
+HERMES_VERSION=${HERMES_VERSION:-0.19.0}
+PKGREL=${PKGREL:-1}
+
+SRC=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$SRC/../.." && pwd)
+WORK="$ROOT/build/$ARCH"
+
+case "$ARCH" in
+	x86_64) IMAGE="openwrt/rootfs:x86-64-$RELEASE" ;;
+	*)      IMAGE="openwrt/rootfs:$ARCH-$RELEASE" ;;
+esac
+
+ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
+OUT="hermes-agent-$HERMES_VERSION-r$PKGREL.apk"
+
+rm -rf "$WORK"
+mkdir -p "$WORK"
+
+echo "==> assembling the tree inside $IMAGE"
+docker run --rm -i --platform "linux/$ARCH" \
+	-v "$SRC:/src:ro" -v "$WORK:/work" \
+	"$IMAGE" /bin/sh -s <<CONTAINER
+set -eu
+# python3 is the meta package; python3-pip brings the resolver. Both are in the release
+# feed, so this needs no third-party repository.
+apk update -q
+apk add -q python3 python3-pip
+HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp}" \\
+	/src/build.sh "$ARCH" /work/tree
+CONTAINER
+
+echo "==> packaging with apk mkpkg"
+# The scripts are written here rather than shipped as files because they are three lines
+# each and belong next to the metadata that references them.
+cat > "$WORK/post-install" <<'POST'
+#!/bin/sh
+mkdir -p /etc/hermes-agent
+chmod 0700 /etc/hermes-agent
+/etc/init.d/hermes-agent enable
+# Deliberately not started: the package ships disabled with no key and no model, and a
+# service that cannot work should not spend the first boot logging that it cannot.
+exit 0
+POST
+cat > "$WORK/pre-deinstall" <<'PRE'
+#!/bin/sh
+/etc/init.d/hermes-agent stop
+/etc/init.d/hermes-agent disable
+exit 0
+PRE
+chmod 0755 "$WORK/post-install" "$WORK/pre-deinstall"
+
+docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
+	--info "name:hermes-agent" \
+	--info "version:$HERMES_VERSION-r$PKGREL" \
+	--info "arch:$ARCH" \
+	--info "license:MIT" \
+	--info "origin:hermes-agent" \
+	--info "url:https://github.com/NousResearch/hermes-agent" \
+	--info "description:Hermes Agent, the self-hosted AI agent, packaged for OpenWrt. Runs as a procd service against any OpenAI-compatible endpoint." \
+	--info "depends:python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep" \
+	--script "post-install:/work/post-install" \
+	--script "pre-deinstall:/work/pre-deinstall" \
+	--files /work/tree \
+	--output "/work/$OUT"
+
+cp "$WORK/$OUT" "$ROOT/$OUT"
+echo "==> $OUT  ($(du -h "$ROOT/$OUT" | cut -f1))"
