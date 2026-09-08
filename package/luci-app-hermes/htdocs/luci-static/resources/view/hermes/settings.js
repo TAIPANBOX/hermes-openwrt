@@ -136,6 +136,51 @@ return view.extend({
 		};
 		o.remove = function () { return; };
 
+		/* ---- telegram ---- */
+		/* A second package, and the page says so rather than letting the service say it
+		 * after the next restart. The Telegram adapter itself is already installed; what
+		 * this asks for is the client library it loads. */
+		s = m.section(form.NamedSection, 'telegram', 'platform', _('Telegram'),
+			st.telegram_lib_installed
+				? _('Reach the agent from a phone. Messages arrive over Telegram; the agent still runs here.')
+				: _('The Telegram adapter is installed but its client library is not, so this cannot start yet. Install it with <code>apk add hermes-agent-telegram</code> on OpenWrt 25.12, or <code>opkg install hermes-agent-telegram</code> on 24.10.'));
+		s.anonymous = true;
+
+		o = s.option(form.Flag, 'enabled', _('Enable'),
+			_('The service refuses to start with this on and nobody allowed below, because a bot that answers nobody looks identical to one that is broken.'));
+		o.rmempty = false;
+
+		/* Write-only, exactly like the provider key above and for the same reason. A bot
+		 * token is a full credential: anyone holding it can read every message the bot
+		 * receives and answer as it. */
+		o = s.option(form.Value, '_telegram_token', _('Bot token'),
+			st.telegram_key_set
+				? _('A token is stored. Type a new one to replace it, or leave this empty to keep it.')
+				: _('Create a bot with @BotFather and paste the token here. It is stored in a root-only file, never in the configuration.'));
+		o.password = true;
+		o.rmempty = true;
+		o.placeholder = st.telegram_key_set ? '••••••••  ' + _('stored') : _('not set');
+		o.cfgvalue = function () { return ''; };
+		o.write = function (section_id, value) {
+			if (!value) return;
+			return callSetSecret('telegram', value);
+		};
+		o.remove = function () { return; };
+
+		o = s.option(form.DynamicList, 'allow_user_id', _('Allowed Telegram users'),
+			_('Numeric ids, one per entry. Ask @userinfobot for yours. Anyone not listed is ignored, and an empty list means nobody, which the service refuses to start on.'));
+		o.datatype = 'uinteger';
+		o.placeholder = '123456789';
+
+		o = s.option(form.Flag, 'allow_all', _('Answer anyone'),
+			_('Turns the allowlist off, so any Telegram user who finds the bot can talk to it. On an agent holding this router\'s tools that is the whole security model, and it is here as a switch rather than as the consequence of leaving a list empty.'));
+		o.default = '0';
+
+		o = s.option(form.Value, 'home_channel', _('Home chat id'),
+			_('Where scheduled jobs and notifications are delivered. Optional: without it the agent only replies where it was spoken to.'));
+		o.datatype = 'integer';
+		o.optional = true;
+
 		/* ---- tools ---- */
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Tools'),
 			_('Which tool families the agent loads. Leaving this empty loads everything upstream enables by default, which on a router means importing vision, image generation and browser tools that cannot work here and cost memory to load.'));

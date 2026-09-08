@@ -45,6 +45,9 @@ echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/pack
   >> /etc/apk/repositories.d/customfeeds.list
 
 apk update && apk add hermes-agent luci-app-hermes
+
+# and, to reach it from a phone:
+apk add hermes-agent-telegram
 ```
 
 ### OpenWrt 24.10 (opkg)
@@ -61,6 +64,9 @@ echo "src/gz hermes https://taipanbox.github.io/hermes-openwrt/24.10/$ARCH" \
   >> /etc/opkg/customfeeds.conf
 
 opkg update && opkg install hermes-agent luci-app-hermes
+
+# and, to reach it from a phone:
+opkg install hermes-agent-telegram
 ```
 
 No `--allow-untrusted` and no `--force` anywhere. That is the point of signing the feed.
@@ -93,6 +99,76 @@ returns one.
 
 `scripts/gate-luci.sh` asserts that rather than trusting it. It writes a canary through
 the RPC and then requires that no readable method mentions it.
+
+## Reaching it from a phone
+
+![A phone talks to Telegram, the router polls Telegram outbound, and an allowlist decides who is answered](docs/telegram.svg)
+
+```sh
+apk add hermes-agent-telegram          # 25.12 and later
+opkg install hermes-agent-telegram     # 24.10
+```
+
+Then, in **Services -> Hermes Agent -> Settings**, switch Telegram on, paste the token
+from [@BotFather](https://t.me/BotFather), and add your own numeric Telegram id. The
+service will not start until that last part is done, and the reason is the next section.
+
+**The router opens no port.** The adapter polls Telegram outbound, so this works behind
+NAT, behind CGNAT, and on a connection with no static address, and nothing has to be
+forwarded to the router. Webhook mode exists and its server is packaged, because a router
+is the one machine in the house that plausibly does have a public address, but it is not
+the default and nothing needs it.
+
+### Why the service refuses to start with an empty allowlist
+
+Upstream already default-denies: an unlisted user is ignored, and that is the last line
+of `_is_user_authorized` in `gateway/authz_mixin.py`. So an empty allowlist is safe. It
+is also silent, and silence is the problem. The bot answers nobody, explains nothing, and
+the obvious next move for somebody trying to make it work is to find the switch that
+turns the allowlist off.
+
+So the service refuses to start instead, names the command that adds an id, and mentions
+the switch rather than leaving it to be discovered:
+
+```
+hermes-agent: telegram is enabled but no user is allowed to talk to it.
+hermes-agent: add your numeric Telegram id (ask @userinfobot for it):
+hermes-agent:   uci add_list hermes.telegram.allow_user_id=123456789
+hermes-agent:   uci commit hermes && service hermes-agent restart
+hermes-agent: or set hermes.telegram.allow_all=1 to answer anyone, which on a
+hermes-agent: bot holding router tools means anyone who finds the bot.
+```
+
+The token is handled exactly like the model API key: a root-only file, never UCI, never
+argv, and a write-only field on the settings page.
+
+### Why it is a separate package
+
+The Telegram adapter is already inside `hermes-agent`. Upstream's wheel ships
+`plugins/platforms/telegram/` alongside twenty other platforms, so nothing had to be
+ported. What is missing from a router is the client library, and that is all this
+package is.
+
+Measured on 2026-09-08 inside `openwrt/rootfs` for aarch64, on both 25.12.4 (CPython
+3.13) and 24.10.8 (CPython 3.11): adding `python-telegram-bot[webhooks]` to the router
+profile adds **two** distributions and changes the version of nothing already installed.
+
+| | |
+|---|---|
+| added | `python-telegram-bot` 22.6, `tornado` 6.5.8 |
+| version changes to the base package's 69 | none |
+| installed size | 9.3 MB, against the base package's 193 MB |
+
+That second row is what makes an add-on possible at all. Two OpenWrt packages cannot own
+one file: apk refuses such an install and opkg silently accepts it, then breaks the base
+package when the add-on is later removed. So the contents are not written down anywhere.
+`package/hermes-agent-telegram/files/delta.py` resolves the base profile and the base
+profile plus Telegram on every build and subtracts, and it stops the build if a shared
+package would have to change version. Upstream's pin is read from upstream's own
+metadata, so a version bump carries the right one automatically.
+
+Taking upstream's `messaging` extra whole would also have installed Discord with voice
+support, which pulls compiled crypto, and Slack. The router was asked for Telegram.
 
 ## The signed feed
 
@@ -194,10 +270,14 @@ OpenWrt's own published rootfs and then asks the running system.
 |---|---|
 | `gate-package.sh` | 9 checks: apk installs it, the CLI runs, it ships disabled, it refuses without a key, the key reaches neither argv nor UCI, config survives reinstall, removal is clean |
 | `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
-| `gate-luci.sh` | 9 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, **no method returns it** |
+| `gate-luci.sh` | 10 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, and **no method returns a key** |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
+| `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
+| `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave all 9037 base files |
+| `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `teeth.sh` | plants three faults and requires a different check to catch each one |
+| `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather
 than in the harness: a package built with one `.pyc` missing writes that bytecode at
@@ -212,7 +292,7 @@ leaves all 193 MB behind.
 - [x] Signed feed for both lines, signed on a workstation
 - [x] Every gate runs on OpenWrt's own rootfs images in CI
 - [ ] **Run on real hardware.** No router has run this yet, only the published images
-- [ ] A Telegram platform package, so the agent is reachable from a phone
+- [x] Telegram, as a two-distribution add-on package, on both release lines
 - [ ] Track upstream releases automatically, which arrive every two to four days
 
 ## Prior art, and what is not ours

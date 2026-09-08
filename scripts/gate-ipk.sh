@@ -36,7 +36,11 @@ case "$ARCH" in
 esac
 PLATFORM=${PLATFORM:-linux/$ARCH}
 
-IPK=${IPK:-$(ls "$ROOT"/hermes-agent_*_"$ARCH".ipk 2>/dev/null | head -1)}
+# -t, because the repository root accumulates builds and nothing removes yesterday's.
+# Without it this gate tested hermes-agent_0.19.0-r1 while r2 sat beside it, and passed:
+# the checks here do not touch what changed between them, so the pass was true and about
+# the wrong package.
+IPK=${IPK:-$(ls -t "$ROOT"/hermes-agent_*_"$ARCH".ipk 2>/dev/null | head -1)}
 [ -n "$IPK" ] && [ -f "$IPK" ] || {
 	echo "FAIL: no .ipk for $ARCH. Build it: RELEASE=$RELEASE ./package/hermes-agent/build-in-container.sh $ARCH"
 	exit 1; }

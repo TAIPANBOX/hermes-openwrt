@@ -68,11 +68,35 @@ for arch in $ARCHES; do
 	# repository root. An apk filename carries no architecture, unlike an .ipk, so the
 	# aarch64 and x86_64 builds of hermes-agent have the identical name and the second
 	# build silently overwrites the first wherever they share a directory.
+	# The add-on's build directory is a sibling of the base package's, not a child of
+	# it: the base build opens with `rm -rf` on its own directory, so anything kept
+	# inside would survive only until the next base build. That is why the name has a
+	# suffix here rather than a slash.
 	found=0
-	for src in "$ROOT/build/$RELEASE/$arch" "$ROOT/build/luci-app-hermes-apk"; do
+	for src in "$ROOT/build/$RELEASE/$arch" "$ROOT/build/$RELEASE/$arch-telegram" \
+	           "$ROOT/build/luci-app-hermes-apk"; do
 		[ -d "$src" ] || continue
 		for f in "$src"/*.apk; do
 			[ -f "$f" ] || continue
+			# An allow-list of names, and a refusal rather than a skip.
+			#
+			# These directories are working directories: teeth.sh repacks deliberately
+			# broken packages into them as mutant.apk and, on a run that fails partway,
+			# leaves them there. A `cp *.apk` collected one on 2026-09-08, and nothing
+			# downstream would have objected: the feed builder would have signed it with
+			# the real key and served it from Pages beside the real packages.
+			#
+			# Skipping quietly would be the wrong repair. A file here that nobody named
+			# means the working directory is not what this script believes it is, and
+			# the artefact about to be signed should not be built on that.
+			case "$(basename "$f")" in
+				hermes-agent-[0-9]*.apk|hermes-agent-telegram-[0-9]*.apk|luci-app-hermes-[0-9]*.apk) ;;
+				*)
+					echo "build-feed.sh: $f is not a package this repository publishes." >&2
+					echo "build-feed.sh: a stray file in a build directory, most likely from an" >&2
+					echo "build-feed.sh: interrupted teeth run. Remove it, or add the name here." >&2
+					exit 1 ;;
+			esac
 			cp "$f" "$dir/"
 			found=$((found + 1))
 		done

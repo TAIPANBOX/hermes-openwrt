@@ -49,8 +49,13 @@ has_secret() {
 	[ -s "$p" ] && [ -n "$(tr -d ' \t\r\n' < "$p" 2>/dev/null)" ]
 }
 
+# The add-on package ships a manifest listing what it installed. Its presence is the
+# same fact as "the client library is installed", and it is the same signal the init
+# script uses, so the page and the service can never disagree about it.
+TELEGRAM_MANIFEST=/usr/lib/hermes-agent/telegram.manifest
+
 method_status() {
-	local running enabled version data_dir free_kb
+	local running enabled version data_dir free_kb tg_lib
 	running=0; "$INIT" running >/dev/null 2>&1 && running=1
 	enabled=0; "$INIT" enabled >/dev/null 2>&1 && enabled=1
 
@@ -75,6 +80,12 @@ method_status() {
 	json_add_boolean "provider_key_set"   "$(has_secret provider   && echo 1 || echo 0)"
 	json_add_boolean "router_mcp_key_set" "$(has_secret router_mcp && echo 1 || echo 0)"
 	json_add_boolean "telegram_key_set"   "$(has_secret telegram   && echo 1 || echo 0)"
+
+	# Whether Telegram can work at all here. Without this the settings page would offer
+	# a token field for a platform that cannot load, and the only clue would be a line
+	# in logread after the next restart.
+	tg_lib=0; [ -f "$TELEGRAM_MANIFEST" ] && tg_lib=1
+	json_add_boolean "telegram_lib_installed" "$tg_lib"
 	json_dump
 }
 

@@ -2,6 +2,7 @@
 'require view';
 'require rpc';
 'require ui';
+'require uci';
 'require poll';
 
 /* Overview: what the agent is doing, and why it is not doing it.
@@ -46,13 +47,17 @@ return view.extend({
 		 * and a page that errors out in that state is a page nobody can use to fix it. */
 		return Promise.all([
 			callStatus().catch(function () { return {}; }),
-			callLogs(50).catch(function () { return { log: '' }; })
+			callLogs(50).catch(function () { return { log: '' }; }),
+			uci.load('hermes').catch(function () { return null; })
 		]);
 	},
 
 	render: function (data) {
 		var st = data[0] || {};
 		var log = (data[1] || {}).log || '';
+		/* Whether the operator asked for Telegram, which is a configuration question and
+		 * so comes from uci, not from the status call. */
+		var uciTelegramOn = uci.get('hermes', 'telegram', 'enabled') === '1';
 
 		var lowSpace = st.free_kb !== undefined && st.free_kb < 256 * 1024;
 
@@ -67,7 +72,14 @@ return view.extend({
 			/* Presence only. The backend never returns a key, so there is nothing here
 			 * to leak into a screenshot of this page. */
 			[_('Model API key'), pill(st.provider_key_set, _('set'), _('missing'))],
-			[_('Router access token'), pill(st.router_mcp_key_set, _('set'), _('optional, not set'))]
+			[_('Router access token'), pill(st.router_mcp_key_set, _('set'), _('optional, not set'))],
+			/* Two facts rather than one, because they fail differently and are fixed
+			 * differently: a missing library is a package to install, a missing token is
+			 * something to paste into Settings. Collapsing them into "Telegram: off"
+			 * would leave the reader to guess which. */
+			[_('Telegram'), st.telegram_lib_installed
+				? pill(st.telegram_key_set, _('token set'), _('installed, no token'))
+				: pill(0, '', _('package not installed'))]
 		];
 
 		var table = E('table', { 'class': 'table' },
@@ -86,6 +98,13 @@ return view.extend({
 			hint = E('div', { 'class': 'alert-message warning' }, [
 				E('p', {}, _('No model API key is set, so the service will refuse to start.')),
 				E('p', {}, _('Set one on the Settings tab, then start the service here.'))
+			]);
+		} else if (uciTelegramOn && !st.telegram_lib_installed) {
+			/* The one state where the service is configured to do something it cannot
+			 * do, and the fix is a package rather than a setting. */
+			hint = E('div', { 'class': 'alert-message warning' }, [
+				E('p', {}, _('Telegram is switched on but its client library is not installed, so the service will refuse to start.')),
+				E('p', {}, _('Install it: apk add hermes-agent-telegram, or on 24.10 opkg install hermes-agent-telegram'))
 			]);
 		} else if (lowSpace) {
 			hint = E('div', { 'class': 'alert-message warning' },

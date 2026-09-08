@@ -19,7 +19,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_secret_written_0600 check_secret_never_returned check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -36,8 +36,32 @@ case "$ARCH" in
 esac
 PLATFORM=${PLATFORM:-linux/$ARCH}
 
-AGENT=${AGENT:-$(ls "$ROOT"/hermes-agent-*.apk 2>/dev/null | head -1)}
-LUCI=${LUCI:-$(ls "$ROOT"/luci-app-hermes-*.apk 2>/dev/null | head -1)}
+
+# Where to look for the package, and why not the repository root.
+#
+# An .apk filename carries no architecture, unlike an .ipk, so every architecture builds
+# a file of the same name and the last build to finish wins in the repository root. A
+# gate reading it therefore tests whichever architecture was built most recently, which
+# on 2026-09-08 meant an aarch64 gate trying to install an x86_64 package and reporting
+# "error: uninstallable" with no hint of the cause. The per-architecture build directory
+# has no such ambiguity, so it is what is read; the root is a fallback that says so.
+LINE=${LINE:-${RELEASE%%.*}.$(echo "$RELEASE" | cut -d. -f2)}
+BUILD_DIR="$ROOT/build/$LINE/$ARCH"
+pick_apk() {
+	found=$(ls -t "$BUILD_DIR"/$1 2>/dev/null | head -1)
+	if [ -n "$found" ]; then echo "$found"; return 0; fi
+	found=$(ls -t "$ROOT"/$1 2>/dev/null | head -1)
+	if [ -n "$found" ]; then
+		echo "$ROOT holds no per-architecture build for $ARCH; falling back to $(basename "$found")," >&2
+		echo "which may have been built for another architecture. Build $ARCH to be sure." >&2
+		echo "$found"
+	fi
+}
+
+AGENT=${AGENT:-$(pick_apk 'hermes-agent-[0-9]*.apk')}
+# The LuCI package is architecture-neutral, so its one build directory is unambiguous
+# and the root only ever holds copies of the same file.
+LUCI=${LUCI:-$(ls -t "$ROOT"/build/luci-app-hermes-apk/luci-app-hermes-*.apk "$ROOT"/luci-app-hermes-*.apk 2>/dev/null | head -1)}
 [ -n "$AGENT" ] && [ -f "$AGENT" ] || { echo "FAIL: no hermes-agent package; build it first"; exit 1; }
 [ -n "$LUCI" ]  && [ -f "$LUCI" ]  || { echo "FAIL: no luci-app-hermes package; build it first"; exit 1; }
 
@@ -116,7 +140,25 @@ mode=$(ls -l /etc/hermes-agent/provider.key | awk '{print $1}')
 [ "$(cat /etc/hermes-agent/provider.key)" = "$CANARY" ] || fail check_secret_written_0600 "the value was not trimmed"
 echo "PASS check_secret_written_0600"
 
-# ---- 7. and no method hands it back ----
+# ---- 7b. the page can tell a missing package from a missing token ----
+# Two different failures with two different fixes, and the settings page decides which
+# to show from these two fields. Reporting a token as present while the library is
+# absent would send somebody to look for a configuration mistake that is not there.
+ubus call hermes status 2>/dev/null | grep -q '"telegram_lib_installed"' \
+	|| fail check_telegram_state_reported "status does not report whether the client library is installed"
+# The add-on is not installed in this container, so the honest answer is false. A field
+# that is present and always true would pass a grep and mislead the page.
+ubus call hermes status 2>/dev/null | grep -q '"telegram_lib_installed": false' \
+	|| fail check_telegram_state_reported "the library is absent here, yet status does not say so"
+# And it must follow the manifest rather than being a constant.
+mkdir -p /usr/lib/hermes-agent
+: > /usr/lib/hermes-agent/telegram.manifest
+ubus call hermes status 2>/dev/null | grep -q '"telegram_lib_installed": true' \
+	|| fail check_telegram_state_reported "the manifest is present, yet status still says the library is not"
+rm -f /usr/lib/hermes-agent/telegram.manifest
+echo "PASS check_telegram_state_reported"
+
+# ---- 8. and no method hands it back ----
 # The whole point of the write-only design, asserted rather than intended. Every method
 # the ACL exposes for reading is called and none may mention the canary.
 for m in status logs; do

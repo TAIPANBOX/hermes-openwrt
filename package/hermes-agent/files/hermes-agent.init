@@ -31,6 +31,11 @@ start_service() {
 	local enabled data_dir base_url model key_file mem_max respawn
 	local mcp_url mcp_token_file key mcp_token
 	local toolsets tl
+	local tg_on tg_token_file tg_token tg_allow_all tg_home tg_allow
+	# tg_allow and toolsets are declared here and filled by the append_* helpers
+	# below. ash gives `local` dynamic scope, so a helper called from here sees and
+	# modifies this variable; leaving either one out would make it a global that
+	# accumulates across a restart in the same shell.
 
 	config_load hermes
 	config_get_bool enabled main enabled 0
@@ -58,6 +63,69 @@ start_service() {
 		echo "$NAME: no API key in $key_file. Write the key there as a single line:" >&2
 		echo "$NAME:   printf '%s' 'sk-...' > $key_file && chmod 600 $key_file" >&2
 		return 1
+	fi
+
+	# ---- Telegram: the refusals ----
+	#
+	# Upstream enables the platform on the mere presence of TELEGRAM_BOT_TOKEN in the
+	# environment (gateway/config.py: `if telegram_token: _enable_from_env(...)`). So
+	# there is nothing to switch on, only a decision about whether to hand the token
+	# over, and this half is the four ways the answer is no.
+	#
+	# They sit here, with the other refusals, rather than beside the export below: a
+	# refusal after procd_open_instance leaves a half-built instance behind, and more to
+	# the point a router logs to a screen nobody reads, so each branch names the single
+	# thing to fix and stays down until it is fixed.
+	config_get_bool tg_on   telegram enabled 0
+	if [ "$tg_on" -eq 1 ]; then
+		config_get tg_token_file  telegram token_file "$CONF/telegram.token"
+		config_get_bool tg_allow_all telegram allow_all 0
+		config_get tg_home        telegram home_channel ''
+
+		# The library, not a python import: asking python costs a second of a slow core
+		# at every start, and the add-on package ships a manifest whose presence is the
+		# same fact. See package/hermes-agent-telegram.
+		if [ ! -f /usr/lib/hermes-agent/telegram.manifest ]; then
+			echo "$NAME: telegram is enabled but its client library is not installed." >&2
+			echo "$NAME:   apk add hermes-agent-telegram      # 25.12 and later" >&2
+			echo "$NAME:   opkg install hermes-agent-telegram # 24.10" >&2
+			return 1
+		fi
+
+		tg_token=$(read_secret "$tg_token_file")
+		if [ -z "$tg_token" ]; then
+			echo "$NAME: telegram is enabled but there is no token in $tg_token_file." >&2
+			echo "$NAME: get one from @BotFather and write it as a single line:" >&2
+			echo "$NAME:   printf '%s' '123456:ABC...' > $tg_token_file && chmod 600 $tg_token_file" >&2
+			return 1
+		fi
+
+		# Telegram's own token shape, the same one upstream's web UI validates against.
+		# Catching a truncated paste here costs nothing; catching it at the API costs a
+		# confused half hour reading a 401 that says nothing about the cause.
+		if ! echo "$tg_token" | grep -qE '^[0-9]+:[A-Za-z0-9_-]{30,}$'; then
+			echo "$NAME: the token in $tg_token_file is not shaped like a Telegram token" >&2
+			echo "$NAME: (digits, a colon, then at least 30 more characters)." >&2
+			return 1
+		fi
+
+		tg_allow=""
+		config_list_foreach telegram allow_user_id append_allow_user
+
+		# Upstream default-denies an unlisted user, so an empty allowlist is SAFE and
+		# useless: the bot answers nobody and says nothing about why. Refusing here
+		# turns a silent misconfiguration into one line in logread. allow_all exists
+		# because it is upstream's own escape hatch, and it is spelled out rather than
+		# implied so nobody reaches it by leaving a list empty.
+		if [ -z "$tg_allow" ] && [ "$tg_allow_all" -ne 1 ]; then
+			echo "$NAME: telegram is enabled but no user is allowed to talk to it." >&2
+			echo "$NAME: add your numeric Telegram id (ask @userinfobot for it):" >&2
+			echo "$NAME:   uci add_list hermes.telegram.allow_user_id=123456789" >&2
+			echo "$NAME:   uci commit hermes && service hermes-agent restart" >&2
+			echo "$NAME: or set hermes.telegram.allow_all=1 to answer anyone, which on a" >&2
+			echo "$NAME: bot holding router tools means anyone who finds the bot." >&2
+			return 1
+		fi
 	fi
 
 	# The data directory is deliberately not created on the overlay by default. If it
@@ -109,6 +177,16 @@ start_service() {
 		fi
 	fi
 
+	# ---- Telegram: the export half ----
+	# Validated above, before any procd state was touched. Only the handover is left,
+	# and it has to be here because procd_append_param needs an open instance.
+	if [ "$tg_on" -eq 1 ]; then
+		procd_append_param env TELEGRAM_BOT_TOKEN="$tg_token"
+		[ -n "$tg_allow" ] && procd_append_param env TELEGRAM_ALLOWED_USERS="${tg_allow#,}"
+		[ "$tg_allow_all" -eq 1 ] && procd_append_param env TELEGRAM_ALLOW_ALL_USERS=true
+		[ -n "$tg_home" ] && procd_append_param env TELEGRAM_HOME_CHANNEL="$tg_home"
+	fi
+
 	# Toolsets as one comma-separated value, which is the form the CLI takes.
 	toolsets=""
 	config_list_foreach main toolsets append_toolset
@@ -131,6 +209,15 @@ start_service() {
 
 append_toolset() {
 	toolsets="$toolsets,$1"
+}
+
+append_allow_user() {
+	# Numeric ids only. A username here would be accepted by nothing downstream and
+	# would look, in uci show, exactly like a working allowlist.
+	case "$1" in
+		''|*[!0-9]*) echo "$NAME: ignoring allow_user_id '$1': not a numeric Telegram id" >&2 ;;
+		*) tg_allow="$tg_allow,$1" ;;
+	esac
 }
 
 service_triggers() {

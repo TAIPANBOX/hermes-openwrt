@@ -40,7 +40,31 @@ esac
 # linux/arm64 finds no manifest even though it is the same silicon.
 PLATFORM=${PLATFORM:-linux/$ARCH}
 
-APK=${APK:-$(ls "$ROOT"/hermes-agent-*.apk 2>/dev/null | head -1)}
+
+# Where to look for the package, and why not the repository root.
+#
+# An .apk filename carries no architecture, unlike an .ipk, so every architecture builds
+# a file of the same name and the last build to finish wins in the repository root. A
+# gate reading it therefore tests whichever architecture was built most recently, which
+# on 2026-09-08 meant an aarch64 gate trying to install an x86_64 package and reporting
+# "error: uninstallable" with no hint of the cause. The per-architecture build directory
+# has no such ambiguity, so it is what is read; the root is a fallback that says so.
+LINE=${LINE:-${RELEASE%%.*}.$(echo "$RELEASE" | cut -d. -f2)}
+BUILD_DIR="$ROOT/build/$LINE/$ARCH"
+pick_apk() {
+	found=$(ls -t "$BUILD_DIR"/$1 2>/dev/null | head -1)
+	if [ -n "$found" ]; then echo "$found"; return 0; fi
+	found=$(ls -t "$ROOT"/$1 2>/dev/null | head -1)
+	if [ -n "$found" ]; then
+		echo "$ROOT holds no per-architecture build for $ARCH; falling back to $(basename "$found")," >&2
+		echo "which may have been built for another architecture. Build $ARCH to be sure." >&2
+		echo "$found"
+	fi
+}
+
+# [0-9] so the glob stops matching hermes-agent-telegram-*.apk, which it began doing the
+# day that package was added.
+APK=${APK:-$(pick_apk 'hermes-agent-[0-9]*.apk')}
 [ -n "$APK" ] && [ -f "$APK" ] || {
 	echo "FAIL: no package found. Build it: ./package/hermes-agent/build-in-container.sh $ARCH"
 	exit 1

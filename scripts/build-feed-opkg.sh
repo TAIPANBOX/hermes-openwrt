@@ -44,10 +44,25 @@ for arch in $ARCHES; do
 	# The architecture IS in an .ipk filename, unlike apk, so the packages can be picked
 	# out of one directory. The all-architecture LuCI package goes into every one of
 	# them: opkg reads a feed per architecture and would never look in a shared one.
-	for f in "$ROOT"/hermes-agent_*_"$arch".ipk "$ROOT"/luci-app-hermes_*_all.ipk; do
-		[ -f "$f" ] || continue
+	#
+	# One file per package name, newest first, and the chosen name is printed.
+	#
+	# The repository root accumulates builds: nothing removes yesterday's .ipk, so a bare
+	# `hermes-agent_*_$arch.ipk` matches every revision ever built and the feed ends up
+	# carrying several 56 MB copies of the same package, the stale ones included. Names
+	# are listed rather than globbed for the same reason the apk feed lists them: a file
+	# that reaches a signed feed should be one somebody named.
+	for pkg in hermes-agent hermes-agent-telegram; do
+		f=$(ls -t "$ROOT"/"$pkg"_*_"$arch".ipk 2>/dev/null | head -1)
+		[ -n "$f" ] && [ -f "$f" ] || continue
 		cp "$f" "$dir/"; found=$((found + 1))
+		echo "    $(basename "$f")"
 	done
+	f=$(ls -t "$ROOT"/luci-app-hermes_*_all.ipk 2>/dev/null | head -1)
+	if [ -n "$f" ] && [ -f "$f" ]; then
+		cp "$f" "$dir/"; found=$((found + 1))
+		echo "    $(basename "$f")"
+	fi
 	[ "$found" -gt 0 ] || {
 		echo "build-feed-opkg.sh: nothing for $arch. Build it first:" >&2
 		echo "  RELEASE=24.10.8 ./package/hermes-agent/build-in-container.sh $arch" >&2

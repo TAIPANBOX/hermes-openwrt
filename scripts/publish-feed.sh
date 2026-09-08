@@ -38,13 +38,21 @@ for k in "$EC_KEY" "$USIGN_KEY"; do
 done
 
 if [ "$SKIP_BUILD" != 1 ]; then
+	# The add-on is built after the base package for the same architecture, never
+	# before: its build refuses without the base tree, because the one failure it can
+	# have is a file the base already owns and that cannot be checked against a tree
+	# that is not there.
 	echo "==> building 25.12"
 	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
+	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
 	./package/hermes-agent/build-in-container.sh x86_64
+	./package/hermes-agent-telegram/build-in-container.sh x86_64
 	./package/luci-app-hermes/build.sh
 	echo "==> building 24.10"
 	RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
+	RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
 	RELEASE=24.10.8 ./package/hermes-agent/build-in-container.sh x86_64
+	RELEASE=24.10.8 ./package/hermes-agent-telegram/build-in-container.sh x86_64
 	FORMAT=ipk ./package/luci-app-hermes/build.sh
 fi
 
@@ -53,6 +61,8 @@ SIGN_KEY="$EC_KEY" ./scripts/build-feed.sh
 SIGN_KEY="$USIGN_KEY" ./scripts/build-feed-opkg.sh
 
 echo "==> gating what is about to be published"
+# Both formats and both packages. A feed is the one artefact where "we will notice if it
+# is broken" is wrong: the router that notices is somebody else's.
 # Both, and before the push rather than after. A feed is the one artefact where "we will
 # notice if it is broken" is wrong: the router that notices is someone else's.
 ARCH=x86_64 ./scripts/gate-feed.sh

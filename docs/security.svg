@@ -64,8 +64,8 @@
   <rect x="656" y="140" width="6" height="150" rx="3" fill="#3fb950"/>
 </g>
 <text x="680" y="178" font-size="19" font-weight="600" fill="#e6edf3" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif">on the router</text>
-<rect x="898" y="158" width="70" height="22" rx="11" fill="#141a23" stroke="#3fb950"/>
-<text x="933" y="173" font-size="12" fill="#3fb950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">0600 root</text>
+<rect x="882" y="158" width="86" height="22" rx="11" fill="#141a23" stroke="#3fb950"/>
+<text x="925" y="173" font-size="12" fill="#3fb950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">0600 root</text>
 <text x="680" y="224" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">/etc/hermes-agent/</text>
 <text x="680" y="248" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">provider.key</text>
 <text x="680" y="276" font-size="15" fill="#69788b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">not in UCI, not in argv</text>

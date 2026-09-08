@@ -27,7 +27,9 @@ case "$RELEASE" in
 	*)      FORMAT=apk ;;
 esac
 HERMES_VERSION=${HERMES_VERSION:-0.19.0}
-PKGREL=${PKGREL:-1}
+# r2: the init script learned to read the telegram section, refuse the four ways a
+# Telegram setup cannot work, and hand the token over as an environment variable.
+PKGREL=${PKGREL:-2}
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

@@ -25,6 +25,23 @@ DEPS_OK="python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep"
 	echo "  ./package/hermes-agent/build-in-container.sh $ARCH"
 	exit 1; }
 
+# Same discipline as teeth-telegram.sh, and for the same reason: this plants faults in a
+# shared build tree, and a run that goes red partway would otherwise leave one there for
+# the next build, the next gate, and the next feed to inherit.
+if ! cmp -s "$ROOT/package/hermes-agent/files/hermes-agent.init" "$W/tree/etc/init.d/hermes-agent"; then
+	echo "teeth: the build tree's init script differs from the repository's; rebuild first:" >&2
+	echo "  ./package/hermes-agent/build-in-container.sh $ARCH" >&2
+	exit 1
+fi
+
+cleanup() {
+	[ -f /tmp/shim.bak ] && cp /tmp/shim.bak "$SITE/webbrowser.py" 2>/dev/null
+	[ -f /tmp/postinstall.bak ] && cp /tmp/postinstall.bak "$W/post-install" 2>/dev/null
+	chmod 0755 "$W/post-install" 2>/dev/null || true
+	rm -f "$W/mutant.apk"
+}
+trap cleanup EXIT INT TERM
+
 repack() {
 	docker run --rm -i -v "$W:/work" -w /work "$ALPINE" apk mkpkg \
 		--info "name:hermes-agent" --info "version:0.0.0-r1" --info "arch:$ARCH" \

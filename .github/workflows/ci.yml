@@ -8,6 +8,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Seconds, no containers, and it fails for a reason no container run would catch: a
+  # feature file that has drifted from the checks it claims to describe. Reading the
+  # scenarios instead of the code is the whole point of writing them, and that only
+  # holds while the link is enforced.
+  scenarios:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: every scenario names a check, and every check is described
+        run: ./scripts/gate-scenarios-bound.sh
+
   # There is nothing to unit test here: the payload is upstream's, and what this
   # repository contributes is the assembly and the service around it. So the only
   # honest test is to build the package and install it on the operating system it
@@ -36,11 +47,22 @@ jobs:
 
       # Architecture-independent, so one build serves every router; it is built here
       # rather than in its own job because both gates want both packages present.
+      # After the base package, never before: its build refuses without the base tree,
+      # because the one failure it can have is claiming a file the base already owns and
+      # that cannot be checked against a tree which is not there.
+      - name: build the Telegram add-on
+        run: ./package/hermes-agent-telegram/build-in-container.sh ${{ matrix.arch }}
+
+      # Architecture-independent, so one build serves every router; it is built here
+      # rather than in its own job because both gates want both packages present.
       - name: build the LuCI app
         run: ./package/luci-app-hermes/build.sh
 
       - name: it installs, runs, and keeps the key out of sight
         run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh
+
+      - name: the add-on installs beside the base and neither claims the other's files
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-telegram.sh
 
       - name: the web interface installs, registers on ubus, and gives no key back
         run: ARCH=${{ matrix.arch }} ./scripts/gate-luci.sh
@@ -53,14 +75,55 @@ jobs:
       - name: the gate has teeth
         run: ARCH=${{ matrix.arch }} ./scripts/teeth.sh
 
+      - name: and so does the add-on's gate
+        run: ARCH=${{ matrix.arch }} ./scripts/teeth-telegram.sh
+
       - uses: actions/upload-artifact@v4
         with:
           name: hermes-agent-${{ matrix.arch }}
           path: |
             hermes-agent-*.apk
+            hermes-agent-telegram-*.apk
             luci-app-hermes-*.apk
           # 56 MB per architecture; a fortnight is long enough to try one on a router
           # and short enough not to hoard.
+          retention-days: 14
+
+  # 24.10 is the other maintained line and its failure mode is not apk's.
+  #
+  # apk REFUSES an install in which two packages claim one file. opkg accepts it, updates
+  # its own manifest, and leaves the first package's file list describing bytes it did not
+  # write; the damage appears later, when removing the SECOND package takes a file the
+  # FIRST still needs. So the add-on's central risk is only really exercised here, and a
+  # green apk run says nothing about it.
+  #
+  # aarch64 only. The point of this job is opkg and CPython 3.11, neither of which differs
+  # between architectures, and a second emulated build would double a slow job to re-prove
+  # what the 25.12 matrix already covers.
+  packages-24-10:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+
+      - name: build the base package inside OpenWrt 24.10
+        run: RELEASE=24.10.8 PKGREL=2 ./package/hermes-agent/build-in-container.sh aarch64_generic
+
+      - name: build the Telegram add-on
+        run: RELEASE=24.10.8 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
+
+      - name: it installs under opkg and runs on the 3.11 this release ships
+        run: ARCH=aarch64_generic RELEASE=24.10.8 ./scripts/gate-ipk.sh
+
+      - name: the add-on installs beside it without either overwriting the other
+        run: ARCH=aarch64_generic RELEASE=24.10.8 ./scripts/gate-telegram-opkg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hermes-agent-24.10-aarch64
+          path: |
+            hermes-agent_*.ipk
+            hermes-agent-telegram_*.ipk
           retention-days: 14
 
   # There is deliberately no publishing job here.
