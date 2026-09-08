@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # There is nothing to unit test here: the payload is upstream's, and what this
+  # repository contributes is the assembly and the service around it. So the only
+  # honest test is to build the package and install it on the operating system it
+  # targets, which is what this does.
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64 is native on the runner and is the fast signal.
+          - arch: x86_64
+          # aarch64 is what a router actually is. It needs QEMU here, and it is the
+          # architecture the wheel bet is really about, so it is not optional.
+          - arch: aarch64_generic
+    steps:
+      - uses: actions/checkout@v4
+
+      # Without this the aarch64 rootfs dies with "exec /bin/sh: exec format error"
+      # before a single byte is assembled.
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch != 'x86_64'
+
+      - name: build the package inside OpenWrt ${{ matrix.arch }}
+        run: ./package/hermes-agent/build-in-container.sh ${{ matrix.arch }}
+
+      - name: it installs, runs, and keeps the key out of sight
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh
+
+      # A gate nobody has seen go red is a gate nobody has tested. Each fault below is
+      # one a real change could introduce, and each must be caught by a different check.
+      # They are applied to the already-built tree and repackaged, rather than rebuilt
+      # from scratch, because a full rebuild per fault would triple the job for no extra
+      # signal.
+      - name: the gate has teeth
+        run: ARCH=${{ matrix.arch }} ./scripts/teeth.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hermes-agent-${{ matrix.arch }}
+          path: hermes-agent-*.apk
+          # 56 MB per architecture; a fortnight is long enough to try one on a router
+          # and short enough not to hoard.
+          retention-days: 14

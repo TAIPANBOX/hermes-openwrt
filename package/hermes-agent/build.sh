@@ -102,7 +102,9 @@ cat > "$OUT/usr/bin/hermes" <<'LAUNCHER'
 # it is not on the system python path, so nothing else on the router can be broken by
 # what Hermes depends on, and Hermes cannot be broken by what the router installs.
 SITE=/usr/lib/hermes-agent/site-packages
-PYTHONPATH="$SITE${PYTHONPATH:+:$PYTHONPATH}" \
+# Bytecode is shipped with the package, so writing more of it at runtime can only put
+# unowned files inside the package directory and leave litter behind on removal.
+PYTHONPATH="$SITE${PYTHONPATH:+:$PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 \
 exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"
 LAUNCHER
 chmod 0755 "$OUT/usr/bin/hermes"
