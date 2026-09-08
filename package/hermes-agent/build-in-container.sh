@@ -49,6 +49,13 @@ HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp}" \\
 	/src/build.sh "$ARCH" /work/tree
 CONTAINER
 
+# The tree is written by root inside the container. On Docker Desktop the host sees it
+# as the invoking user and nothing more is needed; on a Linux CI runner it stays
+# root-owned, and anything that later edits the tree (teeth.sh, a local experiment)
+# fails with "Permission denied" only there. Hand it back before leaving the container.
+docker run --rm -i --platform "linux/$ARCH" -v "$WORK:/work" "$IMAGE" \
+	chown -R "$(id -u):$(id -g)" /work 2>/dev/null || true
+
 echo "==> packaging with apk mkpkg"
 # The scripts are written here rather than shipped as files because they are three lines
 # each and belong next to the metadata that references them.
