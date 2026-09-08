@@ -31,7 +31,12 @@ PKGREL=${PKGREL:-1}
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
-WORK="$ROOT/build/$ARCH"
+# Keyed by release line as well as architecture. Both lines build an x86_64 tree and
+# they are NOT interchangeable (Python 3.11 against 3.13), so a shared directory means
+# the second build silently destroys the first and the feed then ships whichever ran
+# last under both names.
+LINE=${RELEASE%%.*}.$(echo "$RELEASE" | cut -d. -f2)
+WORK="$ROOT/build/$LINE/$ARCH"
 
 case "$ARCH" in
 	x86_64) IMAGE="openwrt/rootfs:x86-64-$RELEASE" ;;
@@ -147,7 +152,7 @@ echo "==> $OUT  ($(du -h "$ROOT/$OUT" | cut -f1))"
 # package carrying C compiled with -mcpu=cortex-a53.
 for extra in ${EXTRA_ARCHES:-}; do
 	xout="hermes-agent-$HERMES_VERSION-r$PKGREL.apk"
-	xdir="$ROOT/build/$extra"
+	xdir="$ROOT/build/$LINE/$extra"
 	rm -rf "$xdir"; mkdir -p "$xdir"
 	docker run --rm -i -v "$WORK:/work" -v "$xdir:/out" -w /work "$ALPINE" apk mkpkg \
 		--info "name:hermes-agent" \

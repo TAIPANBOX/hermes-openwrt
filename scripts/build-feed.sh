@@ -34,7 +34,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 RELEASE=${RELEASE:-25.12}
-OUT=${OUT:-$ROOT/build/feed}
+OUT=${OUT:-$ROOT/feed-out}
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 
 # The private key never lives in the repository. In CI it arrives as a secret and is
@@ -69,7 +69,7 @@ for arch in $ARCHES; do
 	# aarch64 and x86_64 builds of hermes-agent have the identical name and the second
 	# build silently overwrites the first wherever they share a directory.
 	found=0
-	for src in "$ROOT/build/$arch" "$ROOT/build/luci-app-hermes"; do
+	for src in "$ROOT/build/$RELEASE/$arch" "$ROOT/build/luci-app-hermes-apk"; do
 		[ -d "$src" ] || continue
 		for f in "$src"/*.apk; do
 			[ -f "$f" ] || continue
@@ -118,20 +118,48 @@ cp "$PUB_KEY" "$OUT/hermes-openwrt.pem"
 # whose whole job is to be trusted.
 cat > "$OUT/index.html" <<HTML
 <!doctype html><meta charset="utf-8"><title>hermes-openwrt feed</title>
-<style>body{font:16px/1.6 system-ui,sans-serif;max-width:44rem;margin:3rem auto;padding:0 1rem}
-code,pre{background:#f4f4f4;padding:.15rem .35rem;border-radius:3px}pre{padding:.8rem;overflow-x:auto}</style>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:3rem auto;padding:0 1rem}
+code,pre{background:#f4f4f4;padding:.15rem .35rem;border-radius:3px}pre{padding:.8rem;overflow-x:auto}
+h2{margin-top:2.2rem}</style>
 <h1>hermes-openwrt</h1>
-<p>A signed apk feed for OpenWrt $RELEASE carrying
-<a href="https://github.com/TAIPANBOX/hermes-openwrt">hermes-agent and luci-app-hermes</a>.</p>
+<p>A signed feed carrying <a href="https://github.com/TAIPANBOX/hermes-openwrt">hermes-agent
+and luci-app-hermes</a>: the Hermes Agent as a native OpenWrt service. The reference
+device is a GL.iNet Flint 2; x86_64 and generic aarch64 are served too.</p>
+
+<h2>OpenWrt 25.12 and later (apk)</h2>
 <pre>wget -O /etc/apk/keys/hermes-openwrt.pem \\
   https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem
 
-echo "https://taipanbox.github.io/hermes-openwrt/$RELEASE/\$(cat /etc/apk/arch)/packages.adb" \\
+echo "https://taipanbox.github.io/hermes-openwrt/25.12/\$(cat /etc/apk/arch)/packages.adb" \\
   >> /etc/apk/repositories.d/customfeeds.list
 
 apk update && apk add hermes-agent luci-app-hermes</pre>
-<p>Without that key the packages are not visible to apk at all, which is the point.
-With it, no <code>--allow-untrusted</code> appears anywhere.</p>
+
+<h2>OpenWrt 24.10 (opkg)</h2>
+<p>Pick the line for your device. opkg needs the exact architecture, and
+<code>opkg print-architecture</code> lists several of which only one is right.</p>
+<pre># GL.iNet Flint 2 and other Cortex-A53 routers
+ARCH=aarch64_cortex-a53
+# x86 boxes:            ARCH=x86_64
+# other 64-bit ARM:     ARCH=aarch64_generic
+
+wget -O /tmp/hermes.pub \\
+  https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.usign.pub
+opkg-key add /tmp/hermes.pub
+
+echo "src/gz hermes https://taipanbox.github.io/hermes-openwrt/24.10/\$ARCH" \\
+  >> /etc/opkg/customfeeds.conf
+
+opkg update && opkg install hermes-agent luci-app-hermes</pre>
+
+<h2>Why the two look different</h2>
+<p>They are not the same feed in two shapes. 25.12 signs every package and the index with
+an EC key that apk verifies; 24.10 signs only the index, with a usign Ed25519 key that
+opkg verifies against a fingerprint in <code>/etc/opkg/keys</code>. Neither key works for
+the other line.</p>
+<p>Without the right key: apk drops the repository silently and the package simply does
+not exist, while opkg says <code>Signature check failed</code> and refuses. In both cases
+no <code>--force</code> and no <code>--allow-untrusted</code> appears anywhere above.</p>
 <p>Architectures: $ARCHES</p>
 HTML
 

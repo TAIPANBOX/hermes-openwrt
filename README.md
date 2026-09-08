@@ -92,6 +92,8 @@ byte of the key is written rather than chmod-ed afterwards.
 
 ## Installing from the signed feed
 
+### OpenWrt 25.12 and later (apk)
+
 ```sh
 wget -O /etc/apk/keys/hermes-openwrt.pem \
   https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem
@@ -102,13 +104,42 @@ echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/pack
 apk update && apk add hermes-agent luci-app-hermes
 ```
 
-No `--allow-untrusted` anywhere, which is the point of signing. Without that key the
-feed's packages are not merely refused, they are invisible: `apk add hermes-agent`
-answers "no such package" and the available count is two lower. With it, both install
-and verify.
+### OpenWrt 24.10 (opkg)
 
-The packages and the index are both signed with an EC prime256v1 key, the same shape
-OpenWrt uses for its own releases. The private half never enters this repository.
+```sh
+ARCH=aarch64_cortex-a53          # Flint 2 and other Cortex-A53 routers
+# ARCH=x86_64                    # x86 boxes
+# ARCH=aarch64_generic           # other 64-bit ARM
+
+wget -O /tmp/hermes.pub https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.usign.pub
+opkg-key add /tmp/hermes.pub
+
+echo "src/gz hermes https://taipanbox.github.io/hermes-openwrt/24.10/$ARCH" \
+  >> /etc/opkg/customfeeds.conf
+
+opkg update && opkg install hermes-agent luci-app-hermes
+```
+
+### Why the two are not the same feed in two shapes
+
+|  | 25.12 | 24.10 |
+|---|---|---|
+| index | `packages.adb`, binary | `Packages` + `Packages.gz`, text |
+| signed with | `apk adbsign`, EC prime256v1 | `usign`, Ed25519 |
+| signature | inside the index | a separate `Packages.sig` |
+| trusted keys | `/etc/apk/keys/<name>.pem` | `/etc/opkg/keys/<fingerprint>` |
+| what is signed | every package and the index | the index only |
+
+Neither key works for the other line. That last row is the one worth knowing: on 24.10 a
+package is trusted because its SHA256 appears in a signed index, so an `.ipk` handed over
+on its own is never verifiable and `opkg install ./file.ipk` checks nothing.
+
+Both refuse an untrusted feed, but they say so differently and only one says it out loud.
+apk drops the repository in silence, so `apk add hermes-agent` answers "no such package"
+and the available count is two lower. opkg prints `Signature check failed` and stops.
+Either way, no `--allow-untrusted` and no `--force` appears above.
+
+The private halves of both keys never enter this repository.
 
 ## Configuring it
 

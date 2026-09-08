@@ -4,3 +4,5 @@ build/
 
 # the feed signing key, never committed
 keys/*.private.pem
+keys/*.usign.sec
+feed-out/

@@ -28,6 +28,30 @@ NAME=${NAME:-hermes-openwrt}
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 
 mkdir -p "$OUT"
+
+# 24.10 signs with usign, which is Ed25519 and a different mechanism entirely from the
+# EC key apk uses. Neither key works for the other line, so a repository serving both
+# releases needs both, and both are generated here so nobody discovers the second one
+# missing halfway through a release.
+if [ ! -f "$OUT/$NAME.usign.pub" ]; then
+	docker run --rm -i -v "$OUT:/out" "$ALPINE" /bin/sh -s <<'USIGN'
+set -eu
+apk add -q --no-cache build-base git >/dev/null 2>&1
+# usign is not packaged for Alpine, and it is 400 lines around libsodium's Ed25519.
+apk add -q --no-cache libsodium-dev cmake >/dev/null 2>&1
+git clone -q --depth 1 https://git.openwrt.org/project/usign.git /tmp/usign 2>/dev/null \
+  || git clone -q --depth 1 https://github.com/openwrt/usign.git /tmp/usign
+cd /tmp/usign && cmake -DCMAKE_BUILD_TYPE=Release . >/dev/null 2>&1 && make >/dev/null 2>&1
+umask 077
+./usign -G -s /out/usign.sec -p /out/usign.pub -c "hermes-openwrt feed"
+chmod 600 /out/usign.sec; chmod 644 /out/usign.pub
+USIGN
+	mv "$OUT/usign.pub" "$OUT/$NAME.usign.pub"
+	mv "$OUT/usign.sec" "$OUT/$NAME.usign.sec"
+	chmod 600 "$OUT/$NAME.usign.sec"
+	echo "usign pair created for the 24.10 (opkg) line"
+fi
+
 if [ -f "$OUT/$NAME.pem" ]; then
 	echo "feed-keygen.sh: $OUT/$NAME.pem already exists." >&2
 	echo "feed-keygen.sh: a second key does not replace the first on any router that" >&2
@@ -56,7 +80,7 @@ cat <<EOF
 Public key   $OUT/$NAME.pem          commit this, it is published with the feed
 Private key  $OUT/$NAME.private.pem  NEVER commit this
 
-.gitignore already excludes *.private.pem. Put the private key where CI can reach it:
+.gitignore excludes *.private.pem and *.usign.sec. Put the private key where CI can reach it:
 
   gh secret set FEED_SIGNING_KEY --repo TAIPANBOX/hermes-openwrt < "$OUT/$NAME.private.pem"
 

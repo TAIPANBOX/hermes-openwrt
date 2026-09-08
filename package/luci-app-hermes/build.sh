@@ -16,7 +16,10 @@ PKGREL=${PKGREL:-1}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
-WORK="$ROOT/build/luci-app-hermes"
+# Keyed by format. The apk and ipk builds stage the same files but leave different
+# metadata beside them, and a shared directory means whichever ran last is what both
+# feeds pick up: the 25.12 feed then quietly ships one package instead of two.
+WORK="$ROOT/build/luci-app-hermes-${FORMAT:-apk}"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 OUT="luci-app-hermes-$VERSION-r$PKGREL.apk"
 

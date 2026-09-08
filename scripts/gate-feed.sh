@@ -28,7 +28,7 @@ fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${ARCH:-x86_64}
 RELEASE=${RELEASE:-25.12}
-FEED=${FEED:-$ROOT/build/feed}
+FEED=${FEED:-$ROOT/feed-out}
 case "$ARCH" in
 	x86_64) IMAGE=${ROOTFS_IMAGE:-openwrt/rootfs:x86-64-25.12.4} ;;
 	*)      IMAGE=${ROOTFS_IMAGE:-openwrt/rootfs:$ARCH-25.12.4} ;;
