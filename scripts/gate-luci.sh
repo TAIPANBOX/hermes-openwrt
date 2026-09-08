@@ -181,4 +181,4 @@ apk del luci-app-hermes >/dev/null 2>&1 || fail check_clean_removal "apk del fai
 echo "PASS check_clean_removal"
 CONTAINER
 
-echo "gate-luci: all 9 checks passed"
+echo "gate-luci: all 10 checks passed"

@@ -140,7 +140,10 @@ start_service() {
 	chmod 0700 "$data_dir" 2>/dev/null
 
 	procd_open_instance
-	procd_set_param command "$PROG" gateway run
+	# --external-supervisor, because procd IS one. Without it an in-chat restart or
+	# update spawns a detached replacement that escapes procd, and the router ends up
+	# with a gateway procd neither supervises nor can stop.
+	procd_set_param command "$PROG" gateway run --external-supervisor
 
 	# Secrets go in the environment, never on the command line: argv is world-readable
 	# through /proc, and this box may have more than one person on it.
@@ -187,10 +190,24 @@ start_service() {
 		[ -n "$tg_home" ] && procd_append_param env TELEGRAM_HOME_CHANNEL="$tg_home"
 	fi
 
-	# Toolsets as one comma-separated value, which is the form the CLI takes.
+	# Toolsets go into Hermes' own config.yaml, not onto the command line.
+	#
+	# This used to be `procd_append_param command --toolsets "$toolsets"`, and that flag
+	# does not exist on `gateway run`. The service therefore died at argument parsing on
+	# every start, with the configuration the package ships, on every router. Moving it
+	# before the subcommand would have parsed and done nothing, because the global
+	# --toolsets applies to --oneshot and --tui only.
+	#
+	# Failure here is not fatal: a router with the wrong toolset list is a router that
+	# loads a few modules it does not need, while refusing to start over it would leave
+	# a working agent down.
 	toolsets=""
 	config_list_foreach main toolsets append_toolset
-	[ -n "$toolsets" ] && procd_append_param command --toolsets "${toolsets#,}"
+	if [ -n "$toolsets" ] && [ -x /usr/libexec/hermes-set-toolsets ]; then
+		HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
+			/usr/bin/python3 /usr/libexec/hermes-set-toolsets "$data_dir" "${toolsets#,}" \
+			|| echo "$NAME: could not set toolsets; starting with whatever config.yaml has" >&2
+	fi
 
 	[ "$respawn" -eq 1 ] && procd_set_param respawn 3600 5 0
 

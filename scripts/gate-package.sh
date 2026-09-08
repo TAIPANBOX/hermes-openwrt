@@ -18,7 +18,7 @@
 # them.
 set -eu
 
-CHECKS='check_installs check_deps_resolve check_cli_runs check_ships_disabled check_refuses_without_key check_key_not_in_argv check_key_not_in_uci check_config_survives check_clean_removal'
+CHECKS='check_installs check_deps_resolve check_cli_runs check_ships_disabled check_refuses_without_key check_service_command_runs check_key_not_in_argv check_key_not_in_uci check_config_survives check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0
@@ -85,42 +85,104 @@ mkdir -p /var/lock /var/run /var/state
 apk update -q
 
 # ---- 1. installs ----
-apk add --allow-untrusted /pkg.apk >/tmp/add.log 2>&1 || { cat /tmp/add.log; fail "[1/9] check_installs" "apk add failed"; }
-apk info -e hermes-agent >/dev/null 2>&1 || fail "[1/9] check_installs" "not registered after install"
-echo "PASS [1/9] check_installs"
+apk add --allow-untrusted /pkg.apk >/tmp/add.log 2>&1 || { cat /tmp/add.log; fail "[1/10] check_installs" "apk add failed"; }
+apk info -e hermes-agent >/dev/null 2>&1 || fail "[1/10] check_installs" "not registered after install"
+echo "PASS [1/10] check_installs"
 
 # ---- 2. dependencies resolve from the real release feed ----
 # The package declares runtime dependencies it cannot function without; if any of them
 # stopped existing in the feed, apk would have refused above, but an unresolved OPTIONAL
 # name would pass silently, so assert each one landed.
 for d in python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep; do
-	apk info -e "$d" >/dev/null 2>&1 || fail "[2/9] check_deps_resolve" "$d did not install"
+	apk info -e "$d" >/dev/null 2>&1 || fail "[2/10] check_deps_resolve" "$d did not install"
 done
-echo "PASS [2/9] check_deps_resolve"
+echo "PASS [2/10] check_deps_resolve"
 
 # ---- 3. the CLI runs on the router ----
 # This is the check the whole musllinux-wheel bet comes down to. If any of the 13
 # compiled dependencies were assembled for the wrong libc, it fails here with an
 # ImportError rather than on somebody's device.
-out=$(/usr/bin/hermes --version 2>&1) || { echo "$out"; fail "[3/9] check_cli_runs" "hermes --version exited non-zero"; }
-echo "$out" | grep -q "Hermes Agent" || { echo "$out"; fail "[3/9] check_cli_runs" "unexpected output"; }
-echo "PASS [3/9] check_cli_runs"
+out=$(/usr/bin/hermes --version 2>&1) || { echo "$out"; fail "[3/10] check_cli_runs" "hermes --version exited non-zero"; }
+echo "$out" | grep -q "Hermes Agent" || { echo "$out"; fail "[3/10] check_cli_runs" "unexpected output"; }
+echo "PASS [3/10] check_cli_runs"
 
 # ---- 4. ships disabled, and says so instead of erroring ----
-[ -e /etc/rc.d/S95hermes-agent ] || fail "[4/9] check_ships_disabled" "post-install did not enable the service"
+[ -e /etc/rc.d/S95hermes-agent ] || fail "[4/10] check_ships_disabled" "post-install did not enable the service"
 msg=$(/etc/init.d/hermes-agent start 2>&1 || true)
-echo "$msg" | grep -q "disabled in /etc/config/hermes" || { echo "$msg"; fail "[4/9] check_ships_disabled" "starting an unconfigured service did not say why"; }
-pgrep -f "hermes_cli/main.py gateway" >/dev/null 2>&1 && fail "[4/9] check_ships_disabled" "it started anyway"
-echo "PASS [4/9] check_ships_disabled"
+echo "$msg" | grep -q "disabled in /etc/config/hermes" || { echo "$msg"; fail "[4/10] check_ships_disabled" "starting an unconfigured service did not say why"; }
+pgrep -f "hermes_cli/main.py gateway" >/dev/null 2>&1 && fail "[4/10] check_ships_disabled" "it started anyway"
+echo "PASS [4/10] check_ships_disabled"
 
 # ---- 5. refuses without a key, naming the fix ----
 uci set hermes.main.enabled=1 >/dev/null 2>&1; uci commit hermes
 msg=$(/etc/init.d/hermes-agent start 2>&1 || true)
-echo "$msg" | grep -q "no API key" || { echo "$msg"; fail "[5/9] check_refuses_without_key" "did not refuse"; }
-echo "$msg" | grep -q "provider.key" || { echo "$msg"; fail "[5/9] check_refuses_without_key" "refused without naming the file to write"; }
-echo "PASS [5/9] check_refuses_without_key"
+echo "$msg" | grep -q "no API key" || { echo "$msg"; fail "[5/10] check_refuses_without_key" "did not refuse"; }
+echo "$msg" | grep -q "provider.key" || { echo "$msg"; fail "[5/10] check_refuses_without_key" "refused without naming the file to write"; }
+echo "PASS [5/10] check_refuses_without_key"
 
-# ---- 6 and 7. the key reaches neither argv nor uci ----
+# ---- 6. the command the init actually builds is one the CLI accepts ----
+#
+# The check that was missing, and its absence shipped a package that could not start.
+#
+# The init passed `--toolsets a,b,c` to `hermes gateway run`. That flag does not exist on
+# that subcommand, so the service died at argument parsing on every start, with the
+# configuration the package ships, on every router. Every other check here passed: the
+# package installed, the CLI ran, the service refused politely without a key. Nothing
+# ever ran the command the init would hand to procd. It was found by looking at the LuCI
+# log box in a browser.
+#
+# procd is not running in a bare rootfs, so its parameter functions are stubbed and the
+# real start_service is called. That records the exact argv and environment procd would
+# have been given, with no second copy of the truth to drift: the init file is the only
+# source, and it is read as code rather than parsed as text.
+SECRET=sk-gate-canary-value
+mkdir -p /etc/hermes-agent /srv/hermes
+printf '%s' "$SECRET" > /etc/hermes-agent/provider.key
+chmod 600 /etc/hermes-agent/provider.key
+
+cat > /tmp/fakeprocd.sh <<'STUB'
+. /lib/functions.sh
+procd_open_instance()     { :; }
+procd_close_instance()    { :; }
+procd_add_jail_mount_rw() { :; }
+procd_add_reload_trigger(){ :; }
+procd_set_param() {
+	k=$1; shift
+	case "$k" in
+		command) printf '%s\n' "$@" > /tmp/argv ;;
+		env)     printf '%s\n' "$@" > /tmp/envv ;;
+	esac
+}
+procd_append_param() {
+	k=$1; shift
+	case "$k" in
+		command) printf '%s\n' "$@" >> /tmp/argv ;;
+		env)     printf '%s\n' "$@" >> /tmp/envv ;;
+	esac
+}
+. /etc/init.d/hermes-agent
+start_service
+STUB
+sh /tmp/fakeprocd.sh >/tmp/fp.log 2>&1 || { cat /tmp/fp.log; fail "[6/10] check_service_command_runs" "start_service did not complete"; }
+[ -s /tmp/argv ] || { cat /tmp/fp.log; fail "[6/10] check_service_command_runs" "the init built no command at all, so this check measured nothing"; }
+
+# Run exactly that, with exactly that environment, and require it to still be alive.
+# A gateway that exits inside ten seconds against an unreachable endpoint is one that
+# failed before it ever tried to reach it.
+set -- $(cat /tmp/argv)
+# shellcheck disable=SC2046
+env $(cat /tmp/envv) "$@" >/tmp/svc.log 2>&1 &
+SVC=$!
+sleep 10
+if ! kill -0 "$SVC" 2>/dev/null; then
+	echo "argv:"; sed 's/^/  /' /tmp/argv
+	sed 's/\x1b\[[0-9;]*m//g' /tmp/svc.log | tail -8
+	fail "[6/10] check_service_command_runs" "the command the init builds does not stay up"
+fi
+kill "$SVC" 2>/dev/null || true
+echo "PASS [6/10] check_service_command_runs ($(wc -l < /tmp/argv | tr -d ' ') argv words, $(wc -l < /tmp/envv | tr -d ' ') env entries)"
+
+# ---- 7 and 8. the key reaches neither argv nor uci ----
 SECRET=sk-gate-canary-value
 mkdir -p /etc/hermes-agent
 printf '%s' "$SECRET" > /etc/hermes-agent/provider.key
@@ -134,34 +196,34 @@ if kill -0 "$GW" 2>/dev/null; then
 	# Read argv from /proc rather than ps|grep: a grep for the secret matches its own
 	# command line and reports a leak that is not there.
 	if tr '\0' '\n' < "/proc/$GW/cmdline" | grep -q "$SECRET"; then
-		kill "$GW" 2>/dev/null; fail "[6/9] check_key_not_in_argv" "the key is in the process command line"
+		kill "$GW" 2>/dev/null; fail "[7/10] check_key_not_in_argv" "the key is in the process command line"
 	fi
-	echo "PASS [6/9] check_key_not_in_argv"
+	echo "PASS [7/10] check_key_not_in_argv"
 	kill "$GW" 2>/dev/null || true
 else
 	# The gateway not staying up would make the argv check vacuous, and a check that
 	# cannot fail is worse than no check.
 	sed 's/\x1b\[[0-9;]*m//g' /tmp/gw.log | tail -5
-	fail "[6/9] check_key_not_in_argv" "the gateway exited, so nothing was inspected"
+	fail "[7/10] check_key_not_in_argv" "the gateway exited, so nothing was inspected"
 fi
 
-uci show hermes 2>/dev/null | grep -q "$SECRET" && fail "[7/9] check_key_not_in_uci" "the key is in UCI"
-echo "PASS [7/9] check_key_not_in_uci"
+uci show hermes 2>/dev/null | grep -q "$SECRET" && fail "[8/10] check_key_not_in_uci" "the key is in UCI"
+echo "PASS [8/10] check_key_not_in_uci"
 
 # ---- 8. a hand-edited config survives reinstall ----
 # Losing this on a router means losing every setting on a routine upgrade, silently.
 marker="# gate canary"
 echo "$marker" >> /etc/config/hermes
 apk add --allow-untrusted --force-refresh /pkg.apk >/dev/null 2>&1 || apk add --allow-untrusted /pkg.apk >/dev/null 2>&1
-grep -qF "$marker" /etc/config/hermes || fail "[8/9] check_config_survives" "the config was overwritten by a reinstall"
-echo "PASS [8/9] check_config_survives"
+grep -qF "$marker" /etc/config/hermes || fail "[9/10] check_config_survives" "the config was overwritten by a reinstall"
+echo "PASS [9/10] check_config_survives"
 
 # ---- 9. clean removal ----
-apk del hermes-agent >/dev/null 2>&1 || fail "[9/9] check_clean_removal" "apk del failed"
-[ -e /usr/bin/hermes ] && fail "[9/9] check_clean_removal" "the launcher is still there"
-[ -e /etc/rc.d/S95hermes-agent ] && fail "[9/9] check_clean_removal" "the rc.d link is still there"
-[ -d /usr/lib/hermes-agent/site-packages ] && fail "[9/9] check_clean_removal" "site-packages was left behind"
-echo "PASS [9/9] check_clean_removal"
+apk del hermes-agent >/dev/null 2>&1 || fail "[10/10] check_clean_removal" "apk del failed"
+[ -e /usr/bin/hermes ] && fail "[10/10] check_clean_removal" "the launcher is still there"
+[ -e /etc/rc.d/S95hermes-agent ] && fail "[10/10] check_clean_removal" "the rc.d link is still there"
+[ -d /usr/lib/hermes-agent/site-packages ] && fail "[10/10] check_clean_removal" "site-packages was left behind"
+echo "PASS [10/10] check_clean_removal"
 CONTAINER
 
-echo "gate-package: all 9 checks passed"
+echo "gate-package: all 10 checks passed"

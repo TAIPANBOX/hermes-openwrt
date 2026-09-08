@@ -75,14 +75,19 @@ No `--allow-untrusted` and no `--force` anywhere. That is the point of signing t
 
 `luci-app-hermes` adds **Services -> Hermes Agent**.
 
-![Overview: service state, version, free space, key presence, and a live log tail](docs/luci-overview.png)
+![Overview: service state, version, free space where the data lives, which keys are set, whether Telegram has a token, and a live log tail](docs/luci-overview.png)
 
 Six facts on one screen, because a router page is opened in two situations only: setting
 the thing up, and finding out why it stopped. Free space is on that list deliberately.
 Sessions and memory are a SQLite database that only grows, and a router that fills its
 overlay stops routing.
 
-![Settings: service, model endpoint, write-only keys, router access, toolsets](docs/luci-settings.png)
+![Settings: service, model endpoint, write-only keys, router access, the Telegram section, and toolsets](docs/luci-settings.png)
+
+The overview above is a router with everything configured: the service running, the
+Telegram add-on installed, a token stored, and the log showing what the agent is doing.
+The Telegram lines in it are the platform loading its adapter, reaching Telegram's API
+and being told the token is not real, which is the correct answer to a token that is not.
 
 The API key field reads `stored` and never a key. That is not a nicety, it is the design,
 and the screenshot above is the proof of it: a picture of this page cannot leak a key,
@@ -268,7 +273,7 @@ OpenWrt's own published rootfs and then asks the running system.
 
 | gate | what it proves |
 |---|---|
-| `gate-package.sh` | 9 checks: apk installs it, the CLI runs, it ships disabled, it refuses without a key, the key reaches neither argv nor UCI, config survives reinstall, removal is clean |
+| `gate-package.sh` | 10 checks: apk installs it, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI, config survives reinstall, removal is clean |
 | `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
 | `gate-luci.sh` | 10 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, and **no method returns a key** |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
@@ -276,13 +281,20 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
 | `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave all 9037 base files |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
-| `teeth.sh` | plants three faults and requires a different check to catch each one |
+| `teeth.sh` | plants four faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather
 than in the harness: a package built with one `.pyc` missing writes that bytecode at
 runtime into its own installed directory, apk does not own the file, and `apk del` then
 leaves all 193 MB behind.
+
+The newest check is there because of a worse one. The service was passing `--toolsets`
+to `hermes gateway run`, which does not accept it, so it died at argument parsing on
+every start with the configuration this package ships. Every gate was green: the package
+installed, the CLI ran, the service refused politely without a key. Nothing had ever run
+the command line the init builds. It was found by opening the web interface and reading
+the log box, which is the one thing no gate here does.
 
 ## Status
 

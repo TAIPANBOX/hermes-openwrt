@@ -29,7 +29,13 @@ esac
 HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # r2: the init script learned to read the telegram section, refuse the four ways a
 # Telegram setup cannot work, and hand the token over as an environment variable.
-PKGREL=${PKGREL:-2}
+#
+# r3: and then it learned to start at all. r1 and r2 both passed `--toolsets` to
+# `hermes gateway run`, which does not accept it, so the service died at argument
+# parsing on every router. r2 reached the published feed, so this is a new revision
+# rather than a rebuild of that one: apk and opkg decide what to upgrade by version,
+# and a router already holding a broken r2 would never be offered a fixed one.
+PKGREL=${PKGREL:-3}
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

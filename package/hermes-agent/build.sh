@@ -93,6 +93,12 @@ python3 -m pip install \
 # so the CLI cannot even print its version without this. See the file's own header.
 cp "$SRC/files/shims/webbrowser.py" "$SITE/webbrowser.py" && chmod 0644 "$SITE/webbrowser.py"
 
+# The toolset writer. See its own header: the gateway reads toolsets from config.yaml,
+# and the flag the init script used to pass does not exist on that subcommand.
+mkdir -p "$OUT/usr/libexec"
+cp "$SRC/files/set-toolsets.py" "$OUT/usr/libexec/hermes-set-toolsets"
+chmod 0755 "$OUT/usr/libexec/hermes-set-toolsets"
+
 # pip writes a console script whose shebang points at the machine that ran pip. On the
 # router that path does not exist. Write our own, and put the private site-packages on
 # the path explicitly rather than relying on the caller's environment.

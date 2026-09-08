@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Three faults, each one a real change could introduce, each caught by a different
+# Four faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -38,6 +38,11 @@ cleanup() {
 	[ -f /tmp/shim.bak ] && cp /tmp/shim.bak "$SITE/webbrowser.py" 2>/dev/null
 	[ -f /tmp/postinstall.bak ] && cp /tmp/postinstall.bak "$W/post-install" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
+	# The init is restored from the repository rather than from a backup: a backup taken
+	# at the top of a run that had already been poisoned by an earlier crashed run would
+	# faithfully restore the poison.
+	cp "$ROOT/package/hermes-agent/files/hermes-agent.init" "$W/tree/etc/init.d/hermes-agent" 2>/dev/null || true
+	chmod 0755 "$W/tree/etc/init.d/hermes-agent" 2>/dev/null || true
 	rm -f "$W/mutant.apk"
 }
 trap cleanup EXIT INT TERM
@@ -89,10 +94,23 @@ repack "$DEPS_OK"
 expect_red "post-install neutered" check_ships_disabled
 cp /tmp/postinstall.bak "$W/post-install"
 
+# ---- fault 4: a flag the CLI does not accept on that subcommand ----
+# Not a hypothetical. This is the defect that shipped: `--toolsets` on `gateway run`,
+# which killed the service at argument parsing on every start with the configuration the
+# package ships, while every other check in the gate stayed green. It was found by
+# looking at the log box on the LuCI page in a browser, weeks of gate runs later.
+INIT="$W/tree/etc/init.d/hermes-agent"
+cp "$INIT" /tmp/init.bak
+sed 's|gateway run --external-supervisor|gateway run --external-supervisor --toolsets file,web|' \
+	"$INIT" > /tmp/init.new && cp /tmp/init.new "$INIT"
+repack "$DEPS_OK"
+expect_red "a flag the gateway subcommand rejects" check_service_command_runs
+cp /tmp/init.bak "$INIT"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 3 faults, 3 distinct checks, green restored"
+echo "teeth: 4 faults, 4 distinct checks, green restored"
