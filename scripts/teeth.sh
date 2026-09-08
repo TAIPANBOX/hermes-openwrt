@@ -12,12 +12,18 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${ARCH:-aarch64_generic}
-W="$ROOT/build/$ARCH"
+# Keyed by release line, like the builder: both lines produce an x86_64 tree and they
+# are not interchangeable, so a bare build/$ARCH would find whichever ran last.
+LINE=${LINE:-25.12}
+W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
 DEPS_OK="python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep"
 
-[ -d "$W/tree" ] || { echo "teeth: no build tree at $W/tree; build the package first"; exit 1; }
+[ -d "$W/tree" ] || {
+	echo "teeth: no build tree at $W/tree; build the package first:"
+	echo "  ./package/hermes-agent/build-in-container.sh $ARCH"
+	exit 1; }
 
 repack() {
 	docker run --rm -i -v "$W:/work" -w /work "$ALPINE" apk mkpkg \
