@@ -60,6 +60,18 @@ because voice messages and speech transcoding do work here and are cheap.
 `luci-app-hermes` adds **Services -> Hermes Agent** with two pages: status, service
 control and a live log tail on one, and configuration on the other.
 
+![Overview: service state, version, free space, key presence, and the live log](docs/luci-overview.png)
+
+Everything worth knowing on one screen. Free space is there on purpose: sessions and
+memory are a SQLite database that only grows, and a router that fills its overlay stops
+routing.
+
+![Settings: service, model endpoint, write-only keys, router access, toolsets](docs/luci-settings.png)
+
+The API key field reads `stored` and never the key. That is the whole design, and the
+screenshot above is the proof of it: a picture of the settings page cannot leak a key,
+because the page was never sent one.
+
 ```sh
 apk add --allow-untrusted ./luci-app-hermes-0.19.0-r1.apk
 ```

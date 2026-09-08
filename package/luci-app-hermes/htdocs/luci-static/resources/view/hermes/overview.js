@@ -136,7 +136,11 @@ return view.extend({
 			}).catch(function () {});
 		}, 5);
 
-		return E([], [
+		/* Filtered, because E() renders a null child as the literal text "null" on the
+		 * page. The hint is absent whenever there is nothing wrong, which is the common
+		 * case, so an unfiltered array puts the word "null" above the status table on
+		 * every healthy router. */
+		var children = [
 			E('h2', {}, _('Hermes Agent')),
 			E('p', { 'class': 'cbi-map-descr' },
 				_('A self-hosted AI agent running as a service on this router. The model itself runs elsewhere; this device talks to it over the network.')),
@@ -147,7 +151,9 @@ return view.extend({
 			E('p', { 'class': 'cbi-map-descr' },
 				_('The last 50 lines mentioning hermes, refreshed every 5 seconds.')),
 			logBox
-		]);
+		];
+
+		return E([], children.filter(function (c) { return c != null; }));
 	},
 
 	handleSave: null,
