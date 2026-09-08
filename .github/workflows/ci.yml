@@ -34,8 +34,16 @@ jobs:
       - name: build the package inside OpenWrt ${{ matrix.arch }}
         run: ./package/hermes-agent/build-in-container.sh ${{ matrix.arch }}
 
+      # Architecture-independent, so one build serves every router; it is built here
+      # rather than in its own job because both gates want both packages present.
+      - name: build the LuCI app
+        run: ./package/luci-app-hermes/build.sh
+
       - name: it installs, runs, and keeps the key out of sight
         run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh
+
+      - name: the web interface installs, registers on ubus, and gives no key back
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-luci.sh
 
       # A gate nobody has seen go red is a gate nobody has tested. Each fault below is
       # one a real change could introduce, and each must be caught by a different check.
@@ -48,7 +56,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: hermes-agent-${{ matrix.arch }}
-          path: hermes-agent-*.apk
+          path: |
+            hermes-agent-*.apk
+            luci-app-hermes-*.apk
           # 56 MB per architecture; a fortnight is long enough to try one on a router
           # and short enough not to hoard.
           retention-days: 14

@@ -1,0 +1,21 @@
+{
+	"luci-app-hermes": {
+		"description": "Manage the Hermes Agent service",
+		"read": {
+			"comment": "status reports only whether a key is PRESENT, never its value, so read access here cannot disclose a secret",
+			"ubus": {
+				"hermes": [ "status", "logs" ],
+				"service": [ "list" ]
+			},
+			"uci": [ "hermes" ]
+		},
+		"write": {
+			"comment": "set_secret writes a key into a root-only file; there is no matching read, by design",
+			"ubus": {
+				"hermes": [ "set_secret" ],
+				"luci": [ "setInitAction" ]
+			},
+			"uci": [ "hermes" ]
+		}
+	}
+}

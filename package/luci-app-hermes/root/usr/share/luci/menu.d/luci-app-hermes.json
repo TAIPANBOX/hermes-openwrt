@@ -1,0 +1,26 @@
+{
+	"admin/services/hermes": {
+		"title": "Hermes Agent",
+		"order": 62,
+		"action": { "type": "firstchild" },
+		"depends": {
+			"acl": [ "luci-app-hermes" ],
+			"fs": { "/etc/init.d/hermes-agent": "executable" },
+			"uci": { "hermes": true }
+		}
+	},
+
+	"admin/services/hermes/overview": {
+		"title": "Overview",
+		"order": 1,
+		"action": { "type": "view", "path": "hermes/overview" },
+		"depends": { "acl": [ "luci-app-hermes" ] }
+	},
+
+	"admin/services/hermes/settings": {
+		"title": "Settings",
+		"order": 2,
+		"action": { "type": "view", "path": "hermes/settings" },
+		"depends": { "acl": [ "luci-app-hermes" ] }
+	}
+}

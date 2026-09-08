@@ -55,6 +55,26 @@ becomes a narrow, audited tool provider rather than the host of a Python runtime
 heavy dependencies for capabilities a headless router does not have. `ffmpeg` is included
 because voice messages and speech transcoding do work here and are cheap.
 
+## The web interface
+
+`luci-app-hermes` adds **Services -> Hermes Agent** with two pages: status, service
+control and a live log tail on one, and configuration on the other.
+
+```sh
+apk add --allow-untrusted ./luci-app-hermes-0.19.0-r1.apk
+```
+
+Keys are handled write-only, and that shape is enforced by a test rather than intended.
+The page can put a key in and can ask whether one is present; nothing returns a key. So
+no screenshot of the settings page contains a key, no browser devtools session holds one,
+and a support bundle taken from the browser cannot carry one out. The cost is that a key
+cannot be checked by looking at it, which is the trade every password field makes.
+
+The pages talk to a small rpcd backend at `/usr/libexec/rpcd/hermes` with three methods:
+`status`, `logs` and `set_secret`. Only fixed names map to files, so neither a typo nor a
+crafted call can write outside `/etc/hermes-agent`, and the file is created 0600 before a
+byte of the key is written rather than chmod-ed afterwards.
+
 ## Configuring it
 
 The package ships disabled with no key and no model, and the init script refuses to start
@@ -135,7 +155,14 @@ licensed; the packaging here is what is new.
 Proven on `openwrt/rootfs:aarch64_generic-25.12.4` in CI: the package installs, its
 dependencies resolve from the real release feed, the service is enabled by post-install,
 `hermes --version` runs, the gateway starts, `data_dir` is created 0700, and the API key
-appears in neither argv nor UCI.
+appears in neither argv nor UCI. The web interface has its own nine: the files land where
+luci-base looks, both views parse, the menu and ACL are valid JSON, the rpcd backend
+appears on ubus and answers, a key written through it lands 0600 with whitespace trimmed,
+no method returns it, and removing the web app does not delete the agent's key.
+
+Not proven for the web interface: the rendered page. Standing LuCI up inside a bare
+rootfs container needs a session, a theme and a ubus session object, which would test the
+container far more than the app. What is checked is everything the browser depends on.
 
 Not proven: aarch64 hardware. No router has run this yet, only the published rootfs image.
 If you put it on a real device, an issue saying what happened is worth more than a star.

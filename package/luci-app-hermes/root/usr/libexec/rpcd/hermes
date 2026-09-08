@@ -1,0 +1,153 @@
+#!/bin/sh
+# rpcd backend for luci-app-hermes.
+#
+# LuCI's JavaScript runs in the browser and cannot touch a root-only file, which is
+# exactly where the API keys have to live. This is the narrow bridge across that gap,
+# and it is deliberately narrow: three methods, nothing a caller sends is ever passed to
+# a shell, and one rule shapes the whole file.
+#
+#   A secret goes IN through this interface and never comes back out.
+#
+# `status` reports whether a key is present, never its value and never its length. So a
+# key cannot be read back by anyone who reaches the RPC, cannot appear in the browser's
+# devtools, cannot be caught in a screenshot of the settings page, and cannot travel in
+# a support bundle taken from the browser. Write-only costs one extra round trip and
+# removes a whole class of accident.
+#
+# The other half of that rule lives in the settings page, which never populates a
+# password field from the server, so there is nothing on screen to leak in the first
+# place.
+#
+# Every method is a function rather than a case branch. `local` is only valid inside a
+# function in POSIX sh and busybox enforces it: the same code inline answers `list`
+# correctly, installs cleanly, and then dies with "local: not in a function" on the
+# first real call, which is a late and confusing place to learn it.
+
+. /usr/share/libubox/jshn.sh
+
+CONF_DIR=/etc/hermes-agent
+INIT=/etc/init.d/hermes-agent
+
+# Only these names may be written, and each maps to a fixed path. A caller cannot name
+# an arbitrary file: an unrecognised name is refused rather than defaulted, so neither a
+# typo in the page nor a crafted call can write outside this directory.
+secret_path() {
+	case "$1" in
+		provider)   echo "$CONF_DIR/provider.key" ;;
+		router_mcp) echo "$CONF_DIR/router-mcp.token" ;;
+		telegram)   echo "$CONF_DIR/telegram.token" ;;
+		*)          return 1 ;;
+	esac
+}
+
+# A file with something in it, ignoring whitespace. An empty or whitespace-only file is
+# not a configured key, and reporting it as one would let the page say "set" while the
+# service refuses to start for the exact reason the page had just called fine.
+has_secret() {
+	local p
+	p=$(secret_path "$1") || return 1
+	[ -s "$p" ] && [ -n "$(tr -d ' \t\r\n' < "$p" 2>/dev/null)" ]
+}
+
+method_status() {
+	local running enabled version data_dir free_kb
+	running=0; "$INIT" running >/dev/null 2>&1 && running=1
+	enabled=0; "$INIT" enabled >/dev/null 2>&1 && enabled=1
+
+	# From the binary rather than from the package database, so a half-finished upgrade
+	# shows what is actually on disk.
+	version=$(/usr/bin/hermes --version 2>/dev/null | head -n1)
+	[ -n "$version" ] || version="not installed"
+
+	data_dir=$(uci -q get hermes.main.data_dir || echo /srv/hermes)
+	# Free space where the data actually lives. Sessions and memory only grow, and a
+	# router that fills its overlay stops being a router.
+	free_kb=$(df -k "$data_dir" 2>/dev/null | awk 'NR==2{print $4}')
+	case "$free_kb" in ''|*[!0-9]*) free_kb=0 ;; esac
+
+	json_init
+	json_add_boolean "running" "$running"
+	json_add_boolean "enabled" "$enabled"
+	json_add_string  "version" "$version"
+	json_add_string  "data_dir" "$data_dir"
+	json_add_int     "free_kb" "$free_kb"
+	# Presence only. Never the value, never the length.
+	json_add_boolean "provider_key_set"   "$(has_secret provider   && echo 1 || echo 0)"
+	json_add_boolean "router_mcp_key_set" "$(has_secret router_mcp && echo 1 || echo 0)"
+	json_add_boolean "telegram_key_set"   "$(has_secret telegram   && echo 1 || echo 0)"
+	json_dump
+}
+
+method_logs() {
+	local lines input
+	read -r input
+	json_load "$input" 2>/dev/null
+	json_get_var lines lines
+	# Clamp rather than trust. A caller asking for a million lines hands the browser more
+	# than it can render and the router more than it can spare.
+	case "$lines" in ''|*[!0-9]*) lines=50 ;; esac
+	[ "$lines" -lt 1 ]   && lines=50
+	[ "$lines" -gt 500 ] && lines=500
+
+	json_init
+	json_add_string "log" "$(logread -e hermes 2>/dev/null | tail -n "$lines")"
+	json_dump
+}
+
+method_set_secret() {
+	local name value path input
+	read -r input
+	json_load "$input" 2>/dev/null
+	json_get_var name name
+	json_get_var value value
+
+	if ! path=$(secret_path "$name"); then
+		json_init; json_add_boolean "ok" 0
+		json_add_string "error" "unknown secret name"; json_dump
+		return 0
+	fi
+
+	mkdir -p "$CONF_DIR" && chmod 0700 "$CONF_DIR"
+
+	# An empty value means "forget this key", which is a real thing to want and must not
+	# be confused with writing an empty file that the service would then refuse to start
+	# on while the page reports a key is present.
+	if [ -z "$(printf '%s' "$value" | tr -d ' \t\r\n')" ]; then
+		rm -f "$path"
+		json_init; json_add_boolean "ok" 1; json_add_string "action" "cleared"; json_dump
+		return 0
+	fi
+
+	# Create with the final permissions BEFORE any content is written. Writing first and
+	# chmod-ing afterwards leaves a window in which the key is world-readable, and on a
+	# router with more than one account that window is real rather than theoretical.
+	umask 077
+	: > "$path"
+	chmod 0600 "$path"
+	printf '%s' "$value" | tr -d ' \t\r\n' > "$path"
+
+	json_init; json_add_boolean "ok" 1; json_add_string "action" "written"; json_dump
+}
+
+case "$1" in
+list)
+	# The declared argument types are what rpcd validates against before a method is
+	# entered, so a wrongly typed call never reaches the logic above.
+	json_init
+	json_add_object "status";                            json_close_object
+	json_add_object "logs";   json_add_int "lines" 0;    json_close_object
+	json_add_object "set_secret"
+		json_add_string "name" ""
+		json_add_string "value" ""
+	json_close_object
+	json_dump
+	;;
+call)
+	case "$2" in
+		status)     method_status ;;
+		logs)       method_logs ;;
+		set_secret) method_set_secret ;;
+		*) json_init; json_add_string "error" "unknown method"; json_dump ;;
+	esac
+	;;
+esac
