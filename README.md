@@ -34,7 +34,7 @@ that is what this repository does.
 | Secrets | root-only files under `/etc/hermes-agent`, never in UCI, never in argv |
 | Reference device | **GL.iNet Flint 2** (GL-MT6000): 4 x Cortex-A53, 1 GB RAM, 8 GB eMMC |
 | Architectures | `aarch64_cortex-a53` (Flint 2), `x86_64`, `aarch64_generic` |
-| Releases | 25.12 (Python 3.13). 24.10 (Python 3.11) is a build-time switch, untested |
+| Releases | 25.12 (apk, Python 3.13) and 24.10 (opkg, Python 3.11), both built and gated |
 
 ## What it will not do
 
@@ -154,8 +154,23 @@ The build runs inside the OpenWrt release it targets, so the libc resolving the 
 the one the router has. Docker is required; the OpenWrt SDK is not.
 
 ```sh
+# 25.12: apk, Python 3.13
 ./package/hermes-agent/build-in-container.sh aarch64_generic
+
+# 24.10: opkg, Python 3.11, and the Flint 2 label emitted from the same tree
+RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 \
+  ./package/hermes-agent/build-in-container.sh aarch64_generic
 ```
+
+24.10 is not a smaller 25.12. It is opkg instead of apk, a gzipped-tar container instead
+of an ADB blob, and Python 3.11 instead of 3.13, so it needs its own tree with its own
+wheel set: a tree built against 3.13 installs perfectly on 24.10 and then raises
+ImportError on the first run. `scripts/gate-ipk.sh` covers that line separately, and its
+own checks catch two things the apk side never sees. `/etc/config/hermes` has to be
+listed in the package's `conffiles` or an upgrade silently overwrites a configured
+router. And opkg deletes every file it owns and then leaves the directory tree standing,
+9033 files gone and 985 empty directories behind, so the package carries a `postrm` that
+removes the tree when nothing is left in it.
 
 Cross-downloading with `pip --platform` looks simpler and does not work: `pydantic-core`
 ships stable-ABI wheels tagged `cp39-abi3`, and pinning `--implementation cp

@@ -1,5 +1,6 @@
 build/
 *.apk
+*.ipk
 
 # the feed signing key, never committed
 keys/*.private.pem
