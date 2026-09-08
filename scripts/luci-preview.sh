@@ -58,6 +58,11 @@ done
 echo "==> $(basename "$AGENT"), $(basename "$ADDON"), $(basename "$LUCI")"
 
 docker rm -f "$NAME" "$NAME-prep" >/dev/null 2>&1 || true
+# The image from the previous run too. `docker commit` below re-tags $NAME:latest, and a
+# re-tag leaves the previous image behind with no tag at all: invisible to `docker
+# images`, 394 MB each, one per run. Two of them were found on 2026-09-08 only because
+# `docker system df` disagreed with the listing by exactly their size.
+docker rmi -f "$NAME:latest" >/dev/null 2>&1 || true
 
 echo "==> preparing the rootfs"
 docker run --name "$NAME-prep" -i --platform "linux/$ARCH" \
@@ -146,4 +151,4 @@ echo "==> ready. Open, in this order:"
 echo "     http://127.0.0.1:$PORT/enter.html?to=/cgi-bin/luci/admin/services/hermes"
 echo "     http://127.0.0.1:$PORT/cgi-bin/luci/admin/services/hermes/settings"
 echo "   session $SID"
-echo "   stop it with: docker rm -f $NAME"
+echo "   stop it with: docker rm -f $NAME && docker rmi $NAME:latest"
