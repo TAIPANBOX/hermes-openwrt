@@ -144,8 +144,8 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 [`Dedrimer/hermes-openwrt`](https://github.com/Dedrimer/hermes-openwrt) is an independent
 native port with a LuCI interface, and it arrived at the same `webbrowser` shim from the
 same wall. It carries no licence file, so no code from it is used here; the overlap is two
-people meeting the same constraint. If you want a LuCI page today rather than eventually,
-look there first.
+people meeting the same constraint, and it is worth reading if you want a second opinion
+on the same problem.
 
 This package is not affiliated with Nous Research. Hermes Agent is theirs and is MIT
 licensed; the packaging here is what is new.
