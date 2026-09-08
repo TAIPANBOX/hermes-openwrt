@@ -92,3 +92,33 @@ docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 
 cp "$WORK/$OUT" "$ROOT/$OUT"
 echo "==> $OUT  ($(du -h "$ROOT/$OUT" | cut -f1))"
+
+# Emit the same tree under other architecture labels.
+#
+# A router reports one exact string in /etc/apk/arch and apk will not look at a package
+# declaring anything else, so a Flint 2 on aarch64_cortex-a53 cannot see an
+# aarch64_generic package however identical the bytes are. OpenWrt publishes no
+# aarch64_cortex-a53 rootfs image, so there is nothing to build IN for that name, and
+# there does not need to be: everything in this package is either architecture-neutral
+# or a musllinux aarch64 wheel, and the two names differ only in the compiler tuning of
+# code we do not ship. Relabelling is therefore honest here. It would not be for a
+# package carrying C compiled with -mcpu=cortex-a53.
+for extra in ${EXTRA_ARCHES:-}; do
+	xout="hermes-agent-$HERMES_VERSION-r$PKGREL.apk"
+	xdir="$ROOT/build/$extra"
+	rm -rf "$xdir"; mkdir -p "$xdir"
+	docker run --rm -i -v "$WORK:/work" -v "$xdir:/out" -w /work "$ALPINE" apk mkpkg \
+		--info "name:hermes-agent" \
+		--info "version:$HERMES_VERSION-r$PKGREL" \
+		--info "arch:$extra" \
+		--info "license:MIT" \
+		--info "origin:hermes-agent" \
+		--info "url:https://github.com/NousResearch/hermes-agent" \
+		--info "description:Hermes Agent, the self-hosted AI agent, packaged for OpenWrt. Runs as a procd service against any OpenAI-compatible endpoint." \
+		--info "depends:python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep" \
+		--script "post-install:/work/post-install" \
+		--script "pre-deinstall:/work/pre-deinstall" \
+		--files /work/tree \
+		--output "/out/$xout"
+	echo "==> also $extra: $xout"
+done

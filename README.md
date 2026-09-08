@@ -32,7 +32,8 @@ that is what this repository does.
 | Service | procd, `S95hermes-agent`, disabled until configured |
 | Configuration | `/etc/config/hermes`, a conffile that survives upgrade |
 | Secrets | root-only files under `/etc/hermes-agent`, never in UCI, never in argv |
-| Architectures | `aarch64_generic`, `aarch64_cortex-a53`, `x86_64` |
+| Reference device | **GL.iNet Flint 2** (GL-MT6000): 4 x Cortex-A53, 1 GB RAM, 8 GB eMMC |
+| Architectures | `aarch64_cortex-a53` (Flint 2), `x86_64`, `aarch64_generic` |
 | Releases | 25.12 (Python 3.13). 24.10 (Python 3.11) is a build-time switch, untested |
 
 ## What it will not do
@@ -64,7 +65,9 @@ control and a live log tail on one, and configuration on the other.
 
 Everything worth knowing on one screen. Free space is there on purpose: sessions and
 memory are a SQLite database that only grows, and a router that fills its overlay stops
-routing.
+routing. Both screenshots come from OpenWrt 25.12.4 with the package installed and the
+data directory sized to a Flint 2's eMMC, so the numbers are the ones that device shows
+rather than a workstation's.
 
 ![Settings: service, model endpoint, write-only keys, router access, toolsets](docs/luci-settings.png)
 
@@ -86,6 +89,26 @@ The pages talk to a small rpcd backend at `/usr/libexec/rpcd/hermes` with three 
 `status`, `logs` and `set_secret`. Only fixed names map to files, so neither a typo nor a
 crafted call can write outside `/etc/hermes-agent`, and the file is created 0600 before a
 byte of the key is written rather than chmod-ed afterwards.
+
+## Installing from the signed feed
+
+```sh
+wget -O /etc/apk/keys/hermes-openwrt.pem \
+  https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem
+
+echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/packages.adb" \
+  >> /etc/apk/repositories.d/customfeeds.list
+
+apk update && apk add hermes-agent luci-app-hermes
+```
+
+No `--allow-untrusted` anywhere, which is the point of signing. Without that key the
+feed's packages are not merely refused, they are invisible: `apk add hermes-agent`
+answers "no such package" and the available count is two lower. With it, both install
+and verify.
+
+The packages and the index are both signed with an EC prime256v1 key, the same shape
+OpenWrt uses for its own releases. The private half never enters this repository.
 
 ## Configuring it
 

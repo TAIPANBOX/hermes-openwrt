@@ -65,15 +65,35 @@ return view.extend({
 			_('Anything that speaks the OpenAI protocol. A local model on this router is not a supported configuration: the agent\'s own prompt is thousands of tokens and a router CPU takes minutes to read it before answering.'));
 		o.default = 'https://openrouter.ai/api/v1';
 		o.rmempty = false;
-		o.value('https://openrouter.ai/api/v1', _('OpenRouter (cloud)'));
-		o.value('https://api.anthropic.com/v1', _('Anthropic (cloud)'));
-		o.value('http://192.168.1.10:11434/v1', _('Ollama on your LAN'));
-		o.value('http://192.168.1.10:8080/v1', _('llama-server on your LAN'));
+		/* Suggestions, not a closed list: the field stays free text because the whole
+		 * point of the OpenAI protocol is that anything speaking it will do. What is
+		 * listed is what people actually reach for first. */
+		o.value('https://api.openai.com/v1', _('OpenAI, with your own API key'));
+		o.value('https://openrouter.ai/api/v1', _('OpenRouter, one key for many models'));
+		o.value('https://api.anthropic.com/v1', _('Anthropic'));
+		o.value('https://api.mistral.ai/v1', _('Mistral'));
+		o.value('https://api.deepseek.com/v1', _('DeepSeek'));
+		o.value('http://192.168.1.10:11434/v1', _('Ollama on a machine in your LAN'));
+		o.value('http://192.168.1.10:8080/v1', _('llama-server on a machine in your LAN'));
 
 		o = s.option(form.Value, 'model', _('Model'),
-			_('Whatever name the endpoint above uses.'));
+			_('Whatever name the endpoint above uses. OpenRouter wants a vendor prefix such as anthropic/claude-haiku-4.5; OpenAI wants a bare name such as gpt-5.4-mini; a local server wants whatever it loaded.'));
 		o.default = 'anthropic/claude-haiku-4.5';
 		o.rmempty = false;
+		o.value('gpt-5.4-mini');
+		o.value('anthropic/claude-haiku-4.5');
+		o.value('openai/gpt-5.4-mini');
+		o.value('deepseek-chat');
+
+		/* A note rather than a check. The two mistakes that cost a first-time user an
+		 * afternoon are pointing at OpenAI with an OpenRouter-style model name and the
+		 * reverse, and neither produces a useful error: the provider simply says the
+		 * model does not exist. */
+		o = s.option(form.DummyValue, '_model_note', ' ');
+		o.rawhtml = true;
+		o.cfgvalue = function () {
+			return '<em>' + _('A key from one provider will not work against another\'s endpoint, and the error you get says only that the model was not found.') + '</em>';
+		};
 
 		/* Write-only. The value is never read back from the device, so what is typed
 		 * here leaves the browser and does not return. */
