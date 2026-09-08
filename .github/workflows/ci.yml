@@ -63,67 +63,15 @@ jobs:
           # and short enough not to hoard.
           retention-days: 14
 
-  # The feed is published only from main, and only when the packages behind it have
-  # already passed their gates. A signed feed that ships something untested is worse
-  # than no feed: the signature says a person stands behind it.
-  feed:
-    needs: package
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-
-      - name: build every architecture, both release lines
-        run: |
-          # One aarch64 tree per line, relabelled for the Flint 2's exact architecture
-          # string as well: a router will not look at a package declaring any other name,
-          # and OpenWrt publishes no aarch64_cortex-a53 rootfs to build in.
-          EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
-          ./package/hermes-agent/build-in-container.sh x86_64
-          ./package/luci-app-hermes/build.sh
-          # 24.10 needs its own trees: Python 3.11 there, so a different wheel set.
-          RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
-          RELEASE=24.10.8 ./package/hermes-agent/build-in-container.sh x86_64
-          FORMAT=ipk ./package/luci-app-hermes/build.sh
-
-      - name: sign the packages and the index
-        env:
-          SIGNING_KEY: ${{ secrets.FEED_SIGNING_KEY }}
-          USIGN_KEY: ${{ secrets.FEED_USIGN_KEY }}
-        run: |
-          set -eu
-          [ -n "$SIGNING_KEY" ] || { echo "FEED_SIGNING_KEY is not set; nothing can be signed"; exit 1; }
-          # Written to a file because apk takes a path, then removed in the same job.
-          # umask first, so it is never briefly world-readable on the runner.
-          umask 077
-          printf '%s' "$SIGNING_KEY" > /tmp/feed.key
-          SIGN_KEY=/tmp/feed.key ./scripts/build-feed.sh
-          rm -f /tmp/feed.key
-          # 24.10 signs with usign and a different key entirely; neither works for the
-          # other line, so a missing second secret has to stop the job rather than
-          # publish half a feed.
-          [ -n "$USIGN_KEY" ] || { echo "FEED_USIGN_KEY is not set; the 24.10 half cannot be signed"; exit 1; }
-          printf '%s' "$USIGN_KEY" > /tmp/usign.sec
-          SIGN_KEY=/tmp/usign.sec ./scripts/build-feed-opkg.sh
-          rm -f /tmp/usign.sec
-
-      - name: the 25.12 feed must install without --allow-untrusted
-        run: ARCH=x86_64 ./scripts/gate-feed.sh
-
-      - name: the 24.10 feed must be refused without its key and pass with it
-        run: ARCH=x86_64 ./scripts/gate-feed-opkg.sh
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: feed-out
-      - id: deploy
-        uses: actions/deploy-pages@v4
+  # There is deliberately no publishing job here.
+  #
+  # The feed's signing keys are not available to CI and are not stored in this
+  # repository's secrets. A key held as a secret is readable by anyone who can push a
+  # workflow to the default branch, and this one cannot be revoked: a router that has
+  # trusted the public half keeps trusting anything signed with the private half until
+  # a person logs in and deletes the file.
+  #
+  # So CI does what CI is good at, which is building every architecture and running
+  # every gate, and the signature is applied by a person on the machine where the key
+  # lives. See scripts/publish-feed.sh; GitHub Pages serves the gh-pages branch that
+  # script pushes.

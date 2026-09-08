@@ -119,7 +119,10 @@ return view.extend({
 			'readonly': 'readonly',
 			'wrap': 'off',
 			'style': 'width:100%;font-family:monospace;font-size:12px',
-			'rows': 18
+			/* Ten, not eighteen. Eighteen rows of a mostly empty box pushes everything
+			 * above it off a laptop screen, and the thing someone came to this page to
+			 * read is the status table. Ten holds the last two starts and still scrolls. */
+			'rows': 10
 		}, [ log || _('Nothing in the log yet.') ]);
 
 		/* Polled rather than loaded once: the reason someone is on this page is usually
