@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="660" viewBox="0 0 1280 660" role="img" aria-label="How many agents fit on a 1 GB router: memory, wall clock and temperature at one, two, four and six concurrent agents">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/></filter>
+</defs>
+<rect width="1280" height="660" fill="url(#bg)"/><rect width="1280" height="660" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" font-weight="600" fill="#e6edf3">How many agents fit on a 1 GB router</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Each bar is the same gigabyte. The gateway is always resident; every concurrent session adds about 130 MB on top of it. Same task each time, run until something failed.</text>
+
+<!-- legend -->
+<rect x="48" y="104" width="14" height="14" rx="3" fill="#4493f8"/><text x="70" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">gateway, resident</text>
+<rect x="210" y="104" width="14" height="14" rx="3" fill="#2dd4bf"/><text x="232" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">agents working</text>
+<rect x="360" y="104" width="14" height="14" rx="3" fill="#1b2331" stroke="#30363d"/><text x="382" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">still free</text>
+<text x="470" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">bar width = 1 GB of RAM, 700 px</text>
+
+<!-- GL-MT6000 -->
+<text x="48" y="158" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">GL-MT6000 &#183; MT7986 &#183; 4 cores</text>
+
+<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">
+  <!-- 1 agent: gateway 128, agents 153, free 535 (of ~816 measured band) -->
+  <text x="48" y="192" fill="#9aa7b8">1 agent</text>
+  <rect x="150" y="180" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+  <rect x="150" y="180" width="90" height="18" rx="4" fill="#4493f8"/>
+  <rect x="240" y="180" width="107" height="18" fill="#2dd4bf"/>
+  <text x="870" y="193" fill="#9aa7b8" font-size="12">25 s</text>
+  <text x="940" y="193" fill="#3fb950" font-size="12">1/1 finished</text>
+  <text x="1080" y="193" fill="#69788b" font-size="12">535 MB free &#183; 42 C</text>
+
+  <!-- 2 agents -->
+  <text x="48" y="228" fill="#9aa7b8">2 agents</text>
+  <rect x="150" y="216" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+  <rect x="150" y="216" width="90" height="18" rx="4" fill="#4493f8"/>
+  <rect x="240" y="216" width="184" height="18" fill="#2dd4bf"/>
+  <text x="870" y="229" fill="#9aa7b8" font-size="12">27 s</text>
+  <text x="940" y="229" fill="#3fb950" font-size="12">2/2 finished</text>
+  <text x="1080" y="229" fill="#69788b" font-size="12">415 MB free &#183; 42 C</text>
+
+  <!-- 4 agents -->
+  <text x="48" y="264" fill="#9aa7b8">4 agents</text>
+  <rect x="150" y="252" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+  <rect x="150" y="252" width="90" height="18" rx="4" fill="#4493f8"/>
+  <rect x="240" y="252" width="363" height="18" fill="#2dd4bf"/>
+  <text x="870" y="265" fill="#9aa7b8" font-size="12">32 s</text>
+  <text x="940" y="265" fill="#3fb950" font-size="12">4/4 finished</text>
+  <text x="1080" y="265" fill="#69788b" font-size="12">165 MB free &#183; 43 C</text>
+
+  <!-- 6 agents -->
+  <text x="48" y="300" fill="#9aa7b8">6 agents</text>
+  <rect x="150" y="288" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+  <rect x="150" y="288" width="90" height="18" rx="4" fill="#4493f8"/>
+  <rect x="240" y="288" width="431" height="18" fill="#e3b341"/>
+  <text x="870" y="301" fill="#9aa7b8" font-size="12">43 s</text>
+  <text x="940" y="301" fill="#e3b341" font-size="12">5/6 finished</text>
+  <text x="1080" y="301" fill="#e3b341" font-size="12">76 MB free &#183; 43 C</text>
+</g>
+
+<line x1="48" y1="332" x2="1232" y2="332" stroke="#1b2331"/>
+
+<!-- GL-MT2500 -->
+<text x="48" y="366" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">GL-MT2500 &#183; MT7981 &#183; 2 cores</text>
+
+<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">
+  <text x="48" y="400" fill="#9aa7b8">1 agent</text>
+  <rect x="150" y="388" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+  <rect x="150" y="388" width="92" height="18" rx="4" fill="#4493f8"/>
+  <rect x="242" y="388" width="88" height="18" fill="#2dd4bf"/>
+  <text x="870" y="401" fill="#9aa7b8" font-size="12">32 s</text>
+  <text x="940" y="401" fill="#3fb950" font-size="12">1/1 finished</text>
+  <text x="1080" y="401" fill="#69788b" font-size="12">622 MB free &#183; 41 C</text>
+
+  <text x="48" y="436" fill="#9aa7b8">2 agents</text>
+  <rect x="150" y="424" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+  <rect x="150" y="424" width="92" height="18" rx="4" fill="#4493f8"/>
+  <rect x="242" y="424" width="172" height="18" fill="#2dd4bf"/>
+  <text x="870" y="437" fill="#9aa7b8" font-size="12">36 s</text>
+  <text x="940" y="437" fill="#3fb950" font-size="12">2/2 finished</text>
+  <text x="1080" y="437" fill="#69788b" font-size="12">495 MB free &#183; 42 C</text>
+
+  <text x="48" y="472" fill="#9aa7b8">4 agents</text>
+  <rect x="150" y="460" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+  <rect x="150" y="460" width="92" height="18" rx="4" fill="#4493f8"/>
+  <rect x="242" y="460" width="358" height="18" fill="#2dd4bf"/>
+  <text x="870" y="473" fill="#e3b341" font-size="12">62 s</text>
+  <text x="940" y="473" fill="#3fb950" font-size="12">4/4 finished</text>
+  <text x="1080" y="473" fill="#69788b" font-size="12">229 MB free &#183; 42 C</text>
+</g>
+
+<!-- read it like this -->
+<rect x="48" y="508" width="1184" height="126" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<text x="72" y="538" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">READ IT LIKE THIS</text>
+<g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">
+  <text x="72" y="566">Budget about <tspan fill="#e6edf3" font-weight="600">130 MB per agent you want running at the same time</tspan>, on top of a gateway that is always there. Four at once is the</text>
+  <text x="72" y="586">practical ceiling on a 1 GB router: six leaves 76 MB, one session does not finish, and the gateway itself survives.</text>
+  <text x="72" y="612">Cores buy <tspan fill="#e6edf3">time, not capacity</tspan>: at four agents the 4-core box took 32 s against 62 s on the 2-core one, for the same memory. Temperature never left <tspan fill="#3fb950">39 to 43 C</tspan>, fanless.</text>
+</g>
+</svg>

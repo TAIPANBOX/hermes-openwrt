@@ -105,18 +105,7 @@ A box with WireGuard, Tailscale and the usual packages still has to run all of t
 the number that matters is what Hermes takes while working, not while idle. Concurrency
 was pushed until something broke:
 
-| Concurrent agents | Wall clock | Completed | RAM taken | Free RAM left | CPU |
-|---|---|---|---|---|---|
-| 1 | 25 s | 1/1 | 153 MB | 535 MB | 41 to 42 C |
-| 2 | 27 s | 2/2 | 263 MB | 415 MB | 41 to 42 C |
-| 4 | 32 s | 4/4 | 518 MB | 165 MB | 42 to 43 C |
-| 6 | 43 s | **5/6** | 615 MB | 76 MB | 41 to 43 C |
-
-Read it as **roughly 130 MB per concurrent session on top of the 128 MB gateway**. Four
-at once is the practical ceiling on a 1 GB router; at six, one session did not finish,
-though the gateway itself survived. More cores buy wall clock rather than capacity: at
-four agents the 4-core box took 32 s against 62 s on the 2-core one, for identical
-memory use.
+![How many agents fit on a 1 GB router](docs/concurrency.svg)
 
 Two things that were worth checking and turned out fine. **Routing is not disturbed**:
 iperf3 across the box measured 938 Mbit/s idle and 931 Mbit/s while three agents were
@@ -131,6 +120,8 @@ The package is provider-agnostic, so the useful question is which models can cal
 rather than talk about calling one. Same task on the same box, through OpenRouter:
 
 ![Which models can call a tool on the router](docs/models.svg)
+
+The same runs as text, since a picture is not greppable:
 
 | Model | Called the tool | Wall clock | Note |
 |---|---|---|---|
