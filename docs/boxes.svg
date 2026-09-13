@@ -50,7 +50,7 @@
   <text x="96" y="342" fill="#69788b">gateway resident</text><text x="250" y="342" fill="#e6edf3">128 MB</text>
   <text x="96" y="366" fill="#69788b">one agent task</text> <text x="250" y="366" fill="#3fb950">25 s</text>
   <text x="96" y="390" fill="#69788b">four at once</text>   <text x="250" y="390" fill="#3fb950">32 s, all finished</text>
-  <text x="96" y="414" fill="#69788b">temperature</text>    <text x="250" y="414" fill="#e6edf3">41 to 43 C, fanless</text>
+  <text x="96" y="414" fill="#69788b">temperature</text>    <text x="250" y="414" fill="#e6edf3">41 to 47 C, fanless</text>
 </g>
 
 <!-- right: Brume 2 -->
@@ -81,6 +81,6 @@
   <text x="700" y="342" fill="#69788b">gateway resident</text><text x="854" y="342" fill="#e6edf3">131 MB</text>
   <text x="700" y="366" fill="#69788b">one agent task</text>  <text x="854" y="366" fill="#3fb950">33 s</text>
   <text x="700" y="390" fill="#69788b">four at once</text>    <text x="854" y="390" fill="#e3b341">62 s, all finished</text>
-  <text x="700" y="414" fill="#69788b">temperature</text>     <text x="854" y="414" fill="#e6edf3">39 to 42 C, fanless</text>
+  <text x="700" y="414" fill="#69788b">temperature</text>     <text x="854" y="414" fill="#e6edf3">39 to 43 C, fanless</text>
 </g>
 </svg>
