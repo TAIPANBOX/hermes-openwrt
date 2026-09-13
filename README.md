@@ -109,6 +109,10 @@ was pushed until something broke:
 
 ![How many agents fit on a 1 GB router](docs/concurrency.svg)
 
+Four concurrent agents is the safe ceiling on a 1 GB router. Six is over it on both
+boxes: the kernel killed processes three times on each, and although the sessions
+happened to finish and the gateway survived, that is luck rather than headroom.
+
 Two things that were worth checking and turned out fine. **Routing is not disturbed**:
 iperf3 across the box measured 938 Mbit/s idle and 931 Mbit/s while three agents were
 working, which is inside the noise. **Nothing leaks over a run**: eight sequential
