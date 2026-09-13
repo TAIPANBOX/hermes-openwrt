@@ -111,6 +111,12 @@ if [ "$FORMAT" = ipk ]; then
 	exit 0
 fi
 
+# macOS puts a .DS_Store into any directory Finder or Spotlight touches, and it can
+# appear between apk reading the file list and apk writing the contents. The package
+# then installs on the router and fails with a bare "file integrity error", which reads
+# like a corrupt download rather than a stray 6 kB file. Sweep them before packaging.
+find "$WORK/tree" -name .DS_Store -delete 2>/dev/null || true
+
 echo "==> packaging with apk mkpkg"
 # The scripts are written here rather than shipped as files because they are three lines
 # each and belong next to the metadata that references them.
@@ -139,7 +145,7 @@ docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "origin:hermes-agent" \
 	--info "url:https://github.com/NousResearch/hermes-agent" \
 	--info "description:Hermes Agent, the self-hosted AI agent, packaged for OpenWrt. Runs as a procd service against any OpenAI-compatible endpoint." \
-	--info "depends:python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep" \
+	--info "depends:python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep" \
 	--script "post-install:/work/post-install" \
 	--script "pre-deinstall:/work/pre-deinstall" \
 	--files /work/tree \

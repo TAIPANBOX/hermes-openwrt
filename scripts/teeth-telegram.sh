@@ -67,7 +67,7 @@ repack_base() {
 		--info "name:hermes-agent" --info "version:0.19.0-r99" --info "arch:$ARCH" \
 		--info "license:MIT" --info "origin:hermes-agent" \
 		--info "description:deliberately broken build, teeth-telegram.sh" \
-		--info "depends:python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep" \
+		--info "depends:python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep" \
 		--script "post-install:/work/post-install" \
 		--script "pre-deinstall:/work/pre-deinstall" \
 		--files /work/tree --output /work/mutant.apk >/dev/null 2>&1

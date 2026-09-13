@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" role="img" aria-label="The two routers these figures came from: GL-MT6000 Flint 2 and GL-MT2500 Brume 2">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/>
+  </linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/>
+  </linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/>
+  </pattern>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/>
+  </filter>
+</defs>
+
+<rect x="0" y="0" width="1280" height="480" fill="url(#bg)"/>
+<rect x="0" y="0" width="1280" height="480" fill="url(#grid)" opacity="0.5"/>
+<rect x="0" y="0" width="1280" height="4" fill="url(#accent)"/>
+
+<text x="48" y="60" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" font-weight="600" fill="#e6edf3">The two boxes behind every number here</text>
+<text x="48" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Both flashed to vanilla OpenWrt 25.12.5, package arch aarch64_cortex-a53, no vendor firmware left on either</text>
+
+<!-- left: Flint 2 -->
+<rect x="48" y="118" width="580" height="316" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+
+<!-- device drawing: wifi router with four antennas -->
+<g transform="translate(96,150)">
+  <line x1="26" y1="34" x2="8"  y2="4"  stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
+  <line x1="72" y1="30" x2="62" y2="0"  stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
+  <line x1="128" y1="30" x2="138" y2="0" stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
+  <line x1="174" y1="34" x2="192" y2="4" stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 16 34 L 184 34 L 200 78 L 0 78 Z" fill="#1b2331" stroke="#2dd4bf" stroke-opacity="0.5" stroke-width="2"/>
+  <rect x="86" y="52" width="28" height="6" rx="3" fill="#2dd4bf" opacity="0.8"/>
+  <rect x="0" y="78" width="200" height="10" rx="3" fill="#11161f" stroke="#1b2331"/>
+</g>
+
+<text x="330" y="172" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" font-weight="600" fill="#e6edf3">GL-MT6000</text>
+<text x="330" y="194" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Flint 2</text>
+
+<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">
+  <text x="330" y="228">MT7986  4x Cortex-A53</text>
+  <text x="330" y="252">1 GB RAM   8 GB eMMC</text>
+  <text x="330" y="276">2x 2.5G + 4x 1G  Wi-Fi 6</text>
+</g>
+
+<rect x="96" y="290" width="500" height="1" fill="#1b2331"/>
+<g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
+  <text x="96" y="318" fill="#69788b">install</text>       <text x="250" y="318" fill="#e6edf3">16 s</text>
+  <text x="96" y="342" fill="#69788b">gateway resident</text><text x="250" y="342" fill="#e6edf3">128 MB</text>
+  <text x="96" y="366" fill="#69788b">one agent task</text> <text x="250" y="366" fill="#3fb950">25 s</text>
+  <text x="96" y="390" fill="#69788b">four at once</text>   <text x="250" y="390" fill="#3fb950">32 s, all finished</text>
+  <text x="96" y="414" fill="#69788b">temperature</text>    <text x="250" y="414" fill="#e6edf3">41 to 43 C, fanless</text>
+</g>
+
+<!-- right: Brume 2 -->
+<rect x="652" y="118" width="580" height="316" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+
+<!-- device drawing: small wired box -->
+<g transform="translate(700,168)">
+  <rect x="0" y="12" width="150" height="58" rx="8" fill="#1b2331" stroke="#4493f8" stroke-opacity="0.5" stroke-width="2"/>
+  <rect x="16" y="34" width="26" height="16" rx="2" fill="#11161f" stroke="#69788b"/>
+  <rect x="52" y="34" width="26" height="16" rx="2" fill="#11161f" stroke="#69788b"/>
+  <rect x="92" y="38" width="10" height="8" rx="2" fill="#2dd4bf" opacity="0.7"/>
+  <rect x="110" y="38" width="10" height="8" rx="2" fill="#69788b" opacity="0.5"/>
+  <rect x="0" y="70" width="150" height="8" rx="3" fill="#11161f" stroke="#1b2331"/>
+</g>
+
+<text x="890" y="172" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" font-weight="600" fill="#e6edf3">GL-MT2500</text>
+<text x="890" y="194" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Brume 2, wired only</text>
+
+<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">
+  <text x="890" y="228">MT7981  2x Cortex-A53</text>
+  <text x="890" y="252">1 GB RAM   8 GB eMMC</text>
+  <text x="890" y="276">1x 2.5G + 1x 1G  no radio</text>
+</g>
+
+<rect x="700" y="290" width="500" height="1" fill="#1b2331"/>
+<g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
+  <text x="700" y="318" fill="#69788b">install</text>        <text x="854" y="318" fill="#e6edf3">48 s</text>
+  <text x="700" y="342" fill="#69788b">gateway resident</text><text x="854" y="342" fill="#e6edf3">131 MB</text>
+  <text x="700" y="366" fill="#69788b">one agent task</text>  <text x="854" y="366" fill="#3fb950">33 s</text>
+  <text x="700" y="390" fill="#69788b">four at once</text>    <text x="854" y="390" fill="#e3b341">62 s, all finished</text>
+  <text x="700" y="414" fill="#69788b">temperature</text>     <text x="854" y="414" fill="#e6edf3">39 to 42 C, fanless</text>
+</g>
+</svg>

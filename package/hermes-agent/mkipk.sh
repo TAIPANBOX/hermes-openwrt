@@ -51,7 +51,7 @@ mkdir -p "$CTRL"
 cat > "$CTRL/control" <<EOF
 Package: $PKG
 Version: $VERSION-r$PKGREL
-Depends: python3, python3-pip, ca-bundle, ffmpeg, ffprobe, ripgrep
+Depends: python3, python3-pip, ca-bundle, bash, ffmpeg, ffprobe, ripgrep
 Source: https://github.com/TAIPANBOX/hermes-openwrt
 Section: utils
 Architecture: $ARCH

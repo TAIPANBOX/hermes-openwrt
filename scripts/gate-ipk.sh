@@ -64,7 +64,7 @@ opkg list-installed 2>/dev/null | grep -q '^hermes-agent ' || fail check_install
 echo "PASS check_installs"
 
 # ---- 2. dependencies came from the release feed ----
-for d in python3 python3-pip ca-bundle ffmpeg ripgrep; do
+for d in python3 python3-pip ca-bundle bash ffmpeg ripgrep; do
 	opkg list-installed 2>/dev/null | grep -q "^$d " || fail check_deps_resolve "$d did not install"
 done
 echo "PASS check_deps_resolve"

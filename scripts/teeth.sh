@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Four faults, each one a real change could introduce, each caught by a different
+# Five faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -37,6 +37,7 @@ fi
 cleanup() {
 	[ -f /tmp/shim.bak ] && cp /tmp/shim.bak "$SITE/webbrowser.py" 2>/dev/null
 	[ -f /tmp/postinstall.bak ] && cp /tmp/postinstall.bak "$W/post-install" 2>/dev/null
+	[ -f /tmp/wrap.bak ] && cp /tmp/wrap.bak "$W/tree/usr/sbin/hermes-gateway" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
 	# The init is restored from the repository rather than from a backup: a backup taken
 	# at the top of a run that had already been poisoned by an earlier crashed run would
@@ -99,12 +100,30 @@ cp /tmp/postinstall.bak "$W/post-install"
 # which killed the service at argument parsing on every start with the configuration the
 # package ships, while every other check in the gate stayed green. It was found by
 # looking at the log box on the LuCI page in a browser, weeks of gate runs later.
+# The argv the service runs is now built in the wrapper rather than the init, so the
+# fault has to be planted where the words actually are. Planting it in the init would
+# change nothing and the check would stay green, which is how this fault broke when the
+# wrapper was introduced: teeth caught it on the first CI run.
 INIT="$W/tree/etc/init.d/hermes-agent"
-cp "$INIT" /tmp/init.bak
+WRAP="$W/tree/usr/sbin/hermes-gateway"
+cp "$WRAP" /tmp/wrap.bak
 sed 's|gateway run --external-supervisor|gateway run --external-supervisor --toolsets file,web|' \
-	"$INIT" > /tmp/init.new && cp /tmp/init.new "$INIT"
+	"$WRAP" > /tmp/wrap.new && cp /tmp/wrap.new "$WRAP" && chmod 0755 "$WRAP"
 repack "$DEPS_OK"
 expect_red "a flag the gateway subcommand rejects" check_service_command_runs
+cp /tmp/wrap.bak "$WRAP" && chmod 0755 "$WRAP"
+
+# ---- fault 5: the key handed to procd instead of read by the wrapper ----
+# This is the shape the package shipped in until hardware showed the cost: procd keeps
+# whatever env it is given and returns all of it to `ubus call service list`, which rpcd
+# ACLs can expose well beyond root. argv and uci stayed clean the whole time, so the two
+# older key checks could not see it.
+cp "$INIT" /tmp/init.bak
+sed -e 's|procd_set_param command /usr/sbin/hermes-gateway "$key_file"|procd_set_param command "$PROG" gateway run --external-supervisor|' \
+    -e 's|\t\tOPENAI_BASE_URL="$base_url" \\|\t\tOPENAI_BASE_URL="$base_url" \\\n\t\tOPENAI_API_KEY="$key" \\|' \
+	"$INIT" > /tmp/init.new && cp /tmp/init.new "$INIT"
+repack "$DEPS_OK"
+expect_red "the key handed to procd's env" check_key_not_in_procd_env
 cp /tmp/init.bak "$INIT"
 
 # ---- and green again, so the reds above were the faults and not the harness ----
@@ -113,4 +132,4 @@ APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 4 faults, 4 distinct checks, green restored"
+echo "teeth: 5 faults, 5 distinct checks, green restored"

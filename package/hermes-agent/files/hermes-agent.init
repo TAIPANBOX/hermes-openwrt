@@ -143,16 +143,21 @@ start_service() {
 	# --external-supervisor, because procd IS one. Without it an in-chat restart or
 	# update spawns a detached replacement that escapes procd, and the router ends up
 	# with a gateway procd neither supervises nor can stop.
-	procd_set_param command "$PROG" gateway run --external-supervisor
+	# The key is read by a wrapper at exec time rather than handed to procd, so it
+	# appears in neither argv nor procd's service table. See below.
+	procd_set_param command /usr/sbin/hermes-gateway "$key_file"
 
-	# Secrets go in the environment, never on the command line: argv is world-readable
-	# through /proc, and this box may have more than one person on it.
+	# Everything here is non-secret, so procd may hold it. The key is deliberately
+	# absent: procd hands its whole env block back through
+	#   ubus call service list '{"name":"hermes-agent"}'
+	# which rpcd ACLs can expose to a LuCI session, so a secret placed here is readable
+	# well beyond root. Found on hardware on 2026-09-13, after argv and uci had been
+	# clean for months. -> check_key_not_in_procd_env
 	procd_set_param env \
 		HERMES_HOME="$data_dir" \
 		HERMES_DISABLE_LAZY_INSTALLS=1 \
 		PYTHONDONTWRITEBYTECODE=1 \
 		OPENAI_BASE_URL="$base_url" \
-		OPENAI_API_KEY="$key" \
 		HERMES_MODEL="$model"
 
 	# HERMES_DISABLE_LAZY_INSTALLS is not optional here. Left unset, Hermes pip-installs
