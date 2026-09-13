@@ -1,9 +1,11 @@
 #!/bin/sh
 # luci-preview.sh -- bring the LuCI pages up on a real OpenWrt, for looking at.
 #
-# This exists because the screenshots in the README are the only part of this repository
-# that cannot be checked by a gate: a page can install, register on ubus, answer every
-# call and still be laid out wrong, and the only way to know is to look. It was done by
+# This exists because the rendered page is the only part of this repository that cannot be
+# checked by a gate: a page can install, register on ubus, answer every call and still be
+# laid out wrong, and the only way to know is to look. The README no longer carries
+# screenshots, since a stock LuCI page shows nothing a sentence cannot, but the reason to
+# open the page by hand before shipping a change to it has not gone away. It was done by
 # hand once and the recipe was lost, so it is a script now.
 #
 # Four things that each cost an afternoon the first time:

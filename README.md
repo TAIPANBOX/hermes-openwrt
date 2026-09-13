@@ -152,11 +152,7 @@ rather than the 185 MB the package reports. On a router with 8 MB or 128 MB of f
 that does not fit, and even where it fits, the writes land on the same flash the
 firmware lives on.
 
-Measured with the data directory moved to an ext4 USB stick: **12 kB written to internal
-flash per session, against roughly 850 kB with the data directory on eMMC**, about
-seventy times less, at the same 25 s per session. The stick itself takes about 924 kB per
-session plus 228 kB every 30 s while the gateway is idle, because the journal is written
-continuously.
+![Moving the data directory to a USB stick](docs/usb.svg)
 
 ```sh
 apk add kmod-usb-storage kmod-fs-ext4 block-mount e2fsprogs
@@ -196,25 +192,19 @@ again.
 
 ## The web interface
 
-`luci-app-hermes` adds **Services -> Hermes Agent**.
+`luci-app-hermes` adds **Services -> Hermes Agent**: an overview with service state,
+version, free space where the data lives, which keys are set and a live log tail, and a
+settings page for the endpoint, the model, the keys, router access, Telegram and toolsets.
 
-![Overview: service state, version, free space where the data lives, which keys are set, whether Telegram has a token, and a live log tail](docs/luci-overview.png)
+It looks like every other LuCI page, and two things about it are not cosmetic.
 
-Six facts on one screen, because a router page is opened in two situations only: setting
-the thing up, and finding out why it stopped. Free space is on that list deliberately.
-Sessions and memory are a SQLite database that only grows, and a router that fills its
-overlay stops routing.
+**The key fields are write-only.** They read `stored`, never a key: the page can store one
+and can ask whether one exists, and no method returns one, which is the next section.
 
-![Settings: service, model endpoint, write-only keys, router access, the Telegram section, and toolsets](docs/luci-settings.png)
-
-The overview above is a router with everything configured: the service running, the
-Telegram add-on installed, a token stored, and the log showing what the agent is doing.
-The Telegram lines in it are the platform loading its adapter, reaching Telegram's API
-and being told the token is not real, which is the correct answer to a token that is not.
-
-The API key field reads `stored` and never a key. That is not a nicety, it is the design,
-and the screenshot above is the proof of it: a picture of this page cannot leak a key,
-because the page was never sent one.
+**The log tail is the only way to see the service without SSH**, and it is not decoration.
+The worst defect this package ever shipped, a flag the CLI rejects that killed the service
+at argument parsing on every start, was found by opening that box in a browser after weeks
+of green gates. There is a check for it now.
 
 ## Keys go in and do not come out
 
