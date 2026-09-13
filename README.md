@@ -98,6 +98,8 @@ always-on gateway looks like.
 | `hermes --version`, cold | 3 s | 4 s |
 | gateway resident | 128 MB | 131 MB |
 | one agent task, end to end | 25 s | 33 s |
+| four concurrent agents | 32 s, all finished | 62 s, all finished |
+| six concurrent agents | 57 s, **3 OOM kills** | 164 s, **3 OOM kills** |
 
 ![Measured on hardware](docs/measured.svg)
 
