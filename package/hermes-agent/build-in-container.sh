@@ -115,7 +115,7 @@ fi
 # appear between apk reading the file list and apk writing the contents. The package
 # then installs on the router and fails with a bare "file integrity error", which reads
 # like a corrupt download rather than a stray 6 kB file. Sweep them before packaging.
-find "$W/tree" -name .DS_Store -delete 2>/dev/null || true
+find "$WORK/tree" -name .DS_Store -delete 2>/dev/null || true
 
 echo "==> packaging with apk mkpkg"
 # The scripts are written here rather than shipped as files because they are three lines
