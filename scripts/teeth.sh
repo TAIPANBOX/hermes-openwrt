@@ -37,6 +37,7 @@ fi
 cleanup() {
 	[ -f /tmp/shim.bak ] && cp /tmp/shim.bak "$SITE/webbrowser.py" 2>/dev/null
 	[ -f /tmp/postinstall.bak ] && cp /tmp/postinstall.bak "$W/post-install" 2>/dev/null
+	[ -f /tmp/wrap.bak ] && cp /tmp/wrap.bak "$W/tree/usr/sbin/hermes-gateway" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
 	# The init is restored from the repository rather than from a backup: a backup taken
 	# at the top of a run that had already been poisoned by an earlier crashed run would
@@ -99,13 +100,18 @@ cp /tmp/postinstall.bak "$W/post-install"
 # which killed the service at argument parsing on every start with the configuration the
 # package ships, while every other check in the gate stayed green. It was found by
 # looking at the log box on the LuCI page in a browser, weeks of gate runs later.
+# The argv the service runs is now built in the wrapper rather than the init, so the
+# fault has to be planted where the words actually are. Planting it in the init would
+# change nothing and the check would stay green, which is how this fault broke when the
+# wrapper was introduced: teeth caught it on the first CI run.
 INIT="$W/tree/etc/init.d/hermes-agent"
-cp "$INIT" /tmp/init.bak
+WRAP="$W/tree/usr/sbin/hermes-gateway"
+cp "$WRAP" /tmp/wrap.bak
 sed 's|gateway run --external-supervisor|gateway run --external-supervisor --toolsets file,web|' \
-	"$INIT" > /tmp/init.new && cp /tmp/init.new "$INIT"
+	"$WRAP" > /tmp/wrap.new && cp /tmp/wrap.new "$WRAP" && chmod 0755 "$WRAP"
 repack "$DEPS_OK"
 expect_red "a flag the gateway subcommand rejects" check_service_command_runs
-cp /tmp/init.bak "$INIT"
+cp /tmp/wrap.bak "$WRAP" && chmod 0755 "$WRAP"
 
 # ---- fault 5: the key handed to procd instead of read by the wrapper ----
 # This is the shape the package shipped in until hardware showed the cost: procd keeps
