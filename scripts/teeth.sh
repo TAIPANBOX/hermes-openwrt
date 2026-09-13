@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Four faults, each one a real change could introduce, each caught by a different
+# Five faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -107,10 +107,23 @@ repack "$DEPS_OK"
 expect_red "a flag the gateway subcommand rejects" check_service_command_runs
 cp /tmp/init.bak "$INIT"
 
+# ---- fault 5: the key handed to procd instead of read by the wrapper ----
+# This is the shape the package shipped in until hardware showed the cost: procd keeps
+# whatever env it is given and returns all of it to `ubus call service list`, which rpcd
+# ACLs can expose well beyond root. argv and uci stayed clean the whole time, so the two
+# older key checks could not see it.
+cp "$INIT" /tmp/init.bak
+sed -e 's|procd_set_param command /usr/sbin/hermes-gateway "$key_file"|procd_set_param command "$PROG" gateway run --external-supervisor|' \
+    -e 's|\t\tOPENAI_BASE_URL="$base_url" \\|\t\tOPENAI_BASE_URL="$base_url" \\\n\t\tOPENAI_API_KEY="$key" \\|' \
+	"$INIT" > /tmp/init.new && cp /tmp/init.new "$INIT"
+repack "$DEPS_OK"
+expect_red "the key handed to procd's env" check_key_not_in_procd_env
+cp /tmp/init.bak "$INIT"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 4 faults, 4 distinct checks, green restored"
+echo "teeth: 5 faults, 5 distinct checks, green restored"

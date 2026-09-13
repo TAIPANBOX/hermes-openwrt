@@ -11,7 +11,7 @@ and runs under procd.
 ![Python 3.13 and 3.11](https://img.shields.io/badge/Python-3.13%20%C2%B7%203.11-4493f8)
 ![signed feed](https://img.shields.io/badge/feed-signed-3fb950)
 ![license MIT](https://img.shields.io/badge/license-MIT-9aa7b8)
-![hardware not yet run](https://img.shields.io/badge/hardware-not%20yet%20run-e3b341)
+![tested on two routers](https://img.shields.io/badge/hardware-two%20routers%2C%20measured-3fb950)
 
 </div>
 
@@ -232,6 +232,134 @@ expects, and the URL is logged so a pairing step is still completable by hand.
 Everything else Hermes needs is already packaged by OpenWrt: sqlite3, ssl, ctypes,
 asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 
+## Measured on hardware
+
+Everything above was true of container images and CI before any router had run it. On
+2026-09-13 two boxes did, and the figures below come from them rather than from a VM.
+
+![The two routers behind these numbers](docs/boxes.svg)
+
+Both are GL.iNet hardware running **vanilla OpenWrt 25.12.5**, not the vendor firmware
+they ship with: the stock image was replaced entirely, over the network, and the package
+was installed from the signed feed exactly as the instructions above describe. The Flint 2
+is a Wi-Fi 6 router with four cores and six ports; the Brume 2 is a wired-only box with
+two cores, which is the interesting case here because it is closer to what a small
+always-on gateway looks like.
+
+| | GL-MT6000 (Flint 2) | GL-MT2500 (Brume 2) |
+|---|---|---|
+| SoC | MT7986, 4x Cortex-A53 | MT7981, 2x Cortex-A53 |
+| RAM / free flash | 1 GB / 6.8 GB | 1 GB / 6.8 GB |
+| `apk add hermes-agent luci-app-hermes` | 16 s | 48 s |
+| installed tree | 185 MB | 185 MB |
+| `hermes --version`, cold | 3 s | 4 s |
+| gateway resident | 128 MB | 131 MB |
+| one agent task, end to end | 25 s | 33 s |
+
+![Measured on hardware](docs/measured.svg)
+
+### What fits alongside your other services
+
+A box with WireGuard, Tailscale and the usual packages still has to run all of them, so
+the number that matters is what Hermes takes while working, not while idle. Concurrency
+was pushed until something broke:
+
+| Concurrent agents | Wall clock | Completed | RAM taken | Free RAM left | CPU |
+|---|---|---|---|---|---|
+| 1 | 25 s | 1/1 | 153 MB | 535 MB | 41 to 42 C |
+| 2 | 27 s | 2/2 | 263 MB | 415 MB | 41 to 42 C |
+| 4 | 32 s | 4/4 | 518 MB | 165 MB | 42 to 43 C |
+| 6 | 43 s | **5/6** | 615 MB | 76 MB | 41 to 43 C |
+
+Read it as **roughly 130 MB per concurrent session on top of the 128 MB gateway**. Four
+at once is the practical ceiling on a 1 GB router; at six, one session did not finish,
+though the gateway itself survived. More cores buy wall clock rather than capacity: at
+four agents the 4-core box took 32 s against 62 s on the 2-core one, for identical
+memory use.
+
+Two things that were worth checking and turned out fine. **Routing is not disturbed**:
+iperf3 across the box measured 938 Mbit/s idle and 931 Mbit/s while three agents were
+working, which is inside the noise. **Nothing leaks over a run**: eight sequential
+sessions moved the gateway's resident memory from 108688 kB to 108716 kB, and each
+session still took its usual 24 s. Temperature never left the 39 to 43 C band on either
+box, fanless, with no throttling.
+
+### Which models can actually drive it
+
+The package is provider-agnostic, so the useful question is which models can call a tool
+rather than talk about calling one. Same task on the same box, through OpenRouter:
+
+| Model | Called the tool | Wall clock | Note |
+|---|---|---|---|
+| `anthropic/claude-haiku-4.5` | yes | 25 s | reference |
+| `google/gemini-2.5-flash` | yes | 25 s | clean |
+| `openai/gpt-4o-mini` | yes | 24 s | clean |
+| `moonshotai/kimi-k2-0905` | yes | 25 s | clean |
+| `deepseek/deepseek-chat-v3.1` | yes | 34 s | leaks its reasoning into the reply |
+| `qwen/qwen3-8b` | yes | 43 s | slowest that still works |
+| `mistralai/mistral-small-3.2-24b` | yes | 24 s | called the tool, then did the arithmetic wrong |
+| `meta-llama/llama-3.3-70b` | no | 35 s | provider returned an empty stream |
+| `google/gemma-3-12b-it` | **no** | 26 s | printed `[terminal(command=...)]` as plain text |
+
+The floor is native tool calling, not parameter count: an 8B model works, a 12B model
+without tool support does not, and a 24B model can call the tool correctly and still get
+the answer wrong. Pick accordingly, and prefer a model with real function calling over a
+larger one without it.
+
+One provider note: OpenRouter and any OpenAI-compatible endpoint work. Anthropic's own
+API does not, because the native provider wants the `anthropic` python package, which
+this wheel set does not carry, and the OpenAI-compatible endpoint answers 401.
+
+### Small flash: put the data directory on a USB stick
+
+The agent keeps sessions, memory and a SQLite journal under its data directory, and
+Hermes downloads a further 34 MB helper binary on first run, so budget about 220 MB
+rather than the 185 MB the package reports. On a router with 8 MB or 128 MB of flash
+that does not fit, and even where it fits, the writes land on the same flash the
+firmware lives on.
+
+Measured with the data directory moved to an ext4 USB stick: **12 kB written to internal
+flash per session, against roughly 850 kB with the data directory on eMMC**, about
+seventy times less, at the same 25 s per session. The stick itself takes about 924 kB per
+session plus 228 kB every 30 s while the gateway is idle, because the journal is written
+continuously.
+
+```sh
+apk add kmod-usb-storage kmod-fs-ext4 block-mount e2fsprogs
+
+mkfs.ext4 -F -L hermes-data /dev/sda1
+mkdir -p /mnt/usb && mount /dev/sda1 /mnt/usb
+/etc/init.d/hermes-agent stop
+cp -a /srv/hermes/. /mnt/usb/ && umount /mnt/usb
+
+uci set fstab.hermes=mount
+uci set fstab.hermes.uuid="$(block info /dev/sda1 | grep -o 'UUID="[^"]*"' | cut -d'"' -f2)"
+uci set fstab.hermes.target='/srv/hermes'
+uci set fstab.hermes.options='rw,noatime'
+uci set fstab.hermes.enabled='1'
+uci commit fstab && /etc/init.d/fstab boot
+/etc/init.d/hermes-agent start
+```
+
+### Two defects the hardware found
+
+Neither was visible in a container or on x86, which is the whole argument for running on
+the thing itself.
+
+**`bash` is required, and was not declared.** Hermes builds its shell commands with
+`builtin cd`, which BusyBox `ash` does not have, so on a stock OpenWrt image every single
+command the agent ran failed with `/bin/ash: builtin: not found` and exit 126. The model
+does not recover from this; it reports the environment as broken and gives up. `bash` is
+now a declared dependency and the gates check for it.
+
+**The key reached procd's service table.** The init handed it over with
+`procd_set_param env`, and procd returns its whole environment to anyone who can ask
+`ubus call service list`, which rpcd ACLs can extend to a LuCI session. argv and uci were
+clean, which is what the older checks looked at. The key is now read by a small wrapper
+at exec time, so it exists only in the process's own environment, and
+`check_key_not_in_procd_env` fails the build if it ever appears in the service table
+again.
+
 ## What it will not do
 
 **It will not run a language model on the router.** The model lives elsewhere and the
@@ -273,7 +401,7 @@ OpenWrt's own published rootfs and then asks the running system.
 
 | gate | what it proves |
 |---|---|
-| `gate-package.sh` | 10 checks: apk installs it, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI, config survives reinstall, removal is clean |
+| `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean |
 | `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
 | `gate-luci.sh` | 10 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, and **no method returns a key** |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
@@ -296,6 +424,11 @@ installed, the CLI ran, the service refused politely without a key. Nothing had 
 the command line the init builds. It was found by opening the web interface and reading
 the log box, which is the one thing no gate here does.
 
+Hardware added the same lesson twice more. A container has `bash`, so no gate could see
+that the agent's shell tool is unusable without it; a container has no procd, so no gate
+could see the key in the service table. Both now have checks, and the rule they teach is
+the same one: a gate proves what it was pointed at, and a router is not a container.
+
 ## Status
 
 - [x] Native package for 25.12 (apk) and 24.10 (opkg)
@@ -303,8 +436,12 @@ the log box, which is the one thing no gate here does.
 - [x] LuCI interface with write-only key handling
 - [x] Signed feed for both lines, signed on a workstation
 - [x] Every gate runs on OpenWrt's own rootfs images in CI
-- [ ] **Run on real hardware.** No router has run this yet, only the published images
+- [x] **Run on real hardware.** Two GL.iNet routers on vanilla OpenWrt 25.12.5; see the figures above
+- [x] **A full agent turn on a router**, model calling a tool and answering from what it read
+- [x] **Measured under load**: concurrency ceiling, thermals, throughput, flash writes, leak check
+- [x] **The feed installs on hardware** with its signature verified and no `--allow-untrusted`
 - [x] Telegram, as a two-distribution add-on package, on both release lines
+- [ ] Native Anthropic provider, which needs the `anthropic` package as a second add-on
 - [ ] Track upstream releases automatically, which arrive every two to four days
 
 ## Prior art, and what is not ours

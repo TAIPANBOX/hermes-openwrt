@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" role="img" aria-label="Measured on two GL.iNet routers: memory per agent, throughput under load, temperature, and where the writes go">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0a0e16"/>
+    <stop offset="1" stop-color="#0d1117"/>
+  </linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#2dd4bf"/>
+    <stop offset="1" stop-color="#4493f8"/>
+  </linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/>
+  </pattern>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/>
+  </filter>
+</defs>
+
+<rect x="0" y="0" width="1280" height="620" fill="url(#bg)"/>
+<rect x="0" y="0" width="1280" height="620" fill="url(#grid)" opacity="0.5"/>
+<rect x="0" y="0" width="1280" height="4" fill="url(#accent)"/>
+
+<text x="48" y="62" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="28" font-weight="600" fill="#e6edf3">Measured on hardware</text>
+<text x="48" y="90" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="15" fill="#69788b">GL-MT6000 (MT7986, 4 cores) and GL-MT2500 (MT7981, 2 cores), both 1 GB RAM, vanilla OpenWrt 25.12.5, gateway resident throughout</text>
+
+<!-- panel 1: memory budget -->
+<rect x="48" y="118" width="380" height="238" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<text x="72" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">MEMORY BUDGET, 1 GB BOX</text>
+
+<rect x="72" y="170" width="332" height="26" rx="4" fill="#1b2331"/>
+<rect x="72" y="170" width="43" height="26" rx="4" fill="#4493f8"/>
+<text x="124" y="188" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">gateway, resident  128 MB</text>
+
+<rect x="72" y="204" width="332" height="26" rx="4" fill="#1b2331"/>
+<rect x="72" y="204" width="44" height="26" rx="4" fill="#2dd4bf"/>
+<text x="125" y="222" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">each concurrent agent  ~130 MB</text>
+
+<rect x="72" y="238" width="332" height="26" rx="4" fill="#1b2331"/>
+<rect x="72" y="238" width="174" height="26" rx="4" fill="#3fb950"/>
+<text x="255" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">4 agents  518 MB</text>
+
+<rect x="72" y="272" width="332" height="26" rx="4" fill="#1b2331"/>
+<rect x="72" y="272" width="206" height="26" rx="4" fill="#e3b341"/>
+<text x="287" y="290" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">6 agents  615 MB</text>
+
+<text x="72" y="324" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">Four concurrent agents is the practical ceiling:</text>
+<text x="72" y="343" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">165 MB still free. At six, one session failed.</text>
+
+<!-- panel 2: routing is unaffected -->
+<rect x="450" y="118" width="380" height="238" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<text x="474" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">THE ROUTER KEEPS ROUTING</text>
+
+<text x="474" y="186" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">iperf3 across the box, gateway up</text>
+<rect x="474" y="198" width="332" height="30" rx="4" fill="#1b2331"/>
+<rect x="474" y="198" width="330" height="30" rx="4" fill="#3fb950" opacity="0.85"/>
+<text x="488" y="218" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#0a0e16" font-weight="600">idle          938 Mbit/s</text>
+
+<text x="474" y="256" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">the same test, three agents thinking</text>
+<rect x="474" y="268" width="332" height="30" rx="4" fill="#1b2331"/>
+<rect x="474" y="268" width="328" height="30" rx="4" fill="#3fb950" opacity="0.85"/>
+<text x="488" y="288" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#0a0e16" font-weight="600">under load    931 Mbit/s</text>
+
+<text x="474" y="324" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">0.7 percent apart, inside the noise. CPU 41 to 43 C</text>
+<text x="474" y="343" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">throughout, fanless, no throttling seen.</text>
+
+<!-- panel 3: writes -->
+<rect x="852" y="118" width="380" height="238" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<text x="876" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">WHERE THE WRITES GO</text>
+
+<text x="876" y="186" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">per agent session, internal flash</text>
+<rect x="876" y="198" width="332" height="26" rx="4" fill="#1b2331"/>
+<rect x="876" y="198" width="290" height="26" rx="4" fill="#e3b341"/>
+<text x="890" y="216" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#0a0e16" font-weight="600">data dir on eMMC    ~850 kB</text>
+
+<rect x="876" y="232" width="332" height="26" rx="4" fill="#1b2331"/>
+<rect x="876" y="232" width="9" height="26" rx="4" fill="#3fb950"/>
+<text x="896" y="250" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">data dir on USB       12 kB</text>
+
+<text x="876" y="292" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">Moving the data directory to a USB stick cuts</text>
+<text x="876" y="311" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">writes to internal flash by roughly seventy</text>
+<text x="876" y="330" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">times, at the same 25 s per session.</text>
+
+<!-- bottom strip: one task, end to end -->
+<rect x="48" y="382" width="1184" height="186" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<text x="72" y="414" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">ONE TASK, END TO END, ON THE ROUTER</text>
+
+<rect x="72" y="432" width="196" height="52" rx="8" fill="#1b2331" stroke="#2dd4bf" stroke-opacity="0.35"/>
+<text x="88" y="454" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#e6edf3">you ask</text>
+<text x="88" y="472" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#69788b">"how long has it been up?"</text>
+
+<path d="M 276 458 L 320 458" stroke="#2dd4bf" stroke-width="2" fill="none" marker-end="url(#a1)"/>
+<defs><marker id="a1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2dd4bf"/></marker></defs>
+
+<rect x="328" y="432" width="196" height="52" rx="8" fill="#1b2331" stroke="#4493f8" stroke-opacity="0.35"/>
+<text x="344" y="454" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#e6edf3">the model decides</text>
+<text x="344" y="472" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#69788b">call the terminal tool</text>
+
+<path d="M 532 458 L 576 458" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#a2)"/>
+<defs><marker id="a2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#4493f8"/></marker></defs>
+
+<rect x="584" y="432" width="196" height="52" rx="8" fill="#1b2331" stroke="#3fb950" stroke-opacity="0.35"/>
+<text x="600" y="454" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#e6edf3">the router runs it</text>
+<text x="600" y="472" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#69788b">cat /proc/uptime</text>
+
+<path d="M 788 458 L 832 458" stroke="#3fb950" stroke-width="2" fill="none" marker-end="url(#a3)"/>
+<defs><marker id="a3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#3fb950"/></marker></defs>
+
+<rect x="840" y="432" width="368" height="52" rx="8" fill="#1b2331" stroke="#3fb950" stroke-opacity="0.55"/>
+<text x="856" y="454" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#e6edf3">you get the answer, from what it read</text>
+<text x="856" y="472" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#3fb950">"up for approximately 28 minutes"</text>
+
+<text x="72" y="520" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">25 s on the 4-core box, 33 s on the 2-core one. Eight sessions in a row moved resident memory by 28 kB, so nothing leaks over a run.</text>
+<text x="72" y="544" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">Every figure on this page came from these two routers on 2026-09-13, not from a container and not from a VM.</text>
+</svg>

@@ -1,0 +1,23 @@
+#!/bin/sh
+# hermes-gateway -- read the provider key at exec time, then become the gateway.
+#
+# Why this exists rather than `procd_set_param env OPENAI_API_KEY=...`:
+# procd keeps the environment it was given and returns it verbatim to
+#   ubus call service list '{"name":"hermes-agent"}'
+# so a key placed there is readable by anything that can reach ubus, which rpcd ACLs
+# can extend to a LuCI session. Read here instead, the key lives only in this process's
+# own environment, where /proc/<pid>/environ is 0400 and root-only.
+#
+# -> check_key_not_in_procd_env in scripts/gate-package.sh
+set -eu
+
+KEY_FILE=${1:?hermes-gateway: no key file given}
+
+[ -r "$KEY_FILE" ] || { echo "hermes-gateway: cannot read $KEY_FILE" >&2; exit 1; }
+key=$(cat "$KEY_FILE")
+[ -n "$key" ] || { echo "hermes-gateway: $KEY_FILE is empty" >&2; exit 1; }
+
+export OPENAI_API_KEY="$key"
+unset key
+
+exec /usr/bin/hermes gateway run --external-supervisor

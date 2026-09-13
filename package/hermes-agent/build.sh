@@ -75,7 +75,7 @@ SITE="$OUT/usr/lib/hermes-agent/site-packages"
 
 echo "build.sh: hermes-agent $HERMES_VERSION for $ARCH on $(python3 -V 2>&1)"
 rm -rf "$OUT"
-mkdir -p "$SITE" "$OUT/usr/bin" "$OUT/etc/init.d" "$OUT/etc/config" \
+mkdir -p "$SITE" "$OUT/usr/bin" "$OUT/usr/sbin" "$OUT/etc/init.d" "$OUT/etc/config" \
          "$OUT/etc/hermes-agent" "$OUT/lib/upgrade/keep.d"
 
 # --only-binary=:all: turns "no wheel for this target" into a build failure rather than
@@ -116,6 +116,9 @@ LAUNCHER
 chmod 0755 "$OUT/usr/bin/hermes"
 
 cp "$SRC/files/hermes-agent.init"   "$OUT/etc/init.d/hermes-agent" && chmod 0755 "$OUT/etc/init.d/hermes-agent"
+# The gateway wrapper reads the key at exec time so procd never holds it; see the file
+# itself and check_key_not_in_procd_env.
+cp "$SRC/files/hermes-gateway"      "$OUT/usr/sbin/hermes-gateway"    && chmod 0755 "$OUT/usr/sbin/hermes-gateway"
 cp "$SRC/files/hermes-agent.config" "$OUT/etc/config/hermes" && chmod 0644 "$OUT/etc/config/hermes"
 
 # Survive a firmware upgrade: sysupgrade keeps what is listed here, and losing the key
