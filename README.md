@@ -1,10 +1,12 @@
 <div align="center">
 
+![hermes-openwrt: Hermes Agent as a native OpenWrt service, not Docker and not a chroot](docs/banner.svg)
+
 # hermes-openwrt
 
-**[Hermes Agent](https://github.com/NousResearch/hermes-agent) as a native OpenWrt service.**
-Not Docker. Not a chroot. An `apk` or an `ipk` that installs into a private site-packages
-and runs under procd.
+[**Hermes Agent**](https://github.com/NousResearch/hermes-agent) packaged for the router
+it runs on: an `apk` for OpenWrt 25.12 and an `ipk` for 24.10, a signed feed, a LuCI page,
+and figures measured on hardware rather than in a container.
 
 [![ci](https://github.com/TAIPANBOX/hermes-openwrt/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/hermes-openwrt/actions/workflows/ci.yml)
 ![OpenWrt 25.12 and 24.10](https://img.shields.io/badge/OpenWrt-25.12%20%C2%B7%2024.10-2dd4bf)

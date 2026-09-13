@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-label="hermes-openwrt: Hermes Agent as a native OpenWrt service, measured on two routers">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0a0e16"/><stop offset="0.55" stop-color="#0d1117"/><stop offset="1" stop-color="#101826"/>
+  </linearGradient>
+  <linearGradient id="wordmark" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#2dd4bf"/><stop offset="0.5" stop-color="#4493f8"/><stop offset="1" stop-color="#8b7cf6"/>
+  </linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/>
+  </linearGradient>
+  <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+    <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#161b22" stroke-width="1"/>
+  </pattern>
+  <radialGradient id="halo" cx="0.22" cy="0.42" r="0.6">
+    <stop offset="0" stop-color="#2dd4bf" stop-opacity="0.16"/><stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+    <feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+
+<rect width="1280" height="340" fill="url(#bg)"/>
+<rect width="1280" height="340" fill="url(#grid)" opacity="0.6"/>
+<rect width="1280" height="340" fill="url(#halo)"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+
+<!-- signal arcs on the right, a router that is also an agent -->
+<g transform="translate(1010,170)" opacity="0.9">
+  <g stroke="#2dd4bf" fill="none" stroke-linecap="round" opacity="0.45">
+    <path d="M 44 -30 A 54 54 0 0 1 44 30" stroke-width="3"/>
+    <path d="M 64 -52 A 82 82 0 0 1 64 52" stroke-width="3" opacity="0.6"/>
+    <path d="M 84 -74 A 110 110 0 0 1 84 74" stroke-width="3" opacity="0.32"/>
+    <path d="M -44 -30 A 54 54 0 0 0 -44 30" stroke-width="3"/>
+    <path d="M -64 -52 A 82 82 0 0 0 -64 52" stroke-width="3" opacity="0.6"/>
+    <path d="M -84 -74 A 110 110 0 0 0 -84 74" stroke-width="3" opacity="0.32"/>
+  </g>
+  <rect x="-34" y="-24" width="68" height="48" rx="10" fill="#141a23" stroke="#2dd4bf" stroke-opacity="0.85" stroke-width="2" filter="url(#glow)"/>
+  <circle cx="-14" cy="0" r="4" fill="#3fb950"/>
+  <circle cx="0" cy="0" r="4" fill="#2dd4bf"/>
+  <circle cx="14" cy="0" r="4" fill="#4493f8"/>
+  <rect x="-34" y="26" width="68" height="7" rx="3" fill="#0d1117" stroke="#1b2331"/>
+</g>
+
+<!-- wordmark -->
+<text x="72" y="136" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="66" font-weight="700" letter-spacing="-1.5" fill="url(#wordmark)">hermes-openwrt</text>
+
+<text x="74" y="178" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3">Hermes Agent as a <tspan font-weight="600" fill="#2dd4bf">native OpenWrt service</tspan>. Not Docker. Not a chroot.</text>
+<text x="74" y="206" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" fill="#69788b">An apk or an ipk that installs into a private site-packages and runs under procd.</text>
+
+<!-- three facts, the ones a reader decides on -->
+<g transform="translate(72,240)">
+  <rect x="0" y="0" width="232" height="62" rx="10" fill="#141a23" stroke="#1b2331"/>
+  <text x="18" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">RUNS ON</text>
+  <text x="18" y="48" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="600" fill="#e6edf3">two real routers</text>
+
+  <rect x="252" y="0" width="232" height="62" rx="10" fill="#141a23" stroke="#1b2331"/>
+  <text x="270" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">COSTS</text>
+  <text x="270" y="48" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="600" fill="#e6edf3">128 MB resident</text>
+
+  <rect x="504" y="0" width="232" height="62" rx="10" fill="#141a23" stroke="#1b2331"/>
+  <text x="522" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">SHIPS AS</text>
+  <text x="522" y="48" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="600" fill="#e6edf3">a signed feed</text>
+</g>
+</svg>

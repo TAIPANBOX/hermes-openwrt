@@ -62,6 +62,7 @@
 
 <!-- GL-MT2500 -->
 <text x="48" y="366" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">GL-MT2500 &#183; MT7981 &#183; 2 cores</text>
+<text x="330" y="366" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">the 1, 2 and 4 rows are the comparable ones; six was only run on the box above</text>
 
 <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">
   <text x="48" y="400" fill="#9aa7b8">1 agent</text>
