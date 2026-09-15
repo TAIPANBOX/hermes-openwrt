@@ -43,7 +43,22 @@ HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # r3 built on 2026-09-08, without either fix. Found on 2026-09-15 on a fresh install
 # from the feed: the key in the service table, the wrapper absent. Same lesson as r3:
 # a fix that keeps the version string is a fix nobody is offered.
-PKGREL=${PKGREL:-4}
+#
+# r5: r4 declared bash on aarch64_generic and x86_64 but NOT on aarch64_cortex-a53,
+# the one label every GL.iNet MediaTek box actually installs. The relabelled copy below
+# was a second mkpkg call carrying its own copy of the depends string, and the r3 fix
+# edited only the first. CI installs the generic and x86_64 packages and never the
+# relabelled one, so nothing could notice. Measured on a Beryl AX on 2026-09-15: r4
+# installed, `bash` absent. Now one string feeds both calls, and the relabelled package
+# is diffed against the primary before it is accepted.
+PKGREL=${PKGREL:-5}
+
+# What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
+# in this file: two copies of this list is how r4 shipped without bash on one arch.
+# bash is not optional: Hermes runs its terminal tool through bash builtins
+# (tools/environments/local.py), and on busybox ash every command fails with
+# "builtin: not found" while the model reports the box as broken.
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
@@ -100,7 +115,7 @@ if [ "$FORMAT" = ipk ]; then
 	# ships BSD tar, which fails with "Option --sort=name is not supported". Those flags
 	# are what make the package reproducible, so dropping them is not the answer.
 	docker run --rm -i -v "$SRC:/src:ro" -v "$WORK:/work" -v "$ROOT:/out" \
-		-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEST=/out \
+		-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEPENDS="$DEPENDS" -e DEST=/out \
 		"$ALPINE" sh -c "apk add -q --no-cache tar >/dev/null 2>&1; /src/mkipk.sh /work/tree '$ARCH' '$HERMES_VERSION'"
 	# Keep a per-architecture copy too, so a feed build can tell the two apart: unlike
 	# apk, an .ipk filename does carry the architecture, but the feed layout wants them
@@ -112,7 +127,7 @@ if [ "$FORMAT" = ipk ]; then
 	# otherwise, while OpenWrt publishes no aarch64_cortex-a53 rootfs to build inside.
 	for extra in ${EXTRA_ARCHES:-}; do
 		docker run --rm -i -v "$SRC:/src:ro" -v "$WORK:/work" -v "$ROOT:/out" \
-			-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEST=/out \
+			-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEPENDS="$DEPENDS" -e DEST=/out \
 			"$ALPINE" sh -c "apk add -q --no-cache tar >/dev/null 2>&1; /src/mkipk.sh /work/tree '$extra' '$HERMES_VERSION'"
 		echo "==> also $extra"
 	done
@@ -153,7 +168,7 @@ docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "origin:hermes-agent" \
 	--info "url:https://github.com/NousResearch/hermes-agent" \
 	--info "description:Hermes Agent, the self-hosted AI agent, packaged for OpenWrt. Runs as a procd service against any OpenAI-compatible endpoint." \
-	--info "depends:python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep" \
+	--info "depends:$DEPENDS" \
 	--script "post-install:/work/post-install" \
 	--script "pre-deinstall:/work/pre-deinstall" \
 	--files /work/tree \
@@ -184,10 +199,13 @@ for extra in ${EXTRA_ARCHES:-}; do
 		--info "origin:hermes-agent" \
 		--info "url:https://github.com/NousResearch/hermes-agent" \
 		--info "description:Hermes Agent, the self-hosted AI agent, packaged for OpenWrt. Runs as a procd service against any OpenAI-compatible endpoint." \
-		--info "depends:python3 python3-pip ca-bundle ffmpeg ffprobe ripgrep" \
+		--info "depends:$DEPENDS" \
 		--script "post-install:/work/post-install" \
 		--script "pre-deinstall:/work/pre-deinstall" \
 		--files /work/tree \
 		--output "/out/$xout"
-	echo "==> also $extra: $xout"
+	# The relabelled package must be the primary one with nothing changed but the label;
+	# r4 shipped without bash on this label because the two calls had drifted apart.
+	"$ROOT/scripts/gate-relabel.sh" "$ROOT/$OUT" "$xdir/$xout" || exit 1
+	echo "==> also $extra: $xout (identical to the primary apart from the label)"
 done

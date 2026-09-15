@@ -42,8 +42,12 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         if: matrix.arch != 'x86_64'
 
+      # The aarch64 leg also emits the aarch64_cortex-a53 relabel, the label every
+      # GL.iNet MediaTek router installs, so that gate-relabel.sh runs where it counts:
+      # r4 shipped that label without bash and CI could not see it, because CI had
+      # never produced it.
       - name: build the package inside OpenWrt ${{ matrix.arch }}
-        run: ./package/hermes-agent/build-in-container.sh ${{ matrix.arch }}
+        run: EXTRA_ARCHES=${{ matrix.arch == 'aarch64_generic' && 'aarch64_cortex-a53' || '' }} ./package/hermes-agent/build-in-container.sh ${{ matrix.arch }}
 
       # Architecture-independent, so one build serves every router; it is built here
       # rather than in its own job because both gates want both packages present.
@@ -74,6 +78,9 @@ jobs:
       # signal.
       - name: the gate has teeth
         run: ARCH=${{ matrix.arch }} ./scripts/teeth.sh
+
+      - name: the relabel gate has teeth
+        run: ./scripts/teeth-relabel.sh
 
       - name: and so does the add-on's gate
         run: ARCH=${{ matrix.arch }} ./scripts/teeth-telegram.sh

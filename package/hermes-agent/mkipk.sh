@@ -45,13 +45,17 @@ trap 'rm -rf "$BUILD"' EXIT
 CTRL="$BUILD/control"
 mkdir -p "$CTRL"
 
-# Depends uses opkg's comma-separated form, not apk's space-separated one. Same names on
-# both releases; only the separator differs, and getting it wrong yields a package that
-# installs and then cannot run because nothing pulled Python in.
+# Depends uses opkg's comma-separated form, not apk's space-separated one. The list
+# itself comes from build-in-container.sh (DEPENDS, space-separated, the one place it is
+# written), so the two release lines cannot drift apart; the default below only serves
+# a bare invocation. Getting the separator wrong yields a package that installs and then
+# cannot run because nothing pulled Python in.
+DEPENDS=${DEPENDS:-"python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"}
+DEPENDS_OPKG=$(echo "$DEPENDS" | sed 's/  */, /g')
 cat > "$CTRL/control" <<EOF
 Package: $PKG
 Version: $VERSION-r$PKGREL
-Depends: python3, python3-pip, ca-bundle, bash, ffmpeg, ffprobe, ripgrep
+Depends: $DEPENDS_OPKG
 Source: https://github.com/TAIPANBOX/hermes-openwrt
 Section: utils
 Architecture: $ARCH
