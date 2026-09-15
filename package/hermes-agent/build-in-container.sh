@@ -35,7 +35,15 @@ HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # parsing on every router. r2 reached the published feed, so this is a new revision
 # rather than a rebuild of that one: apk and opkg decide what to upgrade by version,
 # and a router already holding a broken r2 would never be offered a fixed one.
-PKGREL=${PKGREL:-3}
+#
+# r4: the two defects the first hardware run found (#1): bash is a dependency, and the
+# key is read by /usr/sbin/hermes-gateway at exec time instead of sitting in procd's
+# environment, where `ubus call service list` printed it. Both landed on main on
+# 2026-09-13 as r3 and the feed was never republished, so the feed kept serving the
+# r3 built on 2026-09-08, without either fix. Found on 2026-09-15 on a fresh install
+# from the feed: the key in the service table, the wrapper absent. Same lesson as r3:
+# a fix that keeps the version string is a fix nobody is offered.
+PKGREL=${PKGREL:-4}
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
