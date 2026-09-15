@@ -1,0 +1,45 @@
+Package: hermes-agent-telegram
+Version: 0.19.0-r1
+Depends: hermes-agent (>= 0.19.0), hermes-agent (<< 0.19.1)
+Source: https://github.com/TAIPANBOX/hermes-openwrt
+Section: utils
+Architecture: aarch64_generic
+Maintainer: TAIPANBOX <yukosemail@gmail.com>
+License: MIT
+Filename: hermes-agent-telegram_0.19.0-r1_aarch64_generic.ipk
+Size: 2086230
+SHA256sum: 160767a3b67449804d5250cdbb8520902452df4e1d9b29cc7ac353e282ea610e
+Description: Telegram platform for Hermes Agent on OpenWrt.
+ The Telegram adapter already ships inside hermes-agent; this package adds the
+ python-telegram-bot client library it cannot load without. Enable it in the
+ telegram section of /etc/config/hermes.
+
+Package: hermes-agent
+Version: 0.19.0-r5
+Depends: python3, python3-pip, ca-bundle, bash, ffmpeg, ffprobe, ripgrep
+Source: https://github.com/TAIPANBOX/hermes-openwrt
+Section: utils
+Architecture: aarch64_generic
+Maintainer: TAIPANBOX <yukosemail@gmail.com>
+License: MIT
+Filename: hermes-agent_0.19.0-r5_aarch64_generic.ipk
+Size: 59200955
+SHA256sum: 526989862ff92795ace4141c2c62eec1bf836157b7a7b471d7dc7e4e7145804c
+Description: Hermes Agent, the self-hosted AI agent, packaged for OpenWrt.
+ Runs as a procd service against any OpenAI-compatible endpoint. The model runs
+ elsewhere; this device talks to it over the network.
+
+Package: luci-app-hermes
+Version: 0.19.0-r2
+Depends: luci-base, hermes-agent
+Source: https://github.com/TAIPANBOX/hermes-openwrt
+Section: luci
+Architecture: all
+Maintainer: TAIPANBOX <yukosemail@gmail.com>
+License: MIT
+Filename: luci-app-hermes_0.19.0-r2_all.ipk
+Size: 10755
+SHA256sum: 5310642ebeedcf8171d4757fcd124ba6a25dfe573e55343d461707172d521841
+Description: LuCI interface for the Hermes Agent service.
+ Status, service control, log tail, and write-only key fields.
+
