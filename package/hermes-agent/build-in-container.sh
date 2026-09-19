@@ -51,7 +51,7 @@ HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # relabelled one, so nothing could notice. Measured on a Beryl AX on 2026-09-15: r4
 # installed, `bash` absent. Now one string feeds both calls, and the relabelled package
 # is diffed against the primary before it is accepted.
-PKGREL=${PKGREL:-5}
+PKGREL=${PKGREL:-6}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

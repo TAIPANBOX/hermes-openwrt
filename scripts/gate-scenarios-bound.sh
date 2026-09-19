@@ -31,7 +31,7 @@ cd "$ROOT"
 # the 25.12 gate can let apk compare. The set compared below is therefore the UNION of
 # what the gates run. Requiring each gate to cover every scenario on its own would force
 # the 24.10 gate to duplicate checks that differ in nothing but the release.
-PAIRS='features/telegram.feature:scripts/gate-telegram.sh,scripts/gate-telegram-opkg.sh features/feed.feature:scripts/gate-relabel.sh'
+PAIRS='features/telegram.feature:scripts/gate-telegram.sh,scripts/gate-telegram-opkg.sh features/feed.feature:scripts/gate-relabel.sh features/runtime.feature:scripts/gate-runtime.sh'
 
 rc=0
 for pair in $PAIRS; do

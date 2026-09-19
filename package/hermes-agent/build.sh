@@ -98,6 +98,8 @@ cp "$SRC/files/shims/webbrowser.py" "$SITE/webbrowser.py" && chmod 0644 "$SITE/w
 mkdir -p "$OUT/usr/libexec"
 cp "$SRC/files/set-toolsets.py" "$OUT/usr/libexec/hermes-set-toolsets"
 chmod 0755 "$OUT/usr/libexec/hermes-set-toolsets"
+cp "$SRC/files/memory-limit.py" "$OUT/usr/libexec/hermes-memory"
+chmod 0755 "$OUT/usr/libexec/hermes-memory"
 
 # pip writes a console script whose shebang points at the machine that ran pip. On the
 # router that path does not exist. Write our own, and put the private site-packages on

@@ -1,23 +1,31 @@
 #!/bin/sh
-# hermes-gateway -- read the provider key at exec time, then become the gateway.
-#
-# Why this exists rather than `procd_set_param env OPENAI_API_KEY=...`:
-# procd keeps the environment it was given and returns it verbatim to
-#   ubus call service list '{"name":"hermes-agent"}'
-# so a key placed there is readable by anything that can reach ubus, which rpcd ACLs
-# can extend to a LuCI session. Read here instead, the key lives only in this process's
-# own environment, where /proc/<pid>/environ is 0400 and root-only.
-#
-# -> check_key_not_in_procd_env in scripts/gate-package.sh
+# @codex 2026-09-19: read all credentials after procd exec, including respawns.
+# procd's service list holds paths only; root can still inspect the child environment.
 set -eu
 
 KEY_FILE=${1:?hermes-gateway: no key file given}
+/usr/bin/python3 /usr/libexec/hermes-memory "${HERMES_MEM_MAX_MB:-512}"
 
-[ -r "$KEY_FILE" ] || { echo "hermes-gateway: cannot read $KEY_FILE" >&2; exit 1; }
-key=$(cat "$KEY_FILE")
-[ -n "$key" ] || { echo "hermes-gateway: $KEY_FILE is empty" >&2; exit 1; }
+read_required() {
+	[ -r "$1" ] || { echo "hermes-gateway: credential file is unreadable" >&2; return 1; }
+	value=$(head -n1 "$1" | tr -d ' \t\r\n')
+	[ -n "$value" ] || { echo "hermes-gateway: credential file is empty" >&2; return 1; }
+	printf '%s' "$value"
+}
 
+unset OPENAI_API_KEY TELEGRAM_BOT_TOKEN OPENWRT_MCP_TOKEN
+key=$(read_required "$KEY_FILE")
 export OPENAI_API_KEY="$key"
-unset key
-
+if [ -n "${HERMES_TELEGRAM_TOKEN_FILE:-}" ]; then
+	token=$(read_required "$HERMES_TELEGRAM_TOKEN_FILE")
+	printf '%s\n' "$token" | grep -qE '^[0-9]+:[A-Za-z0-9_-]{30,}$' || {
+		echo "hermes-gateway: invalid Telegram token" >&2; exit 1;
+	}
+	export TELEGRAM_BOT_TOKEN="$token"
+fi
+if [ -n "${HERMES_MCP_TOKEN_FILE:-}" ]; then
+	token=$(read_required "$HERMES_MCP_TOKEN_FILE")
+	export OPENWRT_MCP_TOKEN="$token"
+fi
+unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE
 exec /usr/bin/hermes gateway run --external-supervisor

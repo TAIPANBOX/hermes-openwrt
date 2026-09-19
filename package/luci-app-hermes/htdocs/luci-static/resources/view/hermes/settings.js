@@ -38,7 +38,7 @@ return view.extend({
 		var m, s, o;
 
 		m = new form.Map('hermes', _('Hermes Agent'),
-			_('The agent runs here; the model runs elsewhere. Point it at a provider, give it a key, and turn it on.'));
+			_('The agent runs as root on this router; the model runs elsewhere. File and terminal tools have root access. Enable it only for trusted users.'));
 
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Service'));
 		s.anonymous = true;
@@ -53,8 +53,8 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.option(form.Value, 'mem_max_mb', _('Memory limit (MB)'),
-			_('A ceiling enforced by procd through cgroups rather than by trusting the process. Upstream\'s gateway is known to grow its memory over long uptimes, and on a router an unbounded process takes the whole box. About half the RAM is a sensible value; 0 disables the limit.'));
-		o.datatype = 'uinteger';
+			_('The gateway requires writable cgroup v2 memory control and verifies the limit before starting. If unavailable, it refuses to run. 0 explicitly disables the limit. Root tools can change system controls; this is not a sandbox.'));
+		o.datatype = 'range(0,1048576)';
 		o.default = '512';
 
 		/* ---- the model ---- */
@@ -115,7 +115,7 @@ return view.extend({
 
 		/* ---- the router ---- */
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Access to this router'),
-			_('The recommended way to let the agent see this router is not a shell. Run openwrt-mcp alongside it and grant a narrow, audited, expiring window over ubus. Every call is then policy-checked and logged, ungranted tools are refused by name, and configuration changes carry a rollback timer.'));
+			_('This connection uses openwrt-mcp policy for MCP calls only. It does not restrict root file or terminal tools. Clearing this URL removes the UCI-managed MCP connection, not local access.'));
 		s.anonymous = true;
 
 		o = s.option(form.Value, 'router_mcp_url', _('openwrt-mcp endpoint'),
@@ -183,7 +183,7 @@ return view.extend({
 
 		/* ---- tools ---- */
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Tools'),
-			_('Which tool families the agent loads. Leaving this empty loads everything upstream enables by default, which on a router means importing vision, image generation and browser tools that cannot work here and cost memory to load.'));
+			_('Default tool families for Telegram and scheduled jobs. An empty list selects none. Explicit per-job overrides and separately configured plugins or MCP servers retain upstream behavior. This is not a security sandbox.'));
 		s.anonymous = true;
 
 		o = s.option(form.DynamicList, 'toolsets', _('Toolsets'));

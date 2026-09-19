@@ -373,19 +373,30 @@ because voice messages and speech transcoding do work here and are cheap.
 
 ## Letting it touch the router
 
-The recommended answer is not a root shell. Run
-[openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) alongside it and grant a narrow,
-audited, expiring window over ubus:
+<!-- @codex 2026-09-19 -->
+**The service runs as root.** Its default file and terminal tools can read and change
+router configuration directly. Give access only to trusted operators on a spare test
+router. Disabling MCP does not remove this local access.
 
-```sh
-openwrt-mcp pair hermes > /etc/hermes-agent/router-mcp.token
-chmod 600 /etc/hermes-agent/router-mcp.token
-openwrt-mcp allow hermes ubus_call,logread 'network.* iwinfo.* system.*' 30d
-```
+The optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
+policy checks to calls sent through that server. Its policy does not constrain local
+file, terminal, plugins or delegated tools. Configure its URL and token file in UCI or
+LuCI. The package writes `mcp_servers.openwrt` into Hermes config with an environment
+placeholder; the token is read at exec time and never stored in YAML or procd's table.
+An existing operator-owned `openwrt` entry is preserved and startup is refused until
+it is renamed. Clearing the URL removes only the package-managed entry.
 
-Every call is then policy-checked and written to an audit log, ungranted tools are refused
-by name, and configuration changes carry a rollback timer. Read-only first is worth the
-ten minutes.
+The UCI tool list sets `platform_toolsets.telegram` and `platform_toolsets.cron`.
+Empty means no selected default families. Upstream per-job tool overrides and
+separately configured plugins or MCP servers still apply. This selection is not an
+OS sandbox. Invalid YAML or tool names stop startup instead of loading a broader set.
+
+`mem_max_mb` requires writable **cgroup v2 memory control**. Before every launch,
+the wrapper verifies its dedicated procd cgroup, applies `memory.max`, disables swap
+for that group and enables group OOM termination. Unsupported firmware refuses to
+start with an explanation. Setting `mem_max_mb=0` explicitly accepts an unlimited
+process. This ceiling protects against accidental memory growth; root tools can
+modify system controls. Verify the controller on the target router before testing.
 
 ## What is checked, and how
 
