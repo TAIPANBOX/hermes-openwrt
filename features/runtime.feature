@@ -84,3 +84,27 @@ Feature: Gateway runtime controls match the shipped payload
     Given explicitly enabled and disabled plugins plus an MCP opt-out
     When UCI replaces the built-in tool defaults
     Then the upstream resolver preserves the operator plugin and MCP choices
+
+  # -> check_model_endpoint_produces_agent_reply
+  Scenario: The configured model endpoint receives an actual agent request
+    Given the OpenWrt UCI model settings
+    When test_model_endpoint_produces_agent_reply exercises the upstream runtime
+    Then the selected primary endpoint and credential are used or startup is refused
+
+  # -> check_runtime_override_conflicts_are_refused
+  Scenario: Conflicting upstream runtime overrides refuse startup
+    Given the OpenWrt UCI model settings
+    When test_runtime_override_conflicts_are_refused exercises the upstream runtime
+    Then the selected primary endpoint and credential are used or startup is refused
+
+  # -> check_operator_model_key_is_preserved
+  Scenario: Operator model credentials and unrelated settings survive
+    Given the OpenWrt UCI model settings
+    When test_operator_model_key_is_preserved exercises the upstream runtime
+    Then the selected primary endpoint and credential are used or startup is refused
+
+  # -> check_credential_conflicts_preserve_bytes_and_secondary_keys
+  Scenario: Credential conflicts preserve bytes and secondary provider keys
+    Given a malformed dotenv file or a primary credential pool with a conflicting spare
+    When the gateway validates the upstream configuration
+    Then it refuses without rewriting credentials and permits independent secondary keys

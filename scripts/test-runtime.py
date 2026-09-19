@@ -10,7 +10,9 @@ import random
 import shlex
 import subprocess
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,10 +31,12 @@ class RuntimeTests(unittest.TestCase):
         self.env = dict(os.environ, HERMES_HOME=str(self.home),
                         HERMES_DISABLE_LAZY_INSTALLS="1", PYTHONDONTWRITEBYTECODE="1")
 
-    def configure(self, tools="memory", mcp=None):
+    def configure(self, tools="memory", mcp=None, endpoint=None, model="runtime-model"):
         args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), tools]
-        if mcp is not None:
-            args.append(mcp)
+        if mcp is not None or endpoint is not None:
+            args.append(mcp or "")
+        if endpoint is not None:
+            args += [endpoint, model]
         return subprocess.run(args, env=self.env, text=True, check=False, capture_output=True)
 
     def config(self):
@@ -136,7 +140,9 @@ class RuntimeTests(unittest.TestCase):
         self.addCleanup(cli.write_bytes, original)
         cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
         files = {"provider": self.home / "provider", "telegram": self.home / "telegram", "mcp": self.home / "mcp"}
-        env = dict(self.env, HERMES_MEM_MAX_MB="0", HERMES_TELEGRAM_TOKEN_FILE=str(files["telegram"]),
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
+                   HERMES_MEM_MAX_MB="0", HERMES_TELEGRAM_TOKEN_FILE=str(files["telegram"]),
                    HERMES_MCP_TOKEN_FILE=str(files["mcp"]))
         for rotation in range(2):
             values = {"provider": f"provider-{rotation}", "telegram": f"123456:{'A' * 30}{rotation}",
@@ -205,7 +211,9 @@ class RuntimeTests(unittest.TestCase):
         cli.write_text("#!/bin/sh\nexec python3 -c 'x=bytearray(128*1024*1024); print(len(x))'\n")
         key = self.home / "key"
         key.write_text("synthetic")
-        env = dict(self.env, HERMES_MEM_MAX_MB="64")
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        env = dict(self.env, HERMES_MEM_MAX_MB="64", OPENAI_BASE_URL="http://127.0.0.1:9/v1",
+                   HERMES_MODEL="runtime-model")
         wrapper = ["sh", str(FILES / "hermes-gateway"), str(key)]
         wrong = subprocess.run(wrapper, env=env, check=False, capture_output=True, text=True)
         self.assertNotEqual(wrong.returncode, 0, "wrapper ran without its cgroup")
@@ -220,6 +228,156 @@ class RuntimeTests(unittest.TestCase):
         events = dict(line.split() for line in (group / "memory.events").read_text().splitlines())
         self.assertGreater(int(events["oom_kill"]), 0)
         print("kernel proof: memory.max=67108864, swap.max=0, child SIGKILL, oom_kill=" + events["oom_kill"])
+
+    def test_runtime_override_conflicts_are_refused(self):
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        baseline = self.config()
+        env = dict(self.env, OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="provider-runtime-canary", OPENROUTER_API_KEY="provider-runtime-canary")
+        def preflight(extra=None):
+            return subprocess.run(["python3", str(FILES / "runtime-check.py")],
+                                  env=dict(env, **(extra or {})), check=False, capture_output=True, text=True)
+        clean = preflight()
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        for name in ("OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN", "OPENWRT_MCP_TOKEN", "HERMES_MODEL"):
+            with self.subTest(env=name):
+                dotenv = self.home / ".env"
+                dotenv.write_text(name + "=conflict-canary\n")
+                result = preflight()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("conflict-canary", result.stdout + result.stderr)
+                self.assertEqual(dotenv.read_text(), name + "=conflict-canary\n")
+                dotenv.unlink()
+        self.assertNotEqual(preflight({"CUSTOM_BASE_URL": "http://127.0.0.1:8/v1"}).returncode, 0)
+        for kind in ("header", "provider", "provider_header"):
+            config = json.loads(json.dumps(baseline))
+            if kind == "header":
+                config["model"]["default_headers"] = {"aUtHoRiZaTiOn": "Bearer conflict-canary"}
+            elif kind == "provider":
+                config["providers"] = {"custom": {"base_url": "http://127.0.0.1:8/v1",
+                                                  "api_key": "conflict-canary"}}
+            else:
+                config["providers"] = {"side": {"base_url": endpoint,
+                                                "extra_headers": {"Authorization": "Bearer conflict-canary"}}}
+            (self.home / "config.yaml").write_text(yaml.safe_dump(config))
+            result = preflight()
+            self.assertNotEqual(result.returncode, 0, kind)
+            self.assertNotIn("conflict-canary", result.stdout + result.stderr)
+            self.assertEqual(self.config(), config)
+        config = json.loads(json.dumps(baseline))
+        config["model"]["default_headers"] = {"User-Agent": "operator-client"}
+        config["model"]["api"] = "legacy-unused-key"
+        (self.home / "config.yaml").write_text(yaml.safe_dump(config))
+        self.assertEqual(preflight().returncode, 0)
+        config["custom_providers"] = [{"name": "stored", "base_url": endpoint}]
+        (self.home / "config.yaml").write_text(yaml.safe_dump(config))
+        auth = {"credential_pool": {"custom:stored": [{"id": "test", "auth_type": "api_key",
+                "source": "manual", "access_token": "conflict-canary", "base_url": endpoint}]}}
+        (self.home / "auth.json").write_text(json.dumps(auth))
+        result = preflight()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("conflict-canary", result.stdout + result.stderr)
+        stored = json.loads((self.home / "auth.json").read_text())
+        self.assertEqual(stored["credential_pool"]["custom:stored"][0]["access_token"], "conflict-canary")
+
+    def test_credential_conflicts_preserve_bytes_and_secondary_keys(self):
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        env = dict(self.env, OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="provider-runtime-canary")
+        command = ["python3", str(FILES / "runtime-check.py")]
+        dotenv = self.home / ".env"
+        for raw in ("OPENAI_API_KEY=conflict-canary\n".encode("utf-16"),
+                    b"OPENAI_API_KEY=conflict-\x00canary\n"):
+            dotenv.write_bytes(raw)
+            result = subprocess.run(command, env=env, check=False, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(dotenv.read_bytes(), raw)
+        dotenv.write_text("OPENROUTER_API_KEY=secondary-canary\n")
+        result = subprocess.run(command, env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(dotenv.read_text(), "OPENROUTER_API_KEY=secondary-canary\n")
+        dotenv.unlink()
+        config = self.config()
+        config["custom_providers"] = [{"name": "stored", "base_url": endpoint}]
+        (self.home / "config.yaml").write_text(yaml.safe_dump(config))
+        auth = {"credential_pool": {"custom:stored": [
+            {"id": "primary", "auth_type": "api_key", "source": "manual", "priority": 0,
+             "access_token": "provider-runtime-canary", "base_url": endpoint},
+            {"id": "spare", "auth_type": "api_key", "source": "manual", "priority": 1,
+             "access_token": "conflict-canary", "base_url": endpoint}]}}
+        path = self.home / "auth.json"
+        path.write_text(json.dumps(auth))
+        result = subprocess.run(command, env=env, check=False, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0, "matching first key masked a conflicting spare")
+        self.assertEqual(json.loads(path.read_text())["credential_pool"], auth["credential_pool"])
+
+    def test_operator_model_key_is_preserved(self):
+        original = {"model": {"api_key": "operator-owned-key", "max_tokens": 1234}}
+        (self.home / "config.yaml").write_text(yaml.safe_dump(original))
+        self.assertNotEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        self.assertEqual(self.config(), original)
+        original["model"].pop("api_key")
+        (self.home / "config.yaml").write_text(yaml.safe_dump(original))
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        self.assertEqual(self.config()["model"]["max_tokens"], 1234)
+
+    def test_model_endpoint_produces_agent_reply(self):
+        received = []
+        class Endpoint(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if self.path != "/v1/chat/completions":
+                    self.send_error(404)
+                    return
+                received.append((self.path, request.get("model"), self.headers.get("Authorization")))
+                data = json.dumps({"id": "runtime-proof", "object": "chat.completion", "created": 1,
+                                   "model": "runtime-model", "choices": [{"index": 0,
+                                   "message": {"role": "assistant", "content": "HERMES_RUNTIME_OK"},
+                                   "finish_reason": "stop"}],
+                                   "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}).encode()
+                self.send_response(200)
+                content_type = "application/json"
+                if request.get("stream"):
+                    content_type = "text/event-stream"
+                    chunks = [
+                        {"id": "runtime-proof", "object": "chat.completion.chunk", "created": 1,
+                         "model": "runtime-model", "choices": [{"index": 0, "delta": {
+                         "role": "assistant", "content": "HERMES_RUNTIME_OK"}, "finish_reason": None}]},
+                        {"id": "runtime-proof", "object": "chat.completion.chunk", "created": 1,
+                         "model": "runtime-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+                    ]
+                    data = ("".join("data: " + json.dumps(chunk) + "\n\n" for chunk in chunks)
+                            + "data: [DONE]\n\n").encode()
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+        server = HTTPServer(("127.0.0.1", 0), Endpoint)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_port}/v1"
+        (self.home / "config.yaml").write_text("model: old-model\n")
+        configured = self.configure(endpoint=url)
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertEqual(self.config()["model"]["base_url"], url)
+        self.assertEqual(self.config()["model"]["default"], "runtime-model")
+        env = dict(self.env, OPENAI_API_KEY="provider-runtime-canary", OPENAI_BASE_URL=url,
+                   HERMES_MODEL="runtime-model", NO_PROXY="127.0.0.1,localhost")
+        result = subprocess.run(["hermes", "-z", "Reply briefly", "-t", "memory"], env=env,
+                                check=False, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("HERMES_RUNTIME_OK", result.stdout)
+        self.assertEqual(received, [("/v1/chat/completions", "runtime-model", "Bearer provider-runtime-canary")])
+        command = "from gateway.run import _resolve_gateway_model; assert _resolve_gateway_model()=='runtime-model'"
+        gateway = subprocess.run(["python3", "-c", command], env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(gateway.returncode, 0, gateway.stderr)
 
     def test_all_secrets_absent_from_procd(self):
         # Real OpenWrt config and procd serializers, only the ubus submission is replaced.

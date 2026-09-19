@@ -149,7 +149,7 @@ start_service() {
 	config_list_foreach main toolsets append_toolset
 	HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 		PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets \
-		"$data_dir" "${toolsets#,}" "$mcp_url" || return 1
+		"$data_dir" "${toolsets#,}" "$mcp_url" "$base_url" "$model" || return 1
 
 	procd_open_instance
 	# --external-supervisor, because procd IS one. Without it an in-chat restart or

@@ -33,6 +33,8 @@ else
     opkg update >/dev/null
     opkg install /build/hermes-agent_[0-9]*.ipk /addon/hermes-agent-telegram_*.ipk >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; }
 fi
+# Package installation is complete; runtime proofs may reach loopback only.
+ip link set eth0 down
 # Move the harness out of the parent before enabling a domain controller.
 mkdir /sys/fs/cgroup/harness
 echo $$ > /sys/fs/cgroup/harness/cgroup.procs
@@ -43,6 +45,7 @@ cp /usr/sbin/hermes-gateway /tmp/product/hermes-gateway
 cp /etc/init.d/hermes-agent /tmp/product/hermes-agent.init
 cp /usr/libexec/hermes-set-toolsets /tmp/product/set-toolsets.py
 cp /usr/libexec/hermes-memory /tmp/product/memory-limit.py
+cp /usr/libexec/hermes-runtime-check /tmp/product/runtime-check.py
 export PRODUCT_FILES=/tmp/product
 python3 /src/scripts/test-runtime.py
 python3 /src/scripts/teeth-runtime.py

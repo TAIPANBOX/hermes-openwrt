@@ -21,7 +21,11 @@
 7. The service and its file/terminal tools run as root. This is documented at setup;
    neither tool defaults nor MCP nor memory controls are an OS security sandbox
    (partly gated: runtime selection tests; wording reviewed manually).
-8. New runtime scenarios bind both ways to discovered test methods, and product
+8. UCI selects the primary model, OpenAI-compatible endpoint and file-backed key.
+   The actual upstream resolver must agree; conflicting dotenv/provider/pool/header
+   settings refuse startup and preserve operator credentials. Explicit job/channel
+   overrides and fallback chains retain upstream semantics (gate: `scripts/gate-runtime.sh`).
+9. New runtime scenarios bind both ways to discovered test methods, and product
    mutations must turn their named test red with green restored and empty discovery
    refused (gate: `scripts/gate-scenarios-bound.sh`, `scripts/teeth-runtime.py`).
 

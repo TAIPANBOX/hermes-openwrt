@@ -386,6 +386,13 @@ placeholder; the token is read at exec time and never stored in YAML or procd's 
 An existing operator-owned `openwrt` entry is preserved and startup is refused until
 it is renamed. Clearing the URL removes only the package-managed entry.
 
+UCI also selects the primary model and OpenAI-compatible endpoint through
+`model.default`, `model.base_url` and `model.provider` in Hermes config. Credentials
+remain environment references. Conflicting `.env`, named provider, credential pool
+or Authorization-header settings refuse startup; existing credentials are preserved
+for the operator to reconcile. Explicit job/channel overrides and fallback chains
+retain their upstream behavior.
+
 The UCI tool list sets `platform_toolsets.telegram` and `platform_toolsets.cron`.
 Empty means no selected default families. Upstream per-job tool overrides and
 separately configured plugins or MCP servers still apply. This selection is not an

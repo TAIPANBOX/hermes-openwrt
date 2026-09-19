@@ -15,8 +15,8 @@ from urllib.parse import urlsplit
 
 
 def main() -> int:
-    if len(sys.argv) not in (3, 4):
-        sys.stderr.write("usage: set-toolsets.py <home> <comma,separated,tools> [mcp-url]\n")
+    if len(sys.argv) not in (3, 4, 6):
+        sys.stderr.write("usage: set-toolsets.py <home> <comma,separated,tools> [mcp-url [base-url model]]\n")
         return 2
     home, raw = Path(sys.argv[1]), sys.argv[2]
     try:
@@ -49,7 +49,7 @@ def main() -> int:
                       and (name not in TOOLSETS or name in plugins)]
             platforms[platform] = list(dict.fromkeys(wanted + extras))
 
-        if len(sys.argv) == 4:
+        if len(sys.argv) >= 4:
             url = sys.argv[3]
             servers = config.setdefault("mcp_servers", {})
             if not isinstance(servers, dict):
@@ -73,6 +73,27 @@ def main() -> int:
             elif owned:
                 servers.pop("openwrt", None)
                 config.pop("_openwrt_mcp_managed", None)
+
+        if len(sys.argv) == 6:
+            endpoint, model = sys.argv[4:6]
+            parsed = urlsplit(endpoint)
+            if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                    or parsed.username is not None or parsed.password is not None
+                    or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in endpoint)):
+                raise ValueError("model endpoint must be HTTP(S), without embedded credentials")
+            _ = parsed.port
+            if not model.strip() or any(ord(c) < 32 for c in model):
+                raise ValueError("model name is empty or contains control characters")
+            model_config = config.get("model") or {}
+            if isinstance(model_config, str):
+                model_config = {"default": model_config}
+            if not isinstance(model_config, dict):
+                raise TypeError("model must be a mapping or model name")
+            if model_config.get("api_key") not in (None, "", "${OPENAI_API_KEY}"):
+                raise ValueError("model.api_key is operator-owned; move it before enabling the UCI model")
+            model_config.update(default=model, provider="custom", base_url=endpoint,
+                                api_mode="chat_completions", api_key="${OPENAI_API_KEY}")
+            config["model"] = model_config
 
         rendered = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
         if path.exists() and path.read_text() == rendered:

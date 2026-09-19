@@ -19,13 +19,17 @@ def run(test=None):
 
 
 mutants = [
+    ('UCI model ignored', 'set-toolsets.py', '        if len(sys.argv) == 6:',
+     '        if False:', 'test_model_endpoint_produces_agent_reply'),
+    ('runtime conflicts ignored', 'runtime-check.py', '        return 1',
+     '        return 0', 'test_runtime_override_conflicts_are_refused'),
     ('platform defaults ignored', 'set-toolsets.py', 'platforms[platform] = list(dict.fromkeys(wanted + extras))',
      'config["toolsets"] = wanted.copy()', 'test_gateway_selection'),
     ('plugin selection erased', 'set-toolsets.py', 'wanted + extras',
      'wanted', 'test_existing_plugin_and_mcp_selection_survives'),
     ('invalid configuration ignored', 'set-toolsets.py', '        return 1',
      '        return 0', 'test_bad_yaml_is_fatal_and_preserved'),
-    ('MCP connection ignored', 'set-toolsets.py', '        if len(sys.argv) == 4:',
+    ('MCP connection ignored', 'set-toolsets.py', '        if len(sys.argv) >= 4:',
      '        if False:', 'test_mcp_configuration'),
     ('Telegram secret stored by procd', 'hermes-agent.init', 'HERMES_TELEGRAM_TOKEN_FILE="$tg_token_file"',
      'TELEGRAM_BOT_TOKEN="$tg_token"', 'test_all_secrets_absent_from_procd'),
@@ -39,7 +43,8 @@ mutants = [
      '    if False:', 'test_memory_validation_and_identity'),
 ]
 installed = {'set-toolsets.py': Path('/usr/libexec/hermes-set-toolsets'),
-             'memory-limit.py': Path('/usr/libexec/hermes-memory')}
+             'memory-limit.py': Path('/usr/libexec/hermes-memory'),
+             'runtime-check.py': Path('/usr/libexec/hermes-runtime-check')}
 for title, filename, before, after, test in mutants:
     path = PRODUCT / filename
     original = path.read_text()

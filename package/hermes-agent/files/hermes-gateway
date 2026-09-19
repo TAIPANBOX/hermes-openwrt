@@ -28,4 +28,6 @@ if [ -n "${HERMES_MCP_TOKEN_FILE:-}" ]; then
 	export OPENWRT_MCP_TOKEN="$token"
 fi
 unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE
+PYTHONPATH=/usr/lib/hermes-agent/site-packages \
+	/usr/bin/python3 /usr/libexec/hermes-runtime-check
 exec /usr/bin/hermes gateway run --external-supervisor
