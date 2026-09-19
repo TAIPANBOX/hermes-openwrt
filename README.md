@@ -418,9 +418,11 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
-| `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave all 9037 base files |
+| `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave every file owned by the base package |
+| `gate-runtime.sh` | 18 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, override refusals, and kernel-enforced memory limits |
+| `teeth-runtime.py` | 11 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
-| `teeth.sh` | plants four faults and requires a different check to catch each one |
+| `teeth.sh` | plants five faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather
