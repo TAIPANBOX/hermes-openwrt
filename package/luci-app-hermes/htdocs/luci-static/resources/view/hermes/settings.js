@@ -119,7 +119,7 @@ return view.extend({
 		s.anonymous = true;
 
 		o = s.option(form.Value, 'router_mcp_url', _('openwrt-mcp endpoint'),
-			_('Leave empty to keep the agent away from this router\'s configuration entirely.'));
+			_('Leave empty to disable this MCP connection. Local root tools remain available.'));
 		o.default = 'http://127.0.0.1:8730/mcp';
 
 		o = s.option(form.Value, '_router_key', _('Pairing token'),
