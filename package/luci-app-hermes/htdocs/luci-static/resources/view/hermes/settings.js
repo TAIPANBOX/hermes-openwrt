@@ -54,7 +54,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'mem_max_mb', _('Memory limit (MB)'),
 			_('The gateway requires writable cgroup v2 memory control and verifies the limit before starting. If unavailable, it refuses to run. 0 explicitly disables the limit. Root tools can change system controls; this is not a sandbox.'));
-		o.datatype = 'range(0,1048576)';
+		o.datatype = 'and(uinteger,range(0,1048576))';
 		o.default = '512';
 
 		/* ---- the model ---- */
