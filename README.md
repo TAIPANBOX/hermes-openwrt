@@ -119,8 +119,8 @@ Two things that were worth checking and turned out fine. **Routing is not distur
 iperf3 across the box measured 938 Mbit/s idle and 931 Mbit/s while three agents were
 working, which is inside the noise. **Nothing leaks over a run**: eight sequential
 sessions moved the gateway's resident memory from 108688 kB to 108716 kB, and each
-session still took its usual 24 s. Temperature stayed between 41 and 47 C on either
-box, fanless, with no throttling.
+session still took its usual 24 s. Temperature stayed between 41 and 47 C on the Flint 2
+and between 39 and 43 C on the Brume 2, fanless, with no throttling.
 
 ### Which models can actually drive it
 
@@ -197,6 +197,25 @@ clean, which is what the older checks looked at. The key is now read by a small 
 at exec time, so it exists only in the process's own environment, and
 `check_key_not_in_procd_env` fails the build if it ever appears in the service table
 again.
+
+### The service controls, on a third box
+
+On 2026-09-24 the controls described under "Letting it touch the router" were checked on
+real procd, on a GL.iNet Beryl AX: the same two-core MT7981 as the Brume 2, 512 MB of
+RAM, vanilla OpenWrt 25.12.5. The package came from a local build of this revision, with
+a synthetic key and no model request.
+
+- procd holds the bounded respawn (3600 s, 5 s, 5 retries), and neither the key nor a
+  token appears in `ubus call service list`.
+- `mem_max_mb=256` reaches the kernel: `memory.max` 268435456, `memory.swap.max` 0,
+  `memory.oom.group` 1, with the gateway resident at 123 MB.
+- A model switched from a chat with `/model ... --global`, then `kill -9`: procd had the
+  gateway back in 6 s, with the model, provider and endpoint from UCI in place again.
+- `mem_max_mb=0` and a restart: `memory.max` and `memory.swap.max` read `max`, and
+  `memory.oom.group` 0.
+- With the key file removed, the refusal was logged six times, the start and five
+  retries, and procd then left the service stopped.
+- From start to the gateway's own exec takes 4 s on that CPU.
 
 ## The web interface
 
@@ -289,7 +308,7 @@ profile adds **two** distributions and changes the version of nothing already in
 |---|---|
 | added | `python-telegram-bot` 22.6, `tornado` 6.5.8 |
 | version changes to the base package's 69 | none |
-| installed size | 9.3 MB, against the base package's 193 MB |
+| installed size | 9.3 MB, against the base package's 185 MB |
 
 That second row is what makes an add-on possible at all. Two OpenWrt packages cannot own
 one file: apk refuses such an install and opkg silently accepts it, then breaks the base
@@ -367,8 +386,8 @@ agent's own system prompt is thousands of tokens, and a router CPU spends minute
 it before answering a word. Cortex-A53 in particular is ARMv8.0 with neither dotprod nor
 i8mm, exactly the case llama.cpp has no fast path for.
 
-**It will not fit a small router.** 193 MB installed rules out anything without real
-storage, and the gateway wants about 175 MB of RAM before it does any work. Below 1 GB,
+**It will not fit a small router.** 185 MB installed rules out anything without real
+storage, and the gateway wants about 130 MB of RAM before it does any work. Below 1 GB,
 run [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) on the router instead and
 keep Hermes on a machine with room. That is the better shape anyway: the router becomes a
 narrow, audited tool provider rather than the host of a Python runtime.
@@ -476,6 +495,7 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] Signed feed for both lines, signed on a workstation
 - [x] Every gate runs on OpenWrt's own rootfs images in CI
 - [x] **Run on real hardware.** Two GL.iNet routers on vanilla OpenWrt 25.12.5; see the figures above
+- [x] **Service controls on real procd**: bounded respawn, the memory ceiling and its removal, UCI back in place after a crash (Beryl AX, 25.12.5)
 - [x] **A full agent turn on a router**, model calling a tool and answering from what it read
 - [x] **Measured under load**: concurrency ceiling, thermals, throughput, flash writes, leak check
 - [x] **The feed installs on hardware** with its signature verified and no `--allow-untrusted`

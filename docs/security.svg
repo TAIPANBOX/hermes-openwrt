@@ -84,8 +84,8 @@
 <line x1="60" y1="350" x2="1240" y2="350" stroke="#222b38" stroke-width="1"/>
 <text x="640" y="386" font-size="16" fill="#e6edf3" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">The page can store a key and can ask whether one is present. Nothing returns one.</text>
 <text x="640" y="414" font-size="15" fill="#9aa7b8" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">So a screenshot of the settings page cannot leak a key, and neither can a support bundle taken from the browser.</text>
-<text x="640" y="442" font-size="15" fill="#69788b" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">gate-luci.sh writes a canary through the RPC, then checks the two methods the read permission grants,</text>
-<text x="640" y="466" font-size="15" fill="#69788b" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">hermes status and logs, and requires that the read permission grants nothing else.</text>
+<text x="640" y="442" font-size="15" fill="#69788b" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">gate-luci.sh writes a canary through the RPC and requires that neither status nor logs returns it,</text>
+<text x="640" y="466" font-size="15" fill="#69788b" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">that the read permission grants exactly those two hermes methods, and that it never grants procd's service list.</text>
 
 <text x="1256" y="496" font-size="12" fill="#69788b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="end">github.com/TAIPANBOX/hermes-openwrt</text>
 </svg>
