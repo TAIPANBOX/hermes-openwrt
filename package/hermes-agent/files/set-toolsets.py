@@ -7,11 +7,22 @@ operator-configured plugins/MCP servers retain their upstream semantics.
 """
 from __future__ import annotations
 
+import copy
 import os
 import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
+
+
+def _validate_endpoint(value: str, label: str) -> None:
+    parsed = urlsplit(value)
+    if (parsed.scheme not in ("http", "https") or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value)):
+        raise ValueError(f"{label} must be HTTP(S), without embedded credentials")
+    # Also validate the port rather than persisting an unusable endpoint.
+    _ = parsed.port
 
 
 def main() -> int:
@@ -27,11 +38,15 @@ def main() -> int:
         if any(not validate_toolset(t) and t != "no_mcp" for t in wanted):
             raise ValueError("unknown toolset; check the configured tool names")
         path = home / "config.yaml"
-        config = yaml.safe_load(path.read_text()) if path.exists() else {}
+        config = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else {}
         if config is None:
             config = {}
         if not isinstance(config, dict):
             raise TypeError("config.yaml must be a mapping")
+        # Compared against at the end, by data rather than by rendered text, so a
+        # human-added comment or a hand-typed quoting style is never destroyed by a
+        # run that would not otherwise have changed anything.
+        original = copy.deepcopy(config)
         platforms = config.setdefault("platform_toolsets", {})
         if not isinstance(platforms, dict):
             raise TypeError("platform_toolsets must be a mapping")
@@ -51,37 +66,31 @@ def main() -> int:
 
         if len(sys.argv) >= 4:
             url = sys.argv[3]
-            servers = config.setdefault("mcp_servers", {})
-            if not isinstance(servers, dict):
-                raise TypeError("mcp_servers must be a mapping")
             owned = config.get("_openwrt_mcp_managed") is True
             if url:
-                parsed = urlsplit(url)
-                if (parsed.scheme not in ("http", "https") or not parsed.hostname
-                        or parsed.username is not None or parsed.password is not None
-                        or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url)):
-                    raise ValueError("MCP URL must be HTTP(S), without embedded credentials")
-                # Also validate the port rather than persisting an unusable endpoint.
-                _ = parsed.port
-                if "openwrt" in servers and not owned:
+                _validate_endpoint(url, "MCP URL")
+                servers = config.setdefault("mcp_servers", {})
+                if not isinstance(servers, dict):
+                    raise TypeError("mcp_servers must be a mapping")
+                expected = {"url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}
+                # An operator may already have pasted in exactly this entry by hand,
+                # e.g. from an earlier manual setup. Adopt it rather than refuse: only
+                # a DIFFERENT entry is a real collision.
+                if "openwrt" in servers and not owned and servers["openwrt"] != expected:
                     raise ValueError("mcp_servers.openwrt is operator-owned; rename it before enabling UCI MCP")
-                servers["openwrt"] = {
-                    "url": url,
-                    "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"},
-                }
+                servers["openwrt"] = expected
                 config["_openwrt_mcp_managed"] = True
             elif owned:
-                servers.pop("openwrt", None)
+                # Read-only here: an absent mcp_servers must not be created just to
+                # immediately find there is nothing in it to remove.
+                servers = config.get("mcp_servers")
+                if isinstance(servers, dict):
+                    servers.pop("openwrt", None)
                 config.pop("_openwrt_mcp_managed", None)
 
         if len(sys.argv) == 6:
             endpoint, model = sys.argv[4:6]
-            parsed = urlsplit(endpoint)
-            if (parsed.scheme not in ("http", "https") or not parsed.hostname
-                    or parsed.username is not None or parsed.password is not None
-                    or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in endpoint)):
-                raise ValueError("model endpoint must be HTTP(S), without embedded credentials")
-            _ = parsed.port
+            _validate_endpoint(endpoint, "model endpoint")
             if not model.strip() or any(ord(c) < 32 for c in model):
                 raise ValueError("model name is empty or contains control characters")
             model_config = config.get("model") or {}
@@ -95,14 +104,15 @@ def main() -> int:
                                 api_mode="chat_completions", api_key="${OPENAI_API_KEY}")
             config["model"] = model_config
 
-        rendered = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
-        if path.exists() and path.read_text() == rendered:
+        if path.exists() and config == original:
             return 0
         home.mkdir(parents=True, exist_ok=True)
+        rendered = yaml.safe_dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True)
         # A unique 0600 temporary file avoids following an old .yaml.tmp symlink.
         temp = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", dir=home, prefix=".config-", delete=False) as stream:
+            with tempfile.NamedTemporaryFile(mode="w", dir=home, prefix=".config-", delete=False,
+                                             encoding="utf-8") as stream:
                 temp = Path(stream.name)
                 stream.write(rendered)
                 stream.flush()
