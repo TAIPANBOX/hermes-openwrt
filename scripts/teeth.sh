@@ -105,11 +105,11 @@ cp /tmp/postinstall.bak "$W/post-install"
 # change nothing and the check would stay green, which is how this fault broke when the
 # wrapper was introduced: teeth caught it on the first CI run.
 #
-# The sleep is the other half of the fault. On an emulated CPU the wrapper's helpers run
-# longer than the ten seconds check 6 used to wait from launch, so there this fault stayed
-# green (the aarch64 leg of CI, 2026-09-24) while every native run caught it. Sleeping
-# before the exec makes every machine at least that slow, so the check's timing is tested
-# everywhere rather than only where CI happens to emulate.
+# The sleep is the other half of the fault. On an emulated CPU the wrapper's helpers and
+# the gateway's own start-up together run past the ten seconds check 6 used to wait from
+# launch, so there this fault stayed green (the aarch64 leg of CI, 2026-09-24) while every
+# native run caught it. Sleeping before the exec makes every machine at least that slow,
+# so the check's timing is tested everywhere rather than only where CI happens to emulate.
 INIT="$W/tree/etc/init.d/hermes-agent"
 WRAP="$W/tree/usr/sbin/hermes-gateway"
 cp "$WRAP" /tmp/wrap.bak

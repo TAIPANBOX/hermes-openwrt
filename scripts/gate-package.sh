@@ -175,13 +175,14 @@ sh /tmp/fakeprocd.sh >/tmp/fp.log 2>&1 || { cat /tmp/fp.log; fail "[6/11] check_
 # that failed before it ever tried to reach it.
 #
 # The clock starts at the EXEC, not at launch. The wrapper runs three Python helpers (the
-# memory ceiling, the UCI bridge, the preflight) before it execs the gateway, and on an
-# emulated CPU they alone outlast the fixed ten seconds this check used to wait from
-# launch: a gateway that died at argument parsing looked alive because it had not started
-# yet, and teeth.sh fault 4 left this check green on the aarch64 leg of CI on 2026-09-24.
-# After the exec the process is polled, so a gateway that dies says when. Its argument
-# parsing costs about what `hermes --version` does, which was 6.3 s on that same leg
-# (check 3 above), so 30 s leaves more than four times that. A zombie counts as dead.
+# memory ceiling, the UCI bridge, the preflight) before it execs the gateway, and the
+# gateway then imports its way to argument parsing. On the emulated aarch64 leg of CI the
+# two together outlast the fixed ten seconds this check used to wait from launch (the
+# exec came at about 4 s, and `hermes --version` alone takes 6.3 s there), so a gateway
+# that died at argument parsing still looked alive, and teeth.sh fault 4 left this check
+# green on 2026-09-24. After the exec the process is polled, so a gateway that dies says
+# when, and 30 s leaves several times the start-up it has to outlast. A zombie counts as
+# dead.
 set -- $(cat /tmp/argv)
 t0=$(date +%s)
 # shellcheck disable=SC2046
