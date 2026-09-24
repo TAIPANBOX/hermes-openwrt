@@ -7,27 +7,51 @@ KEY_FILE=${1:?hermes-gateway: no key file given}
 /usr/bin/python3 /usr/libexec/hermes-memory "${HERMES_MEM_MAX_MB:-512}"
 
 read_required() {
-	[ -r "$1" ] || { echo "hermes-gateway: credential file is unreadable" >&2; return 1; }
-	value=$(head -n1 "$1" | tr -d ' \t\r\n')
-	[ -n "$value" ] || { echo "hermes-gateway: credential file is empty" >&2; return 1; }
+	local path label value
+	path=$1
+	label=$2
+	[ -r "$path" ] || { echo "hermes-gateway: $label $path is unreadable" >&2; return 1; }
+	value=$(head -n1 "$path" | tr -d ' \t\r\n')
+	[ -n "$value" ] || { echo "hermes-gateway: $label $path is empty" >&2; return 1; }
 	printf '%s' "$value"
 }
 
 unset OPENAI_API_KEY TELEGRAM_BOT_TOKEN OPENWRT_MCP_TOKEN
-key=$(read_required "$KEY_FILE")
+key=$(read_required "$KEY_FILE" "provider key file")
 export OPENAI_API_KEY="$key"
 if [ -n "${HERMES_TELEGRAM_TOKEN_FILE:-}" ]; then
-	token=$(read_required "$HERMES_TELEGRAM_TOKEN_FILE")
+	token=$(read_required "$HERMES_TELEGRAM_TOKEN_FILE" "Telegram token file")
 	printf '%s\n' "$token" | grep -qE '^[0-9]+:[A-Za-z0-9_-]{30,}$' || {
 		echo "hermes-gateway: invalid Telegram token" >&2; exit 1;
 	}
 	export TELEGRAM_BOT_TOKEN="$token"
 fi
-if [ -n "${HERMES_MCP_TOKEN_FILE:-}" ]; then
-	token=$(read_required "$HERMES_MCP_TOKEN_FILE")
-	export OPENWRT_MCP_TOKEN="$token"
+
+# The router MCP connection is optional. UCI owning it is not the same as it being
+# reachable right now: a token file present when the instance was opened can go
+# missing before a later respawn, and that must drop the connection quietly rather
+# than take the whole gateway down with it. Telegram, above, stays fatal.
+mcp_effective=""
+if [ -n "${HERMES_OPENWRT_MCP_URL:-}" ]; then
+	if token=$(read_required "${HERMES_MCP_TOKEN_FILE:-}" "router MCP token file" 2>/dev/null); then
+		export OPENWRT_MCP_TOKEN="$token"
+		mcp_effective="$HERMES_OPENWRT_MCP_URL"
+	else
+		echo "hermes-gateway: router MCP token file ${HERMES_MCP_TOKEN_FILE:-} is missing or empty; starting without the MCP connection" >&2
+	fi
 fi
-unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE
+
+# UCI wins over whatever upstream's own runtime state persisted (a chat /model switch,
+# for one), so the bridge is re-applied on every exec here, not only at the init's own
+# first start. Requiredness is checked explicitly, ahead of time, rather than left to a
+# failure deep inside the Python helper that would be harder to place.
+: "${HERMES_HOME:?hermes-gateway: HERMES_HOME is required}"
+: "${OPENAI_BASE_URL:?hermes-gateway: OPENAI_BASE_URL is required}"
+: "${HERMES_MODEL:?hermes-gateway: HERMES_MODEL is required}"
+: "${HERMES_OPENWRT_TOOLSETS?hermes-gateway: HERMES_OPENWRT_TOOLSETS is required}"
+PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL"
+
 PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 	/usr/bin/python3 /usr/libexec/hermes-runtime-check
+unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL
 exec /usr/bin/hermes gateway run --external-supervisor
