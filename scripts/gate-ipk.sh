@@ -64,9 +64,14 @@ opkg list-installed 2>/dev/null | grep -q '^hermes-agent ' || fail check_install
 echo "PASS check_installs"
 
 # ---- 2. dependencies came from the release feed ----
-for d in python3 python3-pip ca-bundle bash ffmpeg ripgrep; do
+for d in python3 python3-pip ca-bundle bash ffmpeg; do
 	opkg list-installed 2>/dev/null | grep -q "^$d " || fail check_deps_resolve "$d did not install"
 done
+# ripgrep is deliberately not declared on 24.10 (see build-in-container.sh): the 24.10.8
+# index has not carried it for aarch64_generic or x86_64 since 2026-09-23, and declaring
+# it made the package uninstallable there. Asserted, so it cannot come back by accident.
+opkg info hermes-agent 2>/dev/null | grep '^Depends:' | grep -q ripgrep \
+	&& fail check_deps_resolve "ripgrep is declared, and the 24.10 feed cannot always supply it"
 echo "PASS check_deps_resolve"
 
 # ---- 3. it runs, on the Python this release ships ----

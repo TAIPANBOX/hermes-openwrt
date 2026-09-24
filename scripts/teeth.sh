@@ -104,11 +104,20 @@ cp /tmp/postinstall.bak "$W/post-install"
 # fault has to be planted where the words actually are. Planting it in the init would
 # change nothing and the check would stay green, which is how this fault broke when the
 # wrapper was introduced: teeth caught it on the first CI run.
+#
+# The sleep is the other half of the fault. On an emulated CPU the wrapper's helpers run
+# longer than the ten seconds check 6 used to wait from launch, so there this fault stayed
+# green (the aarch64 leg of CI, 2026-09-24) while every native run caught it. Sleeping
+# before the exec makes every machine at least that slow, so the check's timing is tested
+# everywhere rather than only where CI happens to emulate.
 INIT="$W/tree/etc/init.d/hermes-agent"
 WRAP="$W/tree/usr/sbin/hermes-gateway"
 cp "$WRAP" /tmp/wrap.bak
-sed 's|gateway run --external-supervisor|gateway run --external-supervisor --toolsets file,web|' \
-	"$WRAP" > /tmp/wrap.new && cp /tmp/wrap.new "$WRAP" && chmod 0755 "$WRAP"
+sed 's|^exec /usr/bin/hermes gateway run --external-supervisor$|sleep 12; exec /usr/bin/hermes gateway run --external-supervisor --toolsets file,web|' \
+	"$WRAP" > /tmp/wrap.new
+grep -q -- '--toolsets file,web' /tmp/wrap.new || {
+	echo "teeth: fault 4 planted nothing; the wrapper's exec line no longer reads as expected" >&2; exit 1; }
+cp /tmp/wrap.new "$WRAP" && chmod 0755 "$WRAP"
 repack "$DEPS_OK"
 expect_red "a flag the gateway subcommand rejects" check_service_command_runs
 cp /tmp/wrap.bak "$WRAP" && chmod 0755 "$WRAP"
