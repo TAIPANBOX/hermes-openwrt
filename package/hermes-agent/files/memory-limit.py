@@ -19,11 +19,38 @@ def limit_bytes(raw: str) -> int:
     return int(raw) * 1024 * 1024
 
 
+def _instance_membership():
+    return [line[3:] for line in MEMBERSHIP.read_text().splitlines() if line.startswith("0::")]
+
+
+def _write_verified(target: Path, value: str) -> None:
+    target.write_text(value)
+    if target.read_text().strip() != value:
+        raise RuntimeError(f"{target.name} did not retain its configured value")
+
+
+def _lift_previous_ceiling() -> None:
+    # Explicitly disabling the ceiling must never refuse, even when the cgroup is
+    # unavailable: only lift what THIS gateway's own dedicated cgroup may still carry
+    # from an earlier start, and only files that are actually there. procd on 25.12
+    # never removes an instance's cgroup, so an old memory.max otherwise survives
+    # every later restart that asks for no limit at all.
+    if _instance_membership() != [INSTANCE]:
+        return
+    group = CGROUP_ROOT / INSTANCE.lstrip("/")
+    for name, value in (("memory.max", "max"), ("memory.swap.max", "max"),
+                        ("memory.oom.group", "0")):
+        target = group / name
+        if target.exists():
+            _write_verified(target, value)
+
+
 def apply(raw: str) -> None:
     size = limit_bytes(raw)
     if not size:
+        _lift_previous_ceiling()
         return
-    membership = [line[3:] for line in MEMBERSHIP.read_text().splitlines() if line.startswith("0::")]
+    membership = _instance_membership()
     if membership != [INSTANCE]:
         raise RuntimeError("gateway is not in its dedicated procd cgroup")
     # Enable accounting down the existing procd hierarchy, never set a limit on it.
@@ -41,10 +68,7 @@ def apply(raw: str) -> None:
     # cannot turn a memory fault into unbounded swapping on the router.
     for name, value in (("memory.max", str(size)), ("memory.swap.max", "0"),
                         ("memory.oom.group", "1")):
-        target = group / name
-        target.write_text(value)
-        if target.read_text().strip() != value:
-            raise RuntimeError(f"{name} did not retain its configured value")
+        _write_verified(group / name, value)
 
 
 def main() -> int:
