@@ -18,7 +18,9 @@ set -eu
 # r4: the settings page gained a Profile choice (assistant/admin) and its warnings
 # now say that the assistant profile keeps terminal, code execution and file tools
 # off whatever the toolsets list says.
-PKGREL=${PKGREL:-4}
+#
+# r5: admin is the default profile, and the page sets max_turns.
+PKGREL=${PKGREL:-5}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

@@ -7,7 +7,7 @@
 # Why this exists: r4 declared bash on aarch64_generic and x86_64 and NOT on
 # aarch64_cortex-a53, the label every GL.iNet MediaTek router installs. The relabel was
 # a second `apk mkpkg` call with its own copy of the depends string, the fix had edited
-# only the first, and CI installed only the primary. Found on a Beryl AX on 2026-09-15.
+# only the first, and CI installed only the primary. Found on a router on 2026-09-15.
 #
 # The comparison is of the two package databases (`apk adbdump`) with three lines taken
 # out: the arch itself, the content hash (it covers the arch) and the block size (it

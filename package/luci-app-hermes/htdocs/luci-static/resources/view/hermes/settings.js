@@ -61,10 +61,10 @@ return view.extend({
 		s.anonymous = true;
 
 		o = s.option(form.ListValue, 'profile', _('Profile'),
-			_('assistant (default, and what applies if this is unset, including on upgrade) keeps terminal, code execution and file tools off no matter what Toolsets below selects. admin allows every tool the list selects, running as root.'));
-		o.value('assistant', _('Assistant (no commands, no files)'));
+			_('admin (default, and what applies if this is unset) allows every tool the Toolsets list below selects, running as root. assistant keeps terminal, code execution and file tools off no matter what that list selects, and tells the agent so; without an MCP server such as openwrt-mcp it then cannot read this router at all.'));
 		o.value('admin', _('Admin (full tool access, as root)'));
-		o.default = 'assistant';
+		o.value('assistant', _('Assistant (no commands, no files)'));
+		o.default = 'admin';
 		o.rmempty = false;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'),
@@ -80,6 +80,11 @@ return view.extend({
 			_('The gateway requires writable cgroup v2 memory control and verifies the limit before starting. If unavailable, it refuses to run. 0 explicitly disables the limit. Root tools can change system controls; this is not a sandbox.'));
 		o.datatype = 'and(uinteger,range(0,1048576))';
 		o.default = '512';
+
+		o = s.option(form.Value, 'max_turns', _('Model calls per turn'),
+			_('The most model calls one turn may make before the agent has to answer. Upstream allows 90; a model that cannot do what it is asked can spend them all.'));
+		o.datatype = 'and(uinteger,range(1,500))';
+		o.default = '20';
 
 		/* ---- the model ---- */
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Model'));

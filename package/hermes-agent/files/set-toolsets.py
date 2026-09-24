@@ -18,6 +18,16 @@ with the other two because the file tool's own sensitive-path guard does not cov
 /usr/lib/hermes-agent and could otherwise rewrite the agent's own code to lift the
 restriction. Entries outside those three are the operator's and are left alone
 either way. Omitting the argument leaves agent.disabled_toolsets untouched.
+
+@decided 2026-09-24, later the same day, superseding the default above: admin is the
+default everywhere, existing routers included; assistant is opt-in; in assistant the
+agent is told it has no terminal, code execution or file tools; the number of model
+steps in one turn is capped.
+
+How: the note is a delimited block in agent.system_prompt, which the gateway loads as
+its ephemeral system prompt; the operator's own text around it is kept, and admin
+removes only the block. The cap comes from UCI through HERMES_OPENWRT_MAX_TURNS into
+agent.max_turns, which the gateway turns into its per-turn iteration budget.
 """
 from __future__ import annotations
 
@@ -32,6 +42,38 @@ from urllib.parse import urlsplit
 # order: this is the order missing names are appended in, so the file is
 # deterministic to read and to test.
 GOVERNED = ("code_execution", "file", "terminal")
+
+# What the assistant profile tells the agent. Without it a live Telegram bot asked
+# for the router's uptime looped on the memory tool for 90 model calls before it
+# gave up (2026-09-24). Delimited, so admin can take out exactly this and nothing
+# of the operator's own prompt.
+NOTE_OPEN = "[hermes-openwrt: assistant profile]"
+NOTE_CLOSE = "[/hermes-openwrt: assistant profile]"
+NOTE = (NOTE_OPEN + "\n"
+        "You run on an OpenWrt router in its assistant profile. You have no terminal, "
+        "code execution or file tools, so you cannot read or change this router yourself. "
+        "When you are asked about the router, say so at once instead of trying other tools, "
+        "and say that the owner can allow it by setting hermes.main.profile to admin or by "
+        "connecting an MCP server such as openwrt-mcp.\n"
+        + NOTE_CLOSE)
+
+
+# Put between the operator's text and the note, and taken out with it, so the
+# operator's text comes back exactly, whitespace around it included.
+NOTE_SEP = "\n\n"
+
+
+def _without_note(text: str) -> str:
+    """The operator's own text, exactly: everything but the note and the separator
+    put before it. Only called when the note is there."""
+    start = text.find(NOTE_OPEN)
+    end = text.find(NOTE_CLOSE, start)
+    if end == -1:
+        raise ValueError("agent.system_prompt holds an unterminated profile note")
+    before, after = text[:start], text[end + len(NOTE_CLOSE):]
+    if before.endswith(NOTE_SEP):
+        before = before[:-len(NOTE_SEP)]
+    return before + after
 
 
 def _validate_endpoint(value: str, label: str) -> None:
@@ -170,6 +212,38 @@ def main() -> int:
                         # Consistent with the rest of this file: never leave a key
                         # behind that now holds nothing (see _openwrt_mcp_managed).
                         agent_cfg.pop("disabled_toolsets", None)
+
+        # The profile's note in agent.system_prompt: added in assistant, taken out in
+        # admin, the operator's own text kept either way.
+        if profile is not None:
+            agent_cfg = config.get("agent")
+            if agent_cfg is None and profile == "assistant":
+                agent_cfg = config["agent"] = {}
+            if agent_cfg is not None:
+                if not isinstance(agent_cfg, dict):
+                    raise ValueError("agent must be a mapping")
+                current = agent_cfg.get("system_prompt")
+                if current is not None and not isinstance(current, str):
+                    raise ValueError("agent.system_prompt must be text")
+                noted = bool(current) and NOTE_OPEN in current
+                own = _without_note(current) if noted else (current or "")
+                if profile == "assistant":
+                    agent_cfg["system_prompt"] = (own + NOTE_SEP + NOTE) if own else NOTE
+                elif noted and own:
+                    agent_cfg["system_prompt"] = own
+                elif noted:
+                    agent_cfg.pop("system_prompt", None)
+
+        # The per-turn step budget, from UCI. Unset leaves whatever is there.
+        turns = os.environ.get("HERMES_OPENWRT_MAX_TURNS")
+        if turns is not None:
+            if not turns.isdigit() or not 1 <= int(turns) <= 500:
+                raise ValueError("max_turns must be a whole number from 1 to 500")
+            if config.get("agent") is None:
+                config["agent"] = {}
+            if not isinstance(config["agent"], dict):
+                raise ValueError("agent must be a mapping")
+            config["agent"]["max_turns"] = int(turns)
 
         if path.exists() and config == original:
             return 0

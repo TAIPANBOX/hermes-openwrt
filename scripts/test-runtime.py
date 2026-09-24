@@ -719,10 +719,12 @@ procd_close_service
                 self.assertIn("agent", result.stderr)
                 self.assertEqual((self.home / "config.yaml").read_text(), content)
 
-    def test_profile_defaults_to_assistant_and_refuses_unknown(self):
+    def test_profile_defaults_to_admin_and_refuses_unknown(self):
         # No `profile` option at all (e.g. a router upgraded from before this
-        # feature existed) must default to assistant, the same as the shipped
-        # config's own default value, independent of it.
+        # feature existed) must default to admin, the same as the shipped config's
+        # own default value, independent of it. The default was assistant for a few
+        # hours on 2026-09-24; a live bot showed that without openwrt-mcp it cannot
+        # reach the router at all, so admin became the default and assistant opt-in.
         script = f'''
 mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
 printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
@@ -743,7 +745,7 @@ procd_close_service
         result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         parsed = json.loads(result.stdout)
-        self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_PROFILE"], "assistant")
+        self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_PROFILE"], "admin")
 
         refuse_script = f'''
 mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
@@ -800,16 +802,86 @@ exit $?
         self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["code_execution", "file", "terminal"])
 
         # Unset entirely -- an older procd env, or a service-list edge case --
-        # must default to assistant here too, the same as the init's own
-        # config_get default, not merely at the init's first start.
+        # must default to admin here too, the same as the init's own config_get
+        # default: the governed names come out, the operator's entry stays.
         tampered2 = self.config()
-        tampered2["agent"]["disabled_toolsets"] = ["code_execution"]
+        tampered2["agent"]["disabled_toolsets"] = ["code_execution", "browser"]
         (self.home / "config.yaml").write_text(yaml.safe_dump(tampered2))
         env.pop("HERMES_OPENWRT_PROFILE")
         result2 = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
                                  env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result2.returncode, 0, result2.stderr)
-        self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["code_execution", "file", "terminal"])
+        self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["browser"])
+
+    def test_assistant_profile_tells_the_agent_what_it_cannot_do(self):
+        # 2026-09-24, a Telegram bot on a test router in the assistant profile: asked
+        # for the router's uptime, gpt-4o-mini looped on the memory tool for 90
+        # model calls before it gave up, because nothing told it it had no shell.
+        # The bridge now says so in agent.system_prompt, which the gateway loads as
+        # its ephemeral system prompt, and keeps the operator's own text around it.
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"agent": {"system_prompt": "Be brief."}}))
+        self.assertEqual(self.configure(profile="assistant").returncode, 0)
+        prompt = self.config()["agent"]["system_prompt"]
+        self.assertTrue(prompt.startswith("Be brief.\n\n"), prompt)
+        self.assertIn("no terminal", prompt)
+        env = {k: v for k, v in self.env.items() if k != "HERMES_EPHEMERAL_SYSTEM_PROMPT"}
+        loaded = subprocess.run(["python3", "-c", "from gateway.run import GatewayRunner; "
+                                 "print(GatewayRunner._load_ephemeral_system_prompt())"],
+                                env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        self.assertIn("Be brief.", loaded.stdout)
+        self.assertIn("no terminal", loaded.stdout)
+        before = (self.home / "config.yaml").read_bytes()
+        self.assertEqual(self.configure(profile="assistant").returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_bytes(), before)
+        self.assertEqual(self.configure(profile="admin").returncode, 0)
+        self.assertEqual(self.config()["agent"]["system_prompt"], "Be brief.")
+        # Exactly the operator's text, whitespace around it included: a YAML block
+        # scalar ends in a newline. A second start in assistant leaves the file alone.
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"agent": {"system_prompt": "  Be brief.\n"}}))
+        self.assertEqual(self.configure(profile="assistant").returncode, 0)
+        before = (self.home / "config.yaml").read_bytes()
+        self.assertEqual(self.configure(profile="assistant").returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_bytes(), before)
+        self.assertEqual(self.configure(profile="admin").returncode, 0)
+        self.assertEqual(self.config()["agent"]["system_prompt"], "  Be brief.\n")
+        (self.home / "config.yaml").write_text("{}\n")
+        self.assertEqual(self.configure(profile="assistant").returncode, 0)
+        self.assertIn("no terminal", self.config()["agent"]["system_prompt"])
+        self.assertEqual(self.configure(profile="admin").returncode, 0)
+        self.assertNotIn("system_prompt", self.config().get("agent") or {})
+        content = yaml.safe_dump({"agent": {"system_prompt": ["not", "text"]}})
+        (self.home / "config.yaml").write_text(content)
+        self.assertNotEqual(self.configure(profile="assistant").returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_text(), content)
+
+    def test_max_turns_comes_from_uci(self):
+        # The same run hit upstream's own budget of 90 model calls per turn. UCI now
+        # sets it, 20 unless changed; the gateway reads agent.max_turns into the
+        # budget it enforces; a value that is not a whole number from 1 to 500
+        # refuses the start and leaves the file alone.
+        def bridge(value, profile="admin"):
+            env = dict(self.env)
+            if value is not None:
+                env["HERMES_OPENWRT_MAX_TURNS"] = value
+            args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", "",
+                    "http://127.0.0.1:9/v1", "runtime-model", profile]
+            return subprocess.run(args, env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(bridge("20").returncode, 0)
+        self.assertEqual(self.config()["agent"]["max_turns"], 20)
+        budget = subprocess.run(["python3", "-c", "import gateway.run as g; print(g._current_max_iterations())"],
+                                env=self.env, check=False, capture_output=True, text=True)
+        self.assertEqual(budget.returncode, 0, budget.stderr)
+        self.assertEqual(budget.stdout.strip().splitlines()[-1], "20")
+        for bad in ("0", "501", "twenty", "-3"):
+            with self.subTest(bad=bad):
+                before = (self.home / "config.yaml").read_text()
+                refused = bridge(bad)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("max_turns", refused.stderr)
+                self.assertEqual((self.home / "config.yaml").read_text(), before)
+        parsed, _raw = self._service_instance_json()
+        self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_MAX_TURNS"], "20")
 
 
 if __name__ == "__main__":

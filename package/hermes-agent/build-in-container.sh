@@ -48,14 +48,18 @@ HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # the one label every GL.iNet MediaTek box actually installs. The relabelled copy below
 # was a second mkpkg call carrying its own copy of the depends string, and the r3 fix
 # edited only the first. CI installs the generic and x86_64 packages and never the
-# relabelled one, so nothing could notice. Measured on a Beryl AX on 2026-09-15: r4
+# relabelled one, so nothing could notice. Measured on a cortex-a53 router on 2026-09-15: r4
 # installed, `bash` absent. Now one string feeds both calls, and the relabelled package
 # is diffed against the primary before it is accepted.
 #
 # r7: the init learned a profile option (assistant/admin) that governs
 # agent.disabled_toolsets; set-toolsets.py, hermes-agent.init and hermes-gateway all
 # changed. See CLAUDE.md's profiles invariant.
-PKGREL=${PKGREL:-7}
+#
+# r8: admin became the default profile; assistant tells the agent it has no shell;
+# max_turns caps the model calls with tools in one turn at 20 (UCI); upstream adds one
+# call without tools to sum up when a turn reaches it.
+PKGREL=${PKGREL:-8}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

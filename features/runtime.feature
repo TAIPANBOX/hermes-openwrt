@@ -26,6 +26,20 @@
 #                        leaves every selected tool available, running as root as before.
 #                        assistant is what applies wherever no profile is set, including on
 #                        existing routers upgraded from before this option existed.
+#   @decided 2026-09-24  Later the same day, superseding the default above: admin is what
+#                        applies wherever no profile is set; assistant is chosen, and it
+#                        tells the agent it has no terminal, code execution or file tools;
+#                        one turn may make a limited number of model calls.
+#   @measured 2026-09-24 through a Telegram bot on a test router, r7: in assistant, asked
+#                        for the router's uptime, the model looped on the memory tool for
+#                        90 calls before answering; in admin it ran uptime once and answered.
+#   @measured 2026-09-24 on a Flint 2 and a Brume 2, r8 installed over the release each
+#                        had, one turn each through upstream's AIAgent with the gateway's
+#                        own prompt, tools and budget: with no profile set, admin ran uptime
+#                        and answered in 2 model calls of 20; with max_turns=1 the turn
+#                        ended at max_iterations_reached(1/1) and a call without tools
+#                        summed up; in assistant the note was in the prompt, no terminal was
+#                        offered, and it answered in 1 call.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -108,14 +122,14 @@ Feature: What is set on the router is what the gateway runs with
     And the file is exactly as it was
     # -> check_profile_refuses_non_list_disabled_toolsets
 
-  Scenario: no profile chosen means assistant, and an unrecognised one refuses to start
+  Scenario: no profile chosen means admin, and an unrecognised one refuses to start
     Given the router's configuration names no profile at all
     When the service starts
-    Then it runs in the assistant profile
+    Then it runs in the admin profile
     When the router's configuration names a profile that is neither assistant nor admin
     Then the service refuses, naming the file and the two valid values
     And the package's own bridge refuses that same value directly, leaving the configuration untouched
-    # -> check_profile_defaults_to_assistant_and_refuses_unknown
+    # -> check_profile_defaults_to_admin_and_refuses_unknown
 
   Scenario: the running gateway is put back in its chosen profile at every restart, not only the first
     Given the assistant profile has been applied once
@@ -123,6 +137,22 @@ Feature: What is set on the router is what the gateway runs with
     When the gateway execs again, the way a respawn or an in-chat restart does
     Then the tool is turned off again
     # -> check_wrapper_reapplies_profile_at_exec
+
+  Scenario: in the assistant profile the agent is told what it cannot do
+    Given the operator's own system prompt
+    When the profile is assistant
+    Then the gateway's system prompt keeps the operator's text and adds that there is no terminal, code execution or file tool
+    And a second start changes nothing
+    When the profile is admin
+    Then the operator's text is back exactly as it was
+    # -> check_assistant_profile_tells_the_agent_what_it_cannot_do
+
+  Scenario: the router's configuration sets how many model calls one turn may make
+    Given the router's configuration says 20, as it does unless changed
+    When the service starts
+    Then the gateway's budget for one turn is 20 model calls
+    And a value that is not a whole number from 1 to 500 stops the start and leaves the file alone
+    # -> check_max_turns_comes_from_uci
 
   # ---- The configuration file itself ----
 

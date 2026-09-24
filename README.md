@@ -55,7 +55,7 @@ apk add hermes-agent-telegram
 ### OpenWrt 24.10 (opkg)
 
 ```sh
-ARCH=aarch64_cortex-a53          # GL.iNet Flint 2 and other Cortex-A53 routers
+ARCH=aarch64_cortex-a53          # GL.iNet Flint 2, Brume 2 and other Cortex-A53 routers
 # ARCH=aarch64_generic           # other 64-bit ARM
 
 wget -O /tmp/hermes.pub https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.usign.pub
@@ -91,10 +91,10 @@ below comes from them.
 
 Both are GL.iNet hardware running **vanilla OpenWrt 25.12.5**, not the vendor firmware
 they ship with: the stock image was replaced entirely, over the network, and the package
-was installed from the signed feed exactly as the instructions above describe. The Flint 2
-is a Wi-Fi 6 router with four cores and six ports; the Brume 2 is a wired-only box with
-two cores, which is the interesting case here because it is closer to what a small
-always-on gateway looks like.
+was installed from the signed feed exactly as the instructions above describe. They are
+the two routers this package is tested on, chosen as two form factors doing the same job:
+the Flint 2 is a Wi-Fi 6 router with four cores and six ports, and the Brume 2 is a
+wired-only gateway with two cores, closer to what a small always-on box looks like.
 
 | | GL-MT6000 (Flint 2) | GL-MT2500 (Brume 2) |
 |---|---|---|
@@ -228,24 +228,31 @@ at exec time, so it exists only in the process's own environment, and
 `check_key_not_in_procd_env` fails the build if it ever appears in the service table
 again.
 
-### The service controls, on a third box
+### The service controls, on both routers
 
 On 2026-09-24 the controls described under "Letting it touch the router" were checked on
-real procd, on a GL.iNet Beryl AX: the same two-core MT7981 as the Brume 2, 512 MB of
-RAM, vanilla OpenWrt 25.12.5. The package came from a local build of this revision, with
-a synthetic key and no model request.
+real procd on both routers, with a local build of this revision installed over the release
+each one had.
 
-- procd holds the bounded respawn (3600 s, 5 s, 5 retries), and neither the key nor a
-  token appears in `ubus call service list`.
+- The upgrade kept the router's own `/etc/config/hermes` byte for byte and put the new
+  defaults beside it as `hermes.apk-new`; with no profile set, the gateway started as admin.
+- procd holds the bounded respawn (3600 s, 5 s, 5 retries), and the key does not appear
+  in `ubus call service list`.
 - `mem_max_mb=256` reaches the kernel: `memory.max` 268435456, `memory.swap.max` 0,
-  `memory.oom.group` 1, with the gateway resident at 123 MB.
-- A model switched from a chat with `/model ... --global`, then `kill -9`: procd had the
-  gateway back in 6 s, with the model, provider and endpoint from UCI in place again.
+  `memory.oom.group` 1.
+- A model saved the way a chat's `/model ... --global` saves it, then `kill -9`: procd
+  had the gateway back in 8 s on the Flint 2 and 9 s on the Brume 2, with the model,
+  provider and endpoint from UCI in place again.
 - `mem_max_mb=0` and a restart: `memory.max` and `memory.swap.max` read `max`, and
   `memory.oom.group` 0.
-- With the key file removed, the refusal was logged six times, the start and five
-  retries, and procd then left the service stopped.
-- From start to the gateway's own exec takes 4 s on that CPU.
+- With the key file removed and the gateway killed, procd started it five more times,
+  each start was refused and logged, and procd then left the service stopped.
+- From start to the gateway's own exec takes 3 to 4 s on the Flint 2 and 4 to 5 s on the
+  Brume 2.
+
+The Flint 2 carried the house's internet the whole time. A machine in the house pinged
+the house router and 1.1.1.1 once a second throughout, 222 times each, lost none, and
+the internet median stayed at 11 ms.
 
 ## The web interface
 
@@ -382,7 +389,7 @@ private half until a person logs in and deletes the file. So CI builds and gates
 ![Upstream, built inside the target release, one shim, packaged, signed locally](docs/build.svg)
 
 ```sh
-# 25.12: apk, Python 3.13. EXTRA_ARCHES relabels the same tree for the Flint 2.
+# 25.12: apk, Python 3.13. EXTRA_ARCHES relabels the same tree for the Flint 2 and Brume 2.
 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 
 # 24.10: opkg, Python 3.11
@@ -433,21 +440,33 @@ because voice messages and speech transcoding do work here and are cheap.
 router configuration directly. Give access only to trusted operators on a spare test
 router. Disabling MCP does not remove this local access.
 
-Two profiles decide how much of that access the agent actually has. **assistant**, the
-default, including on upgrade and on any router whose configuration predates this
-option, turns the terminal, code execution and file tools off regardless of what the
-toolsets list below selects: the agent can still chat, search the web, keep memory and
-schedule reminders, and it reaches the router only through an MCP server such as
-openwrt-mcp, if one is configured, never directly. **admin** leaves every tool the
-toolsets list selects in place, running as root as described above. Choose it in
+Two profiles decide how much of that access the agent actually has. **admin** is the
+default wherever the option is not set, which includes a router whose configuration
+predates it, and leaves every tool the toolsets list selects in place, running as root
+as described above. **assistant** turns the terminal, code execution and file tools off
+regardless of what that list selects, and tells the agent so: it can still chat, keep
+memory and schedule reminders, and it reaches the router only through an MCP server
+such as openwrt-mcp, if one is configured, never directly. Choose it in
 **Services -> Hermes Agent -> Settings -> Profile**, or from the command line:
 
 ```sh
-uci set hermes.main.profile=admin && uci commit hermes && /etc/init.d/hermes-agent restart
+uci set hermes.main.profile=assistant && uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
 A value other than `assistant` or `admin` refuses to start rather than guess which was
-meant.
+meant. An upgrade leaves the router's own configuration file alone, so a router whose
+file names a profile keeps it; that includes the `assistant` line the previous release
+wrote into a new install. Starting the service prints which profile applies, and in
+assistant the command that switches it.
+
+One turn makes at most 20 model calls with tools (`hermes.main.max_turns`, 1 to 500),
+and a turn that reaches the limit gets one more, without tools, to sum up what it found.
+Upstream allows 90, and on 2026-09-24 a bot in the assistant profile, asked for something
+it had no tool for, spent all 90 before it answered. The same day, with this revision on
+both routers and each asked for its own uptime: in admin it ran `uptime` and answered in
+two model calls; with the limit set to 1 it stopped after the first call, which had
+already run `uptime`, and the summary answered from that; in assistant, told what it
+cannot do, it said so at once, in one call.
 
 The optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
 policy checks to calls sent through that server. Its policy does not constrain local
@@ -510,8 +529,8 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
 | `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave every file owned by the base package |
-| `gate-runtime.sh` | 27 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, and kernel-enforced memory limits, including lifting one |
-| `teeth-runtime.py` | 18 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
+| `gate-runtime.sh` | 37 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, and the per-turn limit on model calls |
+| `teeth-runtime.py` | 30 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
@@ -537,17 +556,18 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 ## Status
 
 - [x] Native package for 25.12 (apk) and 24.10 (opkg)
-- [x] `aarch64_cortex-a53` for the Flint 2, Brume 2 and Beryl AX, plus `aarch64_generic`
+- [x] `aarch64_cortex-a53` for the Flint 2 and Brume 2, plus `aarch64_generic`
 - [x] LuCI interface with write-only key handling
 - [x] Signed feed for both lines, signed on a workstation
 - [x] Every gate runs on OpenWrt's own rootfs images in CI
 - [x] **Run on real hardware.** Two GL.iNet routers on vanilla OpenWrt 25.12.5; see the figures above
-- [x] **Service controls on real procd**: bounded respawn, the memory ceiling and its removal, UCI back in place after a crash (Beryl AX, 25.12.5)
+- [x] **Service controls on real procd**: bounded respawn, the memory ceiling and its removal, UCI back in place after a crash (Flint 2 and Brume 2, 25.12.5)
 - [x] **A full agent turn on a router**, model calling a tool and answering from what it read
 - [x] **Measured under load**: concurrency ceiling, thermals, throughput, flash writes, leak check
 - [x] **The feed installs on hardware** with its signature verified and no `--allow-untrusted`
 - [x] Telegram, as a two-distribution add-on package, on both release lines
-- [x] Two profiles, assistant and admin, governing terminal, code execution and file tools
+- [x] Two profiles, admin by default and assistant by choice, governing terminal, code execution and file tools
+- [x] A per-turn limit on model calls, set on the router
 - [ ] Native Anthropic provider, which needs the `anthropic` package as a second add-on
 - [ ] Track upstream releases automatically, which arrive every two to four days
 
