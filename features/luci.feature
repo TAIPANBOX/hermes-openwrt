@@ -13,10 +13,13 @@
 #                        as stored.
 #   @measured 2026-09-24 against a8831f4, scripts/gate-luci.sh red before the fix on the
 #                        three checks added for those.
+#   @claude 2026-09-24   From review: check_read_acl_is_narrow read two keys of the read
+#                        block and no others, so a file grant beside them would have passed.
 #
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
-# both ways, and scripts/teeth-luci.sh plants a fault for each of the three newest checks.
+# both ways, and scripts/teeth-luci.sh plants a fault for each of the three newest checks
+# plus a second one for the read permission, a file grant beside the page's calls.
 
 Feature: The web page manages the agent and never hands a key back
 
@@ -71,9 +74,10 @@ Feature: The web page manages the agent and never hands a key back
     Then the status says it is present
     # -> check_telegram_state_reported
 
-  Scenario: read-only access to the page cannot see the service's environment
-    Then the read permission covers the page's status and log calls only
-    And it does not include procd's service list
+  Scenario: read-only access to the page grants its own calls and nothing else
+    Then the read permission holds the status and log calls and the page's UCI configuration
+    And no other ubus object or method, which leaves out procd's service list
+    And no file access and no other scope
     # -> check_read_acl_is_narrow
 
   Scenario: a key that could not be written is reported as not saved
