@@ -63,11 +63,28 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     including on an existing router's configuration from before this option existed, and
     an unrecognised value refuses to start (gate: `scripts/gate-runtime.sh`,
     `scripts/teeth-runtime.py`).
+    `@decided 2026-09-24`, later the same day, superseding the default above: admin
+    applies wherever no profile is set, existing routers included; assistant is chosen,
+    and it tells the agent it has no terminal, code execution or file tools (gate:
+    `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
 13. The service runs at nice 10, so the router's own work keeps the processor: on a
     Brume 2 carrying a WireGuard tunnel on 2026-09-24, a conversation at the default
     priority took a third of the tunnel's throughput while it ran and a quarter at
     nice 10 (README, "Under the router's own work") (gate: `scripts/gate-runtime.sh`,
     `scripts/teeth-runtime.py`).
+14. One turn makes at most `hermes.main.max_turns` model calls with tools, 20 unless
+    changed, written into upstream's `agent.max_turns`, which the gateway turns into its
+    per-turn budget; a turn that reaches it gets one more call, without tools, to sum up
+    (upstream's `agent/turn_finalizer.py`). A value outside 1 to 500 refuses to start. On
+    2026-09-24 one assistant turn spent all of upstream's default of 90 (gate:
+    `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
+15. `@decided 2026-09-24`: the routers this package is built for and checked on, and the
+    only ones the repository names, are the GL.iNet Flint 2 (GL-MT6000) and Brume 2
+    (GL-MT2500), two form factors of one job, with Wi-Fi and without. A finding made on
+    another box is described by its architecture. Hardware checks run on both and
+    record the router's state first, then restore it (gate:
+    `scripts/gate-named-routers.sh`, teeth: `scripts/teeth-named-routers.sh`, both in
+    CI's `scenarios` job; the restore is not enforced).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

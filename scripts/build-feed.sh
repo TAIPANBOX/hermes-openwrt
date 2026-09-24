@@ -150,7 +150,7 @@ h2{margin-top:2.2rem}</style>
 <h1>hermes-openwrt</h1>
 <p>A signed feed carrying <a href="https://github.com/TAIPANBOX/hermes-openwrt">hermes-agent
 and luci-app-hermes</a>: the Hermes Agent as a native OpenWrt service. The reference
-devices are the GL.iNet Flint 2, Brume 2 and Beryl AX; generic 64-bit ARM is served too.</p>
+devices are the GL.iNet Flint 2 and Brume 2; generic 64-bit ARM is served too.</p>
 
 <h2>OpenWrt 25.12 and later (apk)</h2>
 <pre>wget -O /etc/apk/keys/hermes-openwrt.pem \\

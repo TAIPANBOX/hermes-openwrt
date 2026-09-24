@@ -1,7 +1,7 @@
 # What the feed serves.
 #
 # Provenance. Nobody asked for this in words. It comes from a measurement on 2026-09-15:
-# a Beryl AX (aarch64_cortex-a53) installed hermes-agent r4 from the feed and had no
+# a router on aarch64_cortex-a53 installed hermes-agent r4 from the feed and had no
 # bash, while the aarch64_generic and x86_64 packages of the same release declared it.
 # The relabelled package is produced by a second `apk mkpkg` call, and that call had
 # its own copy of the dependency list. The scenario below is @claude, derived from that
