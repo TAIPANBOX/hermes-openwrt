@@ -14,7 +14,11 @@ set -eu
 
 # r2: the settings page gained a Telegram section and the overview a Telegram row,
 # and the rpcd backend now reports whether the client library is installed.
-PKGREL=${PKGREL:-3}
+#
+# r4: the settings page gained a Profile choice (assistant/admin) and its warnings
+# now say that the assistant profile keeps terminal, code execution and file tools
+# off whatever the toolsets list says.
+PKGREL=${PKGREL:-4}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
