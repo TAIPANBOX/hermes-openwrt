@@ -60,8 +60,8 @@
 <rect x="48" y="352" width="1184" height="164" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
 <text x="72" y="382" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">WHEN IT IS WORTH DOING, AND WHEN IT IS NOT</text>
 <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">
-  <text x="72" y="412"><tspan fill="#3fb950">Worth it</tspan> when the router has no room for 220 MB, which is most of them, or when you would rather the agent did not write to the</text>
-  <text x="72" y="432">same flash the firmware boots from.</text>
+  <text x="72" y="412"><tspan fill="#3fb950">Worth it</tspan> when you would rather sessions and memory did not keep growing on the same flash the firmware boots from.</text>
+  <text x="72" y="432">Moving data_dir moves that state. It does not free the ~185 MB package itself, which stays under /usr/lib/hermes-agent either way.</text>
   <text x="72" y="462"><tspan fill="#e3b341">Not about wear</tspan>. At 850 kB per session, a hundred sessions a day is about 31 GB a year, and eMMC endurance is measured in</text>
   <text x="72" y="482">tens of terabytes. The stick solves space and separation, not lifespan. It does take 924 kB per session plus 228 kB every 30 s</text>
   <text x="72" y="502">while the gateway idles, because the journal is written continuously, so use a stick you do not mind replacing.</text>

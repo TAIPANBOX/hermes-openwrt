@@ -60,8 +60,8 @@
 <rect x="714" y="244" width="60" height="20" rx="10" ry="10" fill="#141a23" stroke="#2dd4bf" stroke-width="1"/>
 <text x="744" y="258" font-size="12.5" fill="#2dd4bf" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">procd</text>
 <text x="512" y="296" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">Python 3.13 or 3.11</text>
-<text x="512" y="318" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">193 MB installed</text>
-<text x="512" y="340" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">175 MB RSS</text>
+<text x="512" y="318" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">185 MB installed</text>
+<text x="512" y="340" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">~130 MB RSS</text>
 
 <!-- luci-app-hermes card -->
 <rect x="492" y="372" width="296" height="108" rx="8" ry="8" fill="#1b2331" stroke="#283341" stroke-width="1"/>
@@ -79,7 +79,7 @@
 <rect x="276" y="259" width="90" height="22" rx="11" ry="11" fill="#141a23" stroke="#4493f8" stroke-width="1"/>
 <text x="321" y="274" font-size="12.5" fill="#4493f8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">elsewhere</text>
 <line x1="86" y1="297" x2="354" y2="297" stroke="#222b38" stroke-width="1"/>
-<text x="86" y="327" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">OpenAI, OpenRouter, Anthropic</text>
+<text x="86" y="327" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">OpenAI, OpenRouter</text>
 <text x="86" y="349" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">or llama-server on your LAN</text>
 <text x="86" y="371" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">any OpenAI-compatible endpoint</text>
 

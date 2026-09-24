@@ -119,7 +119,7 @@ Two things that were worth checking and turned out fine. **Routing is not distur
 iperf3 across the box measured 938 Mbit/s idle and 931 Mbit/s while three agents were
 working, which is inside the noise. **Nothing leaks over a run**: eight sequential
 sessions moved the gateway's resident memory from 108688 kB to 108716 kB, and each
-session still took its usual 24 s. Temperature never left the 39 to 43 C band on either
+session still took its usual 24 s. Temperature stayed between 41 and 47 C on either
 box, fanless, with no throttling.
 
 ### Which models can actually drive it
