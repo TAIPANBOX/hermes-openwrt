@@ -119,9 +119,12 @@ was pushed until something broke:
 
 ![How many agents fit on a 1 GB router](docs/concurrency.svg)
 
-Four concurrent agents is the safe ceiling on a 1 GB router. Six is over it on both
-boxes: the kernel killed processes three times on each, and although the sessions
-happened to finish and the gateway survived, that is luck rather than headroom.
+In that run every agent was its own `hermes chat` process, and each one loaded all of
+Hermes, about 130 MB apiece: four at once is the ceiling for that shape on a 1 GB router,
+and six made the kernel kill processes three times on each box. It is not the shape a
+Telegram bot uses. The gateway runs every conversation as a thread of one process, so an
+extra conversation costs a few megabytes rather than a whole interpreter; the next
+section measures that.
 
 Two things that were worth checking and turned out fine. **Routing is not disturbed**:
 iperf3 across the box measured 938 Mbit/s idle and 931 Mbit/s while three agents were
@@ -129,6 +132,26 @@ working, which is inside the noise. **Nothing leaks over a run**: eight sequenti
 sessions moved the gateway's resident memory from 108688 kB to 108716 kB, and each
 session still took its usual 24 s. Temperature stayed between 41 and 47 C on the Flint 2
 and between 39 and 43 C on the Brume 2, fanless, with no throttling.
+
+### Under the router's own work
+
+Measured on 2026-09-24, with conversations run the way the gateway runs them (threads of
+one process inside the service's own cgroup), each a real diagnosis through the terminal
+tool with `openai/gpt-4o-mini` on OpenRouter:
+
+- **Flint 2, carrying a house's internet as a transparent bridge.** With one and then
+  three conversations running, the house's latency to the internet stayed at a median of
+  11 ms (21 ms at most, no loss), a download through the bridge from a Wi-Fi client ran at
+  the same 440 to 490 Mbit/s, the kernel dropped no packets, and the four cores stayed
+  about 80% idle.
+- **Brume 2, carrying a WireGuard tunnel at 580 Mbit/s.** A conversation running at the
+  same time took about a third of the tunnel's throughput (395 and 383 Mbit/s with one
+  and three), and a quarter at nice 10 (438 Mbit/s), which is why the service runs at
+  nice 10. Latency through the tunnel stayed at 4 to 5 ms throughout.
+- **Memory.** Three conversations took 230 MB for all of Hermes on the Brume and 291 MB
+  on the Flint; six took 258 MB on the Brume. The 512 MB ceiling never came into play.
+
+One run per step, and how long a conversation takes is mostly the model's own time.
 
 ### Which models can actually drive it
 
@@ -411,6 +434,22 @@ because voice messages and speech transcoding do work here and are cheap.
 router configuration directly. Give access only to trusted operators on a spare test
 router. Disabling MCP does not remove this local access.
 
+Two profiles decide how much of that access the agent actually has. **assistant**, the
+default, including on upgrade and on any router whose configuration predates this
+option, turns the terminal, code execution and file tools off regardless of what the
+toolsets list below selects: the agent can still chat, search the web, keep memory and
+schedule reminders, and it reaches the router only through an MCP server such as
+openwrt-mcp, if one is configured, never directly. **admin** leaves every tool the
+toolsets list selects in place, running as root as described above. Choose it in
+**Services -> Hermes Agent -> Settings -> Profile**, or from the command line:
+
+```sh
+uci set hermes.main.profile=admin && uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+A value other than `assistant` or `admin` refuses to start rather than guess which was
+meant.
+
 The optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
 policy checks to calls sent through that server. Its policy does not constrain local
 file, terminal, plugins or delegated tools. Pair once on the router and grant a narrow,
@@ -455,7 +494,8 @@ on the target router before testing.
 
 procd retries a gateway that fails at start at most five times within an hour and then
 leaves it stopped, so a refusal is logged a handful of times rather than every five
-seconds.
+seconds. It also runs the service at nice 10, so the router's own work keeps the
+processor; "Under the router's own work" above has the measurement.
 
 ## What is checked, and how
 
@@ -508,6 +548,7 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] **Measured under load**: concurrency ceiling, thermals, throughput, flash writes, leak check
 - [x] **The feed installs on hardware** with its signature verified and no `--allow-untrusted`
 - [x] Telegram, as a two-distribution add-on package, on both release lines
+- [x] Two profiles, assistant and admin, governing terminal, code execution and file tools
 - [ ] Native Anthropic provider, which needs the `anthropic` package as a second add-on
 - [ ] Track upstream releases automatically, which arrive every two to four days
 

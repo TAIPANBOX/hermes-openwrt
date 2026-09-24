@@ -31,12 +31,19 @@ class RuntimeTests(unittest.TestCase):
         self.env = dict(os.environ, HERMES_HOME=str(self.home),
                         HERMES_DISABLE_LAZY_INSTALLS="1", PYTHONDONTWRITEBYTECODE="1")
 
-    def configure(self, tools="memory", mcp=None, endpoint=None, model="runtime-model"):
+    def configure(self, tools="memory", mcp=None, endpoint=None, model="runtime-model", profile=None):
+        if profile is not None and endpoint is None:
+            # profile is only ever the argument after model (argv[6]); force the
+            # full mcp/endpoint/model form so it lands there unambiguously, the
+            # same shape both the init and the wrapper always call it with.
+            endpoint = "http://127.0.0.1:9/v1"
         args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), tools]
         if mcp is not None or endpoint is not None:
             args.append(mcp or "")
         if endpoint is not None:
             args += [endpoint, model]
+        if profile is not None:
+            args.append(profile)
         return subprocess.run(args, env=self.env, text=True, check=False, capture_output=True)
 
     def config(self):
@@ -597,6 +604,212 @@ procd_close_service
         self.assertEqual(instance["respawn"], ["3600", "5", "5"])
         self.assertIn("HERMES_OPENWRT_TOOLSETS", instance["env"])
         self.assertIn("HERMES_OPENWRT_MCP_URL", instance["env"])
+
+    def test_gateway_runs_below_the_routers_own_work(self):
+        # 2026-09-24, a Brume 2 carrying a WireGuard tunnel at 580 Mbit/s: while a
+        # conversation ran at the default priority the tunnel lost a third of its
+        # throughput, at nice 10 a quarter. procd applies it to the wrapper; the
+        # gateway it execs and every tool process the gateway starts inherit it.
+        parsed, _raw = self._service_instance_json()
+        self.assertEqual(parsed["instances"]["instance1"].get("nice"), 10)
+
+    # ---- Profiles: assistant governs terminal, code execution and file; admin does not ----
+
+    def test_assistant_profile_removes_command_and_file_tools(self):
+        # The default UCI toolset list (hermes-agent.config's own `list toolsets`
+        # block) includes file and terminal; the assistant profile must remove
+        # them from what upstream actually hands out regardless.
+        default_toolsets = "file,terminal,web,memory,skills,cronjob,clarify"
+        configured = self.configure(tools=default_toolsets, endpoint="http://127.0.0.1:9/v1", profile="assistant")
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        config = self.config()
+        self.assertEqual(config["agent"]["disabled_toolsets"], ["code_execution", "file", "terminal"])
+        # profile is argv[6], appended after mcp-url/base-url/model: guard against
+        # the two blocks' argv-length checks drifting apart again (they did during
+        # development -- appending profile silently made len(sys.argv) skip the
+        # model block's `== 6` check, so a profile-bearing call wrote no model at
+        # all until the check became `in (6, 7)`).
+        self.assertEqual(config["model"]["default"], "runtime-model")
+        self.assertEqual(config["model"]["base_url"], "http://127.0.0.1:9/v1")
+        # Heavier upstream modules (registry discovery, cron) run in a subprocess,
+        # matching test_mcp_upstream_loader_receives_token and
+        # test_model_endpoint_produces_agent_reply rather than importing them
+        # into this process directly.
+        command = (
+            "import yaml; from hermes_cli.config import get_config_path; "
+            "from hermes_cli.tools_config import _get_platform_tools; "
+            "import model_tools; from cron.scheduler import _resolve_cron_disabled_toolsets; "
+            "config = yaml.safe_load(get_config_path().read_text()); "
+            "enabled = sorted(_get_platform_tools(config, 'telegram')); "
+            "disabled = config['agent']['disabled_toolsets']; "
+            "defs = model_tools.get_tool_definitions(enabled_toolsets=enabled, "
+            "disabled_toolsets=disabled, quiet_mode=True); "
+            "names = {d['function']['name'] for d in defs}; "
+            "governed_tools = {'terminal', 'process', 'execute_code', 'read_file', "
+            "'write_file', 'patch', 'search_files'}; "
+            "assert not (names & governed_tools), names & governed_tools; "
+            "cron_disabled = set(_resolve_cron_disabled_toolsets(config)); "
+            "assert {'code_execution', 'file', 'terminal'} <= cron_disabled, cron_disabled"
+        )
+        check = subprocess.run(["python3", "-c", command], env=self.env, check=False,
+                               capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_admin_profile_restores_them_and_keeps_operator_entries(self):
+        (self.home / "config.yaml").write_text(yaml.safe_dump(
+            {"agent": {"disabled_toolsets": ["browser", "file", "terminal", "code_execution"]}}))
+        configured = self.configure(tools="file,terminal,web,memory", endpoint="http://127.0.0.1:9/v1",
+                                    profile="admin")
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        config = self.config()
+        self.assertEqual(config["agent"]["disabled_toolsets"], ["browser"])
+        command = (
+            "import yaml; from hermes_cli.config import get_config_path; "
+            "from hermes_cli.tools_config import _get_platform_tools; "
+            "import model_tools; "
+            "config = yaml.safe_load(get_config_path().read_text()); "
+            "enabled = sorted(_get_platform_tools(config, 'telegram')); "
+            "disabled = config['agent']['disabled_toolsets']; "
+            "defs = model_tools.get_tool_definitions(enabled_toolsets=enabled, "
+            "disabled_toolsets=disabled, quiet_mode=True); "
+            "names = {d['function']['name'] for d in defs}; "
+            "assert 'terminal' in names, names; "
+            "assert 'read_file' in names, names"
+        )
+        check = subprocess.run(["python3", "-c", command], env=self.env, check=False,
+                               capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_assistant_profile_reads_an_empty_restriction_as_empty(self):
+        # YAML leaves `agent:` or `disabled_toolsets:` with no value as null, and
+        # upstream reads both as empty (`... or []`, `... or {}`). The bridge must
+        # agree rather than refuse a start over a configuration upstream accepts.
+        for content in ("agent:\n  disabled_toolsets:\n  max_turns: 5\n", "agent:\n"):
+            with self.subTest(content=content):
+                (self.home / "config.yaml").write_text(content)
+                configured = self.configure(profile="assistant")
+                self.assertEqual(configured.returncode, 0, configured.stderr)
+                self.assertEqual(self.config()["agent"]["disabled_toolsets"],
+                                 ["code_execution", "file", "terminal"])
+
+    def test_admin_profile_removes_empty_disabled_toolsets_key(self):
+        # admin's choice, stated in the bridge's own comment: when removing the
+        # governed names empties the list, drop the key rather than leave `[]`
+        # behind. Proven here rather than merely asserted, since the bridge could
+        # just as consistently have kept an empty list.
+        (self.home / "config.yaml").write_text(yaml.safe_dump(
+            {"agent": {"disabled_toolsets": ["file", "terminal", "code_execution"], "max_turns": 5}}))
+        configured = self.configure(profile="admin")
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        config = self.config()
+        self.assertNotIn("disabled_toolsets", config["agent"])
+        self.assertEqual(config["agent"]["max_turns"], 5)
+
+    def test_profile_refuses_non_list_disabled_toolsets(self):
+        cases = (
+            (yaml.safe_dump({"agent": {"disabled_toolsets": "not-a-list"}}), "assistant"),
+            (yaml.safe_dump({"agent": "not-a-mapping"}), "admin"),
+            (yaml.safe_dump({"agent": {"disabled_toolsets": ["file", 7, "terminal"]}}), "assistant"),
+        )
+        for content, profile in cases:
+            with self.subTest(profile=profile):
+                (self.home / "config.yaml").write_text(content)
+                result = self.configure(profile=profile)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("agent", result.stderr)
+                self.assertEqual((self.home / "config.yaml").read_text(), content)
+
+    def test_profile_defaults_to_assistant_and_refuses_unknown(self):
+        # No `profile` option at all (e.g. a router upgraded from before this
+        # feature existed) must default to assistant, the same as the shipped
+        # config's own default value, independent of it.
+        script = f'''
+mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
+printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
+uci set hermes.main.enabled=1
+uci set hermes.main.mem_max_mb=0
+uci set hermes.main.data_dir={shlex.quote(str(self.home))}
+uci -q delete hermes.main.profile
+uci commit hermes
+. /lib/functions.sh
+. /lib/functions/procd.sh
+initscript=/etc/init.d/hermes-agent
+. {shlex.quote(str(FILES / "hermes-agent.init"))}
+_procd_ubus_call() {{ json_dump; }}
+procd_open_service hermes-agent /etc/init.d/hermes-agent
+start_service || exit 1
+procd_close_service
+'''
+        result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_PROFILE"], "assistant")
+
+        refuse_script = f'''
+mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
+printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
+uci set hermes.main.enabled=1
+uci set hermes.main.mem_max_mb=0
+uci set hermes.main.data_dir={shlex.quote(str(self.home))}
+uci set hermes.main.profile=root
+uci commit hermes
+. /lib/functions.sh
+. /lib/functions/procd.sh
+initscript=/etc/init.d/hermes-agent
+. {shlex.quote(str(FILES / "hermes-agent.init"))}
+_procd_ubus_call() {{ json_dump; }}
+procd_open_service hermes-agent /etc/init.d/hermes-agent
+start_service
+exit $?
+'''
+        refused = subprocess.run(["sh", "-c", refuse_script], text=True, check=False, capture_output=True)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("hermes.main.profile", refused.stderr)
+        self.assertIn("assistant", refused.stderr)
+        self.assertIn("admin", refused.stderr)
+        self.assertIn("root", refused.stderr)
+
+        # The bridge itself refuses the same value directly, config untouched.
+        (self.home / "config.yaml").write_text("model: unchanged\n")
+        bridge_result = self.configure(profile="root")
+        self.assertNotEqual(bridge_result.returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_text(), "model: unchanged\n")
+
+    def test_wrapper_reapplies_profile_at_exec(self):
+        # Mirrors test_wrapper_reapplies_uci_after_model_switch: a chat command or
+        # a file edit can drop a governed name from agent.disabled_toolsets, and
+        # the wrapper must put it back at the very next exec, not only at the
+        # init's own first start.
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint, profile="assistant").returncode, 0)
+        tampered = self.config()
+        tampered["agent"]["disabled_toolsets"] = ["code_execution", "file"]  # terminal dropped
+        (self.home / "config.yaml").write_text(yaml.safe_dump(tampered))
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        key = self.home / "key"
+        key.write_text("provider-runtime-canary")
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="",
+                   HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   HERMES_OPENWRT_PROFILE="assistant")
+        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["code_execution", "file", "terminal"])
+
+        # Unset entirely -- an older procd env, or a service-list edge case --
+        # must default to assistant here too, the same as the init's own
+        # config_get default, not merely at the init's first start.
+        tampered2 = self.config()
+        tampered2["agent"]["disabled_toolsets"] = ["code_execution"]
+        (self.home / "config.yaml").write_text(yaml.safe_dump(tampered2))
+        env.pop("HERMES_OPENWRT_PROFILE")
+        result2 = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                 env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(result2.returncode, 0, result2.stderr)
+        self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["code_execution", "file", "terminal"])
 
 
 if __name__ == "__main__":

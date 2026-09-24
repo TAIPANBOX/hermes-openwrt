@@ -55,10 +55,17 @@ return view.extend({
 		var m, s, o;
 
 		m = new form.Map('hermes', _('Hermes Agent'),
-			_('The agent runs as root on this router; the model runs elsewhere. File and terminal tools have root access. Enable it only for trusted users.'));
+			_('The agent runs as root on this router; the model runs elsewhere. In the assistant profile, terminal, code execution and file tools stay off regardless of the toolsets list below; the admin profile allows them, with root access. Enable it only for trusted users.'));
 
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Service'));
 		s.anonymous = true;
+
+		o = s.option(form.ListValue, 'profile', _('Profile'),
+			_('assistant (default, and what applies if this is unset, including on upgrade) keeps terminal, code execution and file tools off no matter what Toolsets below selects. admin allows every tool the list selects, running as root.'));
+		o.value('assistant', _('Assistant (no commands, no files)'));
+		o.value('admin', _('Admin (full tool access, as root)'));
+		o.default = 'assistant';
+		o.rmempty = false;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'),
 			_('The service refuses to start until a model and a key are configured, and says which is missing in the log.'));
@@ -206,7 +213,7 @@ return view.extend({
 
 		/* ---- tools ---- */
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Tools'),
-			_('Default tool families for Telegram and scheduled jobs. An empty list selects none. Explicit per-job overrides and separately configured plugins or MCP servers retain upstream behavior. This is not a security sandbox.'));
+			_('Default tool families for Telegram and scheduled jobs. An empty list selects none. Explicit per-job overrides and separately configured plugins or MCP servers retain upstream behavior. In the assistant profile, terminal, code execution and file stay off whatever this list says; this is otherwise not a security sandbox.'));
 		s.anonymous = true;
 
 		o = s.option(form.DynamicList, 'toolsets', _('Toolsets'));

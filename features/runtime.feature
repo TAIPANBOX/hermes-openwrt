@@ -20,6 +20,12 @@
 #                        was told to retry forever; mem_max_mb=0 left an earlier ceiling in
 #                        force; the kernel ceiling test passed on a limit that an earlier
 #                        run in the same container had left behind.
+#   @decided 2026-09-24  Two profiles, chosen in the router's settings, govern which tools
+#                        the agent may use: assistant turns off terminal, code execution
+#                        and file tools regardless of what the toolsets list selects; admin
+#                        leaves every selected tool available, running as root as before.
+#                        assistant is what applies wherever no profile is set, including on
+#                        existing routers upgraded from before this option existed.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -64,6 +70,59 @@ Feature: What is set on the router is what the gateway runs with
     Then the enabled plugin stays enabled, the disabled one stays disabled
     And the MCP opt-out is kept
     # -> check_existing_plugin_and_mcp_selection_survives
+
+  # ---- Profiles ----
+
+  Scenario: the assistant profile turns off commands and file access regardless of the toolsets list
+    Given UCI selects every built-in tool family, including file and terminal
+    And the profile is assistant
+    When the package writes the gateway's configuration
+    Then upstream's own resolver gives Telegram and scheduled jobs none of terminal, process, code execution, file read, file write, patch or file search
+    # -> check_assistant_profile_removes_command_and_file_tools
+
+  Scenario: the admin profile restores them and leaves the operator's own entries alone
+    Given the gateway's configuration already disables a tool of the operator's own choosing alongside terminal, file and code execution
+    When the profile is admin
+    Then only the operator's own choice stays disabled
+    And upstream's resolver gives back terminal and file reading
+    # -> check_admin_profile_restores_them_and_keeps_operator_entries
+
+  Scenario: an empty restriction list is read as empty, the way upstream reads it
+    Given the gateway's configuration has the agent section, or its restriction list, left with no value
+    When the profile is assistant
+    Then the start goes ahead
+    And terminal, file and code execution are the restriction list
+    # -> check_assistant_profile_reads_an_empty_restriction_as_empty
+
+  Scenario: the admin profile removes the restriction list entirely once nothing is left in it
+    Given the gateway's configuration disables only terminal, file and code execution, and nothing else
+    When the profile is admin
+    Then the restriction list is gone rather than left empty
+    And an unrelated setting beside it is unchanged
+    # -> check_admin_profile_removes_empty_disabled_toolsets_key
+
+  Scenario: a restriction list that is not plain tool names stops the start instead of being guessed at
+    Given the gateway's configuration names a restriction that is not a mapping, or a list of tool names that is not actually a list of names
+    When either profile is applied
+    Then it refuses
+    And the file is exactly as it was
+    # -> check_profile_refuses_non_list_disabled_toolsets
+
+  Scenario: no profile chosen means assistant, and an unrecognised one refuses to start
+    Given the router's configuration names no profile at all
+    When the service starts
+    Then it runs in the assistant profile
+    When the router's configuration names a profile that is neither assistant nor admin
+    Then the service refuses, naming the file and the two valid values
+    And the package's own bridge refuses that same value directly, leaving the configuration untouched
+    # -> check_profile_defaults_to_assistant_and_refuses_unknown
+
+  Scenario: the running gateway is put back in its chosen profile at every restart, not only the first
+    Given the assistant profile has been applied once
+    And a chat command or a hand edit has since re-enabled one of the tools it turns off
+    When the gateway execs again, the way a respawn or an in-chat restart does
+    Then the tool is turned off again
+    # -> check_wrapper_reapplies_profile_at_exec
 
   # ---- The configuration file itself ----
 
@@ -228,3 +287,9 @@ Feature: What is set on the router is what the gateway runs with
     Then procd retries at most five times when the gateway fails within an hour of starting
     And the wrapper receives the UCI tool list and MCP URL it re-applies at every start
     # -> check_procd_respawn_is_bounded
+
+  Scenario: the agent gives way to the router's own work
+    When the init hands the service to procd
+    Then procd runs it at a lower priority than the router's own processes
+    And the gateway and every tool it starts inherit that priority
+    # -> check_gateway_runs_below_the_routers_own_work

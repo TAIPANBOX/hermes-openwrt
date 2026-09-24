@@ -49,9 +49,11 @@ fi
 : "${OPENAI_BASE_URL:?hermes-gateway: OPENAI_BASE_URL is required}"
 : "${HERMES_MODEL:?hermes-gateway: HERMES_MODEL is required}"
 : "${HERMES_OPENWRT_TOOLSETS?hermes-gateway: HERMES_OPENWRT_TOOLSETS is required}"
-PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL"
+# Unset, same as a router upgraded from before profiles existed, means assistant:
+# the safe default applies here too, not only at the init's own first start.
+PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL" "${HERMES_OPENWRT_PROFILE:-assistant}"
 
 PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 	/usr/bin/python3 /usr/libexec/hermes-runtime-check
-unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL
+unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE
 exec /usr/bin/hermes gateway run --external-supervisor

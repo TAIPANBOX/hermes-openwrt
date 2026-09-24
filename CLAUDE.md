@@ -53,6 +53,18 @@ procd makes on its own. A model switched from a chat lasts until the next start.
     `/etc/hermes-agent`, refuses when UCI points the service at another file, and reports
     a failed write; no method returns a key (gate: `scripts/gate-luci.sh`,
     `scripts/teeth-luci.sh`).
+12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
+    tools the agent may use. assistant disables terminal, code execution and file tools
+    regardless of what the `toolsets` list selects; admin leaves every selected tool
+    available, running as root as today. assistant applies wherever no profile is set,
+    including on an existing router's configuration from before this option existed, and
+    an unrecognised value refuses to start (gate: `scripts/gate-runtime.sh`,
+    `scripts/teeth-runtime.py`).
+13. The service runs at nice 10, so the router's own work keeps the processor: on a
+    Brume 2 carrying a WireGuard tunnel on 2026-09-24, a conversation at the default
+    priority took a third of the tunnel's throughput while it ran and a quarter at
+    nice 10 (README, "Under the router's own work") (gate: `scripts/gate-runtime.sh`,
+    `scripts/teeth-runtime.py`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
