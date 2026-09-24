@@ -8,6 +8,9 @@ package adds one shim (`webbrowser.py`) and its own helpers under `/usr/libexec`
 primary model, its endpoint and the tool selection at every start, including restarts
 procd makes on its own. A model switched from a chat lasts until the next start.
 
+`@decided 2026-09-24`: the package is for ARM routers. x86_64 is no longer built in CI,
+gated or published; the build scripts still take `ARCH=x86_64` by hand.
+
 1. Packages install, run, preserve configuration and remove cleanly on each supported
    release/architecture (gate: `scripts/gate-package.sh`, `scripts/gate-ipk.sh`). On
    24.10 `ripgrep` is not declared: `@measured` 2026-09-24 by curl of downloads.openwrt.org,

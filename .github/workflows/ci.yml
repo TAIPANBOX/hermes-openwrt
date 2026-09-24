@@ -29,8 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # x86_64 is native on the runner and is the fast signal.
-          - arch: x86_64
+          # ARM only (2026-09-24): routers are what this package is for.
           # aarch64 is what a router actually is. It needs QEMU here, and it is the
           # architecture the wheel bet is really about, so it is not optional.
           - arch: aarch64_generic
@@ -40,7 +39,6 @@ jobs:
       # Without this the aarch64 rootfs dies with "exec /bin/sh: exec format error"
       # before a single byte is assembled.
       - uses: docker/setup-qemu-action@v3
-        if: matrix.arch != 'x86_64'
 
       # The aarch64 leg also emits the aarch64_cortex-a53 relabel, the label every
       # GL.iNet MediaTek router installs, so that gate-relabel.sh runs where it counts:

@@ -71,14 +71,10 @@ if [ "$SKIP_BUILD" != 1 ]; then
 	echo "==> building 25.12"
 	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
-	./package/hermes-agent/build-in-container.sh x86_64
-	./package/hermes-agent-telegram/build-in-container.sh x86_64
 	./package/luci-app-hermes/build.sh
 	echo "==> building 24.10"
 	RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 	RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
-	RELEASE=24.10.8 ./package/hermes-agent/build-in-container.sh x86_64
-	RELEASE=24.10.8 ./package/hermes-agent-telegram/build-in-container.sh x86_64
 	FORMAT=ipk ./package/luci-app-hermes/build.sh
 fi
 
@@ -91,9 +87,7 @@ echo "==> gating what is about to be published"
 # is broken" is wrong: the router that notices is somebody else's.
 # Both, and before the push rather than after. A feed is the one artefact where "we will
 # notice if it is broken" is wrong: the router that notices is someone else's.
-ARCH=x86_64          ./scripts/gate-feed.sh
 ARCH=aarch64_generic ./scripts/gate-feed.sh
-ARCH=x86_64          ./scripts/gate-feed-opkg.sh
 ARCH=aarch64_generic ./scripts/gate-feed-opkg.sh
 
 # Finder again: a .DS_Store that crept into feed-out/ while it was being built would

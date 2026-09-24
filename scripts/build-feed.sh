@@ -54,10 +54,11 @@ PUB_KEY=${PUB_KEY:-$ROOT/keys/hermes-openwrt.pem}
 # architecture, and a single noarch directory would simply never be looked in.
 # Ordered by which device this is actually for. A GL.iNet Flint 2 reports
 # aarch64_cortex-a53 in /etc/apk/arch and will not look at a package declaring anything
-# else, so that name leads. x86_64 follows because it is the mini-PC case and the one CI
-# can exercise natively. aarch64_generic is the vehicle the aarch64 tree is built in and
-# is published because it costs nothing, not because a router was chosen for it.
-ARCHES=${ARCHES:-"aarch64_cortex-a53 x86_64 aarch64_generic"}
+# else, so that name leads. aarch64_generic is the vehicle the aarch64 tree is built in
+# and is published because it costs nothing (it also covers Rockchip boxes such as the
+# NanoPi R-series). x86_64 is not published since 2026-09-24: this is for routers, and an
+# x86 box runs Hermes the ordinary way.
+ARCHES=${ARCHES:-"aarch64_cortex-a53 aarch64_generic"}
 
 rm -rf "$OUT"
 
@@ -149,7 +150,7 @@ h2{margin-top:2.2rem}</style>
 <h1>hermes-openwrt</h1>
 <p>A signed feed carrying <a href="https://github.com/TAIPANBOX/hermes-openwrt">hermes-agent
 and luci-app-hermes</a>: the Hermes Agent as a native OpenWrt service. The reference
-device is a GL.iNet Flint 2; x86_64 and generic aarch64 are served too.</p>
+devices are the GL.iNet Flint 2, Brume 2 and Beryl AX; generic 64-bit ARM is served too.</p>
 
 <h2>OpenWrt 25.12 and later (apk)</h2>
 <pre>wget -O /etc/apk/keys/hermes-openwrt.pem \\
@@ -165,7 +166,6 @@ apk update && apk add hermes-agent luci-app-hermes</pre>
 <code>opkg print-architecture</code> lists several of which only one is right.</p>
 <pre># GL.iNet Flint 2 and other Cortex-A53 routers
 ARCH=aarch64_cortex-a53
-# x86 boxes:            ARCH=x86_64
 # other 64-bit ARM:     ARCH=aarch64_generic
 
 wget -O /tmp/hermes.pub \\

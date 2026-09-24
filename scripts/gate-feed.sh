@@ -26,7 +26,7 @@ if [ "${1:-}" = "--selftest" ]; then
 fi
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-ARCH=${ARCH:-x86_64}
+ARCH=${ARCH:-aarch64_generic}
 RELEASE=${RELEASE:-25.12}
 FEED=${FEED:-$ROOT/feed-out}
 case "$ARCH" in
