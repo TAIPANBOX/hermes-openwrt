@@ -29,7 +29,7 @@ read_secret() {
 
 start_service() {
 	local enabled data_dir base_url model key_file mem_max respawn
-	local mcp_url mcp_token_file key
+	local mcp_url mcp_token_file key profile
 	local toolsets
 	local tg_on tg_token_file tg_token tg_allow_all tg_home tg_allow
 	# tg_allow and toolsets are declared here and filled by the append_* helpers
@@ -52,8 +52,28 @@ start_service() {
 	config_get_bool respawn   main respawn 1
 	config_get mcp_url        main router_mcp_url ''
 	config_get mcp_token_file main router_mcp_token_file ''
+	config_get profile        main profile 'assistant'
 
 	key=$(read_secret "$key_file")
+
+	# Two profiles, chosen in /etc/config/hermes, not a spectrum: assistant turns
+	# off terminal, code execution and file tools regardless of what toolsets
+	# below selects; admin leaves every selected tool in place, as root, as
+	# today. Unset means assistant, on every router including ones upgraded from
+	# before this option existed. Refuse rather than guess what a third value
+	# meant, the same way an unusable base_url or model refuses below.
+	case "$profile" in
+		assistant|admin) ;;
+		*)
+			echo "$NAME: hermes.main.profile in /etc/config/hermes must be 'assistant' or 'admin', not '$profile'" >&2
+			return 1
+			;;
+	esac
+	if [ "$profile" = assistant ]; then
+		echo "$NAME: profile 'assistant': terminal, code execution and file tools are off. 'uci set hermes.main.profile=admin && uci commit hermes && service hermes-agent restart' allows them." >&2
+	else
+		echo "$NAME: profile 'admin': the agent can run commands and write files on this router as root." >&2
+	fi
 
 	# Refuse rather than flap. Each branch names the one thing to fix, because the
 	# person reading this in logread has no other source of truth.
@@ -149,7 +169,7 @@ start_service() {
 	config_list_foreach main toolsets append_toolset
 	HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 		PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets \
-		"$data_dir" "${toolsets#,}" "$mcp_url" "$base_url" "$model" || return 1
+		"$data_dir" "${toolsets#,}" "$mcp_url" "$base_url" "$model" "$profile" || return 1
 
 	procd_open_instance
 	# --external-supervisor, because procd IS one. Without it an in-chat restart or
@@ -173,7 +193,8 @@ start_service() {
 		HERMES_MODEL="$model" \
 		HERMES_MEM_MAX_MB="$mem_max" \
 		HERMES_OPENWRT_TOOLSETS="${toolsets#,}" \
-		HERMES_OPENWRT_MCP_URL="$mcp_url"
+		HERMES_OPENWRT_MCP_URL="$mcp_url" \
+		HERMES_OPENWRT_PROFILE="$profile"
 
 	# HERMES_DISABLE_LAZY_INSTALLS is not optional here. Left unset, Hermes pip-installs
 	# missing pieces at runtime, and a router has no compiler, often no free space, and
