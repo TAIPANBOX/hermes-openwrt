@@ -47,10 +47,12 @@ procd makes on its own. A model switched from a chat lasts until the next start.
 10. procd respawn is bounded (`3600 5 5`): a gateway that keeps failing at start is
     retried at most five times within an hour, then left stopped, instead of being
     restarted every five seconds (gate: `scripts/gate-runtime.sh`).
-11. LuCI: the read permission covers `hermes` status and logs only, never procd's service
-    list; `set_secret` writes only its fixed slot under `/etc/hermes-agent`, refuses when
-    UCI points the service at another file, and reports a failed write; no method
-    returns a key (gate: `scripts/gate-luci.sh`, `scripts/teeth-luci.sh`).
+11. LuCI: the read permission is exactly `hermes` status and logs plus the `hermes` UCI
+    config, with no other ubus object or method (procd's service list included), no file
+    access and no other scope; `set_secret` writes only its fixed slot under
+    `/etc/hermes-agent`, refuses when UCI points the service at another file, and reports
+    a failed write; no method returns a key (gate: `scripts/gate-luci.sh`,
+    `scripts/teeth-luci.sh`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

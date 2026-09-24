@@ -256,8 +256,8 @@ the RPC and then requires that no readable method mentions it.
 The page manages the three key files in `/etc/hermes-agent`. If UCI points the service
 at a different file, the page says so and does not write its own slot, and a write that
 fails is reported as not saved. Read-only access to the page covers its status and log
-calls. It does not include procd's service list, where a service's environment can be
-read.
+calls and its own UCI configuration, and nothing else: not procd's service list, where a
+service's environment can be read, and no file on the router.
 
 ## Reaching it from a phone
 
@@ -466,7 +466,7 @@ OpenWrt's own published rootfs and then asks the running system.
 |---|---|
 | `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean |
 | `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
-| `gate-luci.sh` | 13 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission leaves out procd's service list, a failed write is reported, and the page will not write a slot the service does not read |
+| `gate-luci.sh` | 13 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission is exactly the page's two calls and its UCI config, a failed write is reported, and the page will not write a slot the service does not read |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
@@ -476,7 +476,7 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
-| `teeth-luci.sh` | three for the web page: procd's service list back in the read permission, the failed-write check removed, and the refusal to write a slot the service does not read removed |
+| `teeth-luci.sh` | four for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, and the refusal to write a slot the service does not read removed |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather
 than in the harness: a package built with one `.pyc` missing writes that bytecode at

@@ -170,17 +170,50 @@ ubus call hermes status 2>/dev/null | grep -q '"provider_key_set": true' \
 	|| fail check_secret_never_returned "status does not even report the key as present"
 echo "PASS check_secret_never_returned"
 
-# ---- 9. the read ACL is exactly what the pages call, nothing procd-shaped ----
-# service.list is never called by either view; it hands procd's own environment block
-# (which the runtime gate proves never holds a secret, but nothing else should have to
-# rely on that) to any session that merely holds read access to this ACL group.
-service_grant=$(jsonfilter -i /usr/share/rpcd/acl.d/luci-app-hermes.json -e '@["luci-app-hermes"].read.ubus.service' 2>&1) || true
-[ -z "$service_grant" ] || fail check_read_acl_is_narrow "read ACL still grants ubus.service: $service_grant"
-hermes_methods=$(jsonfilter -i /usr/share/rpcd/acl.d/luci-app-hermes.json -e '@["luci-app-hermes"].read.ubus.hermes[*]' 2>/dev/null) || true
-nmethods=$(echo "$hermes_methods" | grep -c . || true)
-[ "$nmethods" -eq 2 ] || { echo "$hermes_methods"; fail check_read_acl_is_narrow "read ubus.hermes has $nmethods entries, want 2"; }
-echo "$hermes_methods" | grep -qx status || fail check_read_acl_is_narrow "status missing from read ubus.hermes"
-echo "$hermes_methods" | grep -qx logs   || fail check_read_acl_is_narrow "logs missing from read ubus.hermes"
+# ---- 9. the read ACL is exactly what the pages call, and nothing else ----
+# Read access is the wider audience: any session that holds it may call whatever this
+# block grants. service.list is never called by either view and hands procd's own
+# environment block to such a session (the runtime gate proves no secret is in it, but
+# nothing else should have to rely on that); a file grant would hand over the key file
+# itself while every ubus grant still read exactly status and logs. So the block is
+# compared whole, not probed for the grants that have caused trouble so far. jshn rather
+# than jsonfilter, because jsonfilter reads the keys it is asked about and cannot list the
+# ones nobody thought to ask about.
+#
+# jshn is not written for `set -u` and returns 1 for an absent key, and rpcd reads `*` as
+# a wildcard, which the shell would expand into file names, so this section runs with
+# both relaxed and every lookup that may miss is guarded.
+acl_fail() { fail check_read_acl_is_narrow "$1"; }
+set +u -f
+. /usr/share/libubox/jshn.sh
+json_load_file /usr/share/rpcd/acl.d/luci-app-hermes.json 2>/dev/null || acl_fail "the ACL file does not load"
+json_select luci-app-hermes 2>/dev/null || acl_fail "the ACL file has no luci-app-hermes group"
+json_select read 2>/dev/null || acl_fail "the group has no read block"
+json_get_keys read_keys
+seen=' '
+for k in $read_keys; do
+	case "$seen" in *" $k "*) acl_fail "the read block lists \"$k\" twice" ;; esac
+	seen="$seen$k "
+	t=; json_get_type t "$k" 2>/dev/null || true
+	case "$k:$t" in
+		comment:string|description:string|ubus:object|uci:array) ;;
+		*) acl_fail "the read block grants \"$k\"${t:+ ($t)}, which neither view calls" ;;
+	esac
+done
+json_select ubus 2>/dev/null || acl_fail "the read block grants no ubus objects, so the pages could not call status"
+json_get_keys ubus_objects
+[ "$(echo $ubus_objects)" = hermes ] || acl_fail "read.ubus grants \"$(echo $ubus_objects)\", want hermes alone"
+t=; json_get_type t hermes 2>/dev/null || true
+[ "$t" = array ] || acl_fail "read.ubus.hermes is ${t:-missing}, want a list of methods"
+hermes_methods=; json_get_values hermes_methods hermes 2>/dev/null || true
+set -- $hermes_methods
+[ "$#" -eq 2 ] || acl_fail "read.ubus.hermes grants $# methods ($hermes_methods), want status and logs"
+case " $hermes_methods " in *" status "*) ;; *) acl_fail "status missing from read.ubus.hermes" ;; esac
+case " $hermes_methods " in *" logs "*) ;;   *) acl_fail "logs missing from read.ubus.hermes" ;; esac
+json_select ..
+uci_configs=; json_get_values uci_configs uci 2>/dev/null || true
+[ "$(echo $uci_configs)" = hermes ] || acl_fail "read.uci grants \"$(echo $uci_configs)\", want hermes alone"
+set -u +f
 echo "PASS check_read_acl_is_narrow"
 
 # ---- 10. a write that cannot land is reported, not swallowed ----

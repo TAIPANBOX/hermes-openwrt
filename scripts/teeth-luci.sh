@@ -1,12 +1,13 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Three faults, each a change somebody could plausibly make to the rpcd backend or its
-# ACL, each caught by a different one of the three checks gate-luci.sh added alongside
-# them. The faults are applied to a copy of the already-built LuCI tree and the result
-# repackaged, the same shape as teeth-telegram.sh, and for the same reason: a rebuild
-# from scratch per fault would triple the job and prove nothing extra, none of these is
-# a build error.
+# Four faults, each a change somebody could plausibly make to the rpcd backend or its
+# ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
+# added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
+# page's ubus object rather than inside it. The faults are applied to a copy of the
+# already-built LuCI tree and the result repackaged, the same shape as teeth-telegram.sh,
+# and for the same reason: a rebuild from scratch per fault would quadruple the job and
+# prove nothing extra, none of these is a build error.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -108,6 +109,22 @@ repack_luci
 expect_red "path-mismatch refusal removed from set_secret" check_secret_path_mismatch_refused
 cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
 
+# ---- fault 4: a file read grant beside the page's own calls ----
+# Fault 1 adds a grant inside the one ubus object the check used to read. This one adds
+# a grant beside it, where the check did not look until 2026-09-24: rpcd would hand the
+# key file itself to any session with read access, while the ubus grants still read
+# exactly status and logs. Both faults land on check_read_acl_is_narrow on purpose, one
+# for each side of the same boundary.
+sed 's|"comment": "status reports only whether a key is PRESENT, never its value or length",|&  "file": { "/etc/hermes-agent/*": [ "read" ] },|' \
+	"$ACL" > /tmp/acl.new
+grep -q '"/etc/hermes-agent/\*": \[ "read" \]' /tmp/acl.new || {
+	echo "teeth-luci: fault 4 planted nothing; the read comment in the ACL no longer reads as expected" >&2
+	exit 1; }
+cp /tmp/acl.new "$ACL"
+repack_luci
+expect_red "a file read grant beside the page's own calls" check_read_acl_is_narrow
+cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -115,4 +132,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 3 faults, 3 distinct checks, green restored"
+echo "teeth-luci: 4 faults on 3 checks, green restored"
