@@ -23,10 +23,36 @@
 #
 # GitHub Pages serves that branch. The workflow no longer deploys, and the two signing
 # secrets have been deleted from the repository.
+#
+# On macOS, run this from a checkout outside the home folder, for example a clone under
+# /private/tmp, with EC_KEY and USIGN_KEY pointing at the keys there. Finder writes
+# .DS_Store into directories while this script is building them, and this script refuses
+# to publish a feed with one in it rather than fail on the router with a bare "file
+# integrity error" the way an unswept .DS_Store already once did in a package build.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+
+# Refuse before anything else, including the key check below: signing and publishing a
+# tree that is not exactly what main's own history holds ships something nobody could
+# reproduce from the source, and a signature does not carry a commit identifier with it.
+git fetch -q origin main
+DIRTY=$(git status --porcelain)
+[ -z "$DIRTY" ] || {
+	echo "publish-feed.sh: the working tree is not clean; commit or stash first:" >&2
+	echo "$DIRTY" >&2
+	exit 1
+}
+PUBLISH_SHA=$(git rev-parse HEAD)
+MAIN_SHA=$(git rev-parse origin/main)
+[ "$PUBLISH_SHA" = "$MAIN_SHA" ] || {
+	echo "publish-feed.sh: HEAD ($PUBLISH_SHA) is not origin/main ($MAIN_SHA)." >&2
+	echo "publish-feed.sh: refusing to publish a commit that is not on main." >&2
+	exit 1
+}
+PUBLISH_SHORT=$(git rev-parse --short "$PUBLISH_SHA")
+echo "==> publishing commit $PUBLISH_SHA"
 
 EC_KEY=${EC_KEY:-$ROOT/keys/hermes-openwrt.private.pem}
 USIGN_KEY=${USIGN_KEY:-$ROOT/keys/hermes-openwrt.usign.sec}
@@ -65,8 +91,18 @@ echo "==> gating what is about to be published"
 # is broken" is wrong: the router that notices is somebody else's.
 # Both, and before the push rather than after. A feed is the one artefact where "we will
 # notice if it is broken" is wrong: the router that notices is someone else's.
-ARCH=x86_64 ./scripts/gate-feed.sh
-ARCH=x86_64 ./scripts/gate-feed-opkg.sh
+ARCH=x86_64          ./scripts/gate-feed.sh
+ARCH=aarch64_generic ./scripts/gate-feed.sh
+ARCH=x86_64          ./scripts/gate-feed-opkg.sh
+ARCH=aarch64_generic ./scripts/gate-feed-opkg.sh
+
+# Finder again: a .DS_Store that crept into feed-out/ while it was being built would
+# otherwise ship inside the published feed itself.
+if find "$ROOT/feed-out" -name .DS_Store -print -quit | grep -q .; then
+	echo "publish-feed.sh: .DS_Store found under feed-out/; refusing to publish:" >&2
+	find "$ROOT/feed-out" -name .DS_Store >&2
+	exit 1
+fi
 
 echo "==> publishing to gh-pages"
 # A worktree rather than a branch switch, so an unfinished change in the working tree
@@ -104,7 +140,7 @@ cp -R "$ROOT/feed-out/." "$WT/"
 touch "$WT/.nojekyll"
 
 git -C "$WT" add -A
-git -C "$WT" commit -q -m "feed: $(date -u +%Y-%m-%dT%H:%MZ), signed on a workstation"
+git -C "$WT" commit -q -m "feed: $(date -u +%Y-%m-%dT%H:%MZ) from $PUBLISH_SHORT, signed on a workstation"
 # Force, because the branch is replaced rather than extended. This is the one place a
 # force push is the correct operation and not a way out of a mistake.
 git -C "$WT" push -qf origin HEAD:gh-pages
