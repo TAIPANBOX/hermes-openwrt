@@ -364,11 +364,15 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual((leaf / "memory.swap.max").read_text(), "max")
         self.assertEqual((leaf / "memory.oom.group").read_text(), "0")
 
-        other_root = self.home / "cgroups-other"
-        module.CGROUP_ROOT = other_root
+        # Outside its own cgroup, zero must leave a limited group alone: a wrapper run
+        # by hand with mem_max_mb=0 must not lift the ceiling of the service that is
+        # running in that group.
+        module.apply("64")
         membership.write_text("0::/services/other/instance1")
         module.apply("0")
-        self.assertFalse(other_root.exists())
+        self.assertEqual((leaf / "memory.max").read_text(), "67108864")
+        self.assertEqual((leaf / "memory.swap.max").read_text(), "0")
+        self.assertEqual((leaf / "memory.oom.group").read_text(), "1")
 
     def test_memory_kernel_zero_lifts_ceiling(self):
         cli = Path("/usr/bin/hermes")

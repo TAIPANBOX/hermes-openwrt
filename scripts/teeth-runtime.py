@@ -60,6 +60,8 @@ mutants = [
      'echo "hermes-gateway: router MCP token file ${HERMES_MCP_TOKEN_FILE:-} is missing or empty; '
      'starting without the MCP connection" >&2; exit 1',
      'test_wrapper_drops_mcp_when_token_missing'),
+    ('zero lifts a cgroup it is not in', 'memory-limit.py', '    if _instance_membership() != [INSTANCE]:',
+     '    if False:', 'test_memory_zero_lifts_previous_ceiling'),
 ]
 installed = {'set-toolsets.py': Path('/usr/libexec/hermes-set-toolsets'),
              'memory-limit.py': Path('/usr/libexec/hermes-memory'),
