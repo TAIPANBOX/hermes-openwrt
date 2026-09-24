@@ -25,6 +25,23 @@ var callSetSecret = rpc.declare({
 	params: ['name', 'value']
 });
 
+/* set_secret can refuse (an unmanaged path, a write that did not land) or the RPC call
+ * itself can fail. Either way the operator must be told which field and why, and the
+ * save flow must be allowed to continue rather than abort: a rejected promise here
+ * would stop form.Map from reporting anything else it saved in the same pass. */
+function reportSecretWrite(label, promise) {
+	return promise.then(function (reply) {
+		if (!reply || reply.ok === false) {
+			ui.addNotification(null, E('p', {}, _('The %s was not saved: %s').format(
+				label, (reply && reply.error) || _('unknown error'))), 'danger');
+		}
+		return reply;
+	}, function () {
+		ui.addNotification(null, E('p', {}, _('The %s was not saved: %s').format(
+			label, _('unknown error'))), 'danger');
+	});
+}
+
 return view.extend({
 	load: function () {
 		return Promise.all([
@@ -98,9 +115,11 @@ return view.extend({
 		/* Write-only. The value is never read back from the device, so what is typed
 		 * here leaves the browser and does not return. */
 		o = s.option(form.Value, '_provider_key', _('API key'),
-			st.provider_key_set
-				? _('A key is stored. Type a new one to replace it, or leave this empty to keep it.')
-				: _('No key is stored. The service will refuse to start without one.'));
+			st.provider_key_managed === false
+				? _('The service reads a custom key file that this page does not manage. Set it directly on the router.')
+				: (st.provider_key_set
+					? _('A key is stored. Type a new one to replace it, or leave this empty to keep it.')
+					: _('No key is stored. The service will refuse to start without one.')));
 		o.password = true;
 		o.rmempty = true;
 		o.placeholder = st.provider_key_set ? '••••••••  ' + _('stored') : _('not set');
@@ -109,7 +128,7 @@ return view.extend({
 		o.cfgvalue = function () { return ''; };
 		o.write = function (section_id, value) {
 			if (!value) return;
-			return callSetSecret('provider', value);
+			return reportSecretWrite(_('API key'), callSetSecret('provider', value));
 		};
 		o.remove = function () { return; };
 
@@ -123,16 +142,18 @@ return view.extend({
 		o.default = 'http://127.0.0.1:8730/mcp';
 
 		o = s.option(form.Value, '_router_key', _('Pairing token'),
-			st.router_mcp_key_set
-				? _('A token is stored. Type a new one to replace it.')
-				: _('Get one on the router with: openwrt-mcp pair hermes'));
+			st.router_mcp_key_managed === false
+				? _('The service reads a custom token file that this page does not manage. Set it directly on the router.')
+				: (st.router_mcp_key_set
+					? _('A token is stored. Type a new one to replace it.')
+					: _('Get one on the router with: openwrt-mcp pair hermes')));
 		o.password = true;
 		o.rmempty = true;
 		o.placeholder = st.router_mcp_key_set ? '••••••••  ' + _('stored') : _('not set');
 		o.cfgvalue = function () { return ''; };
 		o.write = function (section_id, value) {
 			if (!value) return;
-			return callSetSecret('router_mcp', value);
+			return reportSecretWrite(_('Pairing token'), callSetSecret('router_mcp', value));
 		};
 		o.remove = function () { return; };
 
@@ -154,16 +175,18 @@ return view.extend({
 		 * token is a full credential: anyone holding it can read every message the bot
 		 * receives and answer as it. */
 		o = s.option(form.Value, '_telegram_token', _('Bot token'),
-			st.telegram_key_set
-				? _('A token is stored. Type a new one to replace it, or leave this empty to keep it.')
-				: _('Create a bot with @BotFather and paste the token here. It is stored in a root-only file, never in the configuration.'));
+			st.telegram_key_managed === false
+				? _('The service reads a custom token file that this page does not manage. Set it directly on the router.')
+				: (st.telegram_key_set
+					? _('A token is stored. Type a new one to replace it, or leave this empty to keep it.')
+					: _('Create a bot with @BotFather and paste the token here. It is stored in a root-only file, never in the configuration.')));
 		o.password = true;
 		o.rmempty = true;
 		o.placeholder = st.telegram_key_set ? '••••••••  ' + _('stored') : _('not set');
 		o.cfgvalue = function () { return ''; };
 		o.write = function (section_id, value) {
 			if (!value) return;
-			return callSetSecret('telegram', value);
+			return reportSecretWrite(_('Bot token'), callSetSecret('telegram', value));
 		};
 		o.remove = function () { return; };
 

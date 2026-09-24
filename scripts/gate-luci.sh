@@ -19,7 +19,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -170,6 +170,55 @@ ubus call hermes status 2>/dev/null | grep -q '"provider_key_set": true' \
 	|| fail check_secret_never_returned "status does not even report the key as present"
 echo "PASS check_secret_never_returned"
 
+# ---- 9. the read ACL is exactly what the pages call, nothing procd-shaped ----
+# service.list is never called by either view; it hands procd's own environment block
+# (which the runtime gate proves never holds a secret, but nothing else should have to
+# rely on that) to any session that merely holds read access to this ACL group.
+service_grant=$(jsonfilter -i /usr/share/rpcd/acl.d/luci-app-hermes.json -e '@["luci-app-hermes"].read.ubus.service' 2>&1) || true
+[ -z "$service_grant" ] || fail check_read_acl_is_narrow "read ACL still grants ubus.service: $service_grant"
+hermes_methods=$(jsonfilter -i /usr/share/rpcd/acl.d/luci-app-hermes.json -e '@["luci-app-hermes"].read.ubus.hermes[*]' 2>/dev/null) || true
+nmethods=$(echo "$hermes_methods" | grep -c . || true)
+[ "$nmethods" -eq 2 ] || { echo "$hermes_methods"; fail check_read_acl_is_narrow "read ubus.hermes has $nmethods entries, want 2"; }
+echo "$hermes_methods" | grep -qx status || fail check_read_acl_is_narrow "status missing from read ubus.hermes"
+echo "$hermes_methods" | grep -qx logs   || fail check_read_acl_is_narrow "logs missing from read ubus.hermes"
+echo "PASS check_read_acl_is_narrow"
+
+# ---- 10. a write that cannot land is reported, not swallowed ----
+rm -f /etc/hermes-agent/provider.key
+mkdir /etc/hermes-agent/provider.key
+out=$(ubus call hermes set_secret '{"name":"provider","value":"anything"}' 2>&1) || true
+echo "$out" | grep -q '"ok": false' || { echo "$out"; fail check_secret_write_failure_reported "a failed write was reported as ok"; }
+rmdir /etc/hermes-agent/provider.key 2>/dev/null
+printf '%s' "$CANARY" > /etc/hermes-agent/provider.key
+chmod 0600 /etc/hermes-agent/provider.key
+echo "PASS check_secret_write_failure_reported"
+
+# ---- 11. a UCI path pointing elsewhere is refused, not silently rerouted ----
+# An operator who moves key_file in UCI must find out immediately, not discover after a
+# restart that the service still cannot find a key this page happily reported as set.
+uci set hermes.main.key_file=/tmp/elsewhere.key
+uci commit hermes
+# A marker captured right before the call, not an assumption about what an earlier
+# check left behind, so this proves the SLOT specifically did not move, whatever ran
+# before it.
+MARKER_BEFORE=$(cat /etc/hermes-agent/provider.key 2>/dev/null)
+out=$(ubus call hermes set_secret '{"name":"provider","value":"should-not-land"}' 2>&1) || true
+echo "$out" | grep -q '"ok": false' || { echo "$out"; fail check_secret_path_mismatch_refused "set_secret did not refuse"; }
+echo "$out" | grep -q '/tmp/elsewhere.key' || { echo "$out"; fail check_secret_path_mismatch_refused "the error does not name the service path"; }
+[ -e /tmp/elsewhere.key ] && fail check_secret_path_mismatch_refused "a value was written to the mismatched path"
+MARKER_AFTER=$(cat /etc/hermes-agent/provider.key 2>/dev/null)
+[ "$MARKER_AFTER" = "$MARKER_BEFORE" ] \
+	|| fail check_secret_path_mismatch_refused "the fixed slot changed from '$MARKER_BEFORE' to '$MARKER_AFTER'"
+[ "$MARKER_AFTER" != "should-not-land" ] \
+	|| fail check_secret_path_mismatch_refused "the refused value landed in the fixed slot anyway"
+ubus call hermes status 2>/dev/null | grep -q '"provider_key_managed": false' \
+	|| fail check_secret_path_mismatch_refused "status still reports the key as page-managed"
+ubus call hermes status 2>/dev/null | grep -q '"provider_key_set": false' \
+	|| fail check_secret_path_mismatch_refused "status does not follow the UCI-configured path"
+uci -q delete hermes.main.key_file
+uci commit hermes
+echo "PASS check_secret_path_mismatch_refused"
+
 # ---- 8. clean removal ----
 apk del luci-app-hermes >/dev/null 2>&1 || fail check_clean_removal "apk del failed"
 [ -e /usr/libexec/rpcd/hermes ] && fail check_clean_removal "the rpcd backend is still there"
@@ -181,4 +230,7 @@ apk del luci-app-hermes >/dev/null 2>&1 || fail check_clean_removal "apk del fai
 echo "PASS check_clean_removal"
 CONTAINER
 
-echo "gate-luci: all 10 checks passed"
+# Counted from $CHECKS itself, the same way --selftest counts them, so this line
+# cannot go stale the next time a check is added or removed here.
+n=0; for c in $CHECKS; do n=$((n + 1)); done
+echo "gate-luci: all $n checks passed"

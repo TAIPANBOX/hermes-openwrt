@@ -2,10 +2,9 @@
 	"luci-app-hermes": {
 		"description": "Manage the Hermes Agent service",
 		"read": {
-			"comment": "status reports only whether a key is PRESENT, never its value, so read access here cannot disclose a secret",
+			"comment": "status reports only whether a key is PRESENT, never its value or length",
 			"ubus": {
-				"hermes": [ "status", "logs" ],
-				"service": [ "list" ]
+				"hermes": [ "status", "logs" ]
 			},
 			"uci": [ "hermes" ]
 		},
