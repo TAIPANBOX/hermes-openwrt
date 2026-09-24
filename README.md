@@ -56,7 +56,6 @@ apk add hermes-agent-telegram
 
 ```sh
 ARCH=aarch64_cortex-a53          # GL.iNet Flint 2 and other Cortex-A53 routers
-# ARCH=x86_64                    # x86 boxes
 # ARCH=aarch64_generic           # other 64-bit ARM
 
 wget -O /tmp/hermes.pub https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.usign.pub
@@ -387,7 +386,7 @@ private half until a person logs in and deletes the file. So CI builds and gates
 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 
 # 24.10: opkg, Python 3.11
-RELEASE=24.10.8 ./package/hermes-agent/build-in-container.sh x86_64
+RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 ```
 
 Docker is required; the OpenWrt SDK is not. The build runs **inside** the OpenWrt release
@@ -538,7 +537,7 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 ## Status
 
 - [x] Native package for 25.12 (apk) and 24.10 (opkg)
-- [x] `aarch64_cortex-a53` for the Flint 2, plus `x86_64` and `aarch64_generic`
+- [x] `aarch64_cortex-a53` for the Flint 2, Brume 2 and Beryl AX, plus `aarch64_generic`
 - [x] LuCI interface with write-only key handling
 - [x] Signed feed for both lines, signed on a workstation
 - [x] Every gate runs on OpenWrt's own rootfs images in CI

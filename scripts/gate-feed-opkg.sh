@@ -28,7 +28,7 @@ if [ "${1:-}" = "--selftest" ]; then
 fi
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-ARCH=${ARCH:-x86_64}
+ARCH=${ARCH:-aarch64_generic}
 RELEASE=${RELEASE:-24.10}
 FEED=${FEED:-$ROOT/feed-out}
 # The container follows ARCH. opkg ignores every package whose Architecture is not in its

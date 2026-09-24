@@ -35,7 +35,7 @@ PUB_KEY=${PUB_KEY:-$ROOT/keys/hermes-openwrt.usign.pub}
 [ -f "$SIGN_KEY" ] || { echo "build-feed-opkg.sh: no usign secret key at $SIGN_KEY" >&2; exit 1; }
 [ -f "$PUB_KEY" ]  || { echo "build-feed-opkg.sh: no usign public key at $PUB_KEY" >&2; exit 1; }
 
-ARCHES=${ARCHES:-"aarch64_cortex-a53 x86_64 aarch64_generic"}
+ARCHES=${ARCHES:-"aarch64_cortex-a53 aarch64_generic"}
 
 for arch in $ARCHES; do
 	dir="$OUT/$RELEASE/$arch"
