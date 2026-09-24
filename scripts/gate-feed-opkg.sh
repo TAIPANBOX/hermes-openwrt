@@ -31,7 +31,13 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${ARCH:-x86_64}
 RELEASE=${RELEASE:-24.10}
 FEED=${FEED:-$ROOT/feed-out}
-IMAGE=${ROOTFS_IMAGE:-openwrt/rootfs:x86-64-24.10.8}
+# The container follows ARCH. opkg ignores every package whose Architecture is not in its
+# own list, so an aarch64 feed gated in an x86-64 rootfs installs nothing and the gate
+# fails at check 3 for a reason that has nothing to do with the feed.
+case "$ARCH" in
+	x86_64) IMAGE=${ROOTFS_IMAGE:-openwrt/rootfs:x86-64-24.10.8}; PLATFORM=${PLATFORM:-linux/amd64} ;;
+	*)      IMAGE=${ROOTFS_IMAGE:-openwrt/rootfs:$ARCH-24.10.8};  PLATFORM=${PLATFORM:-linux/$ARCH} ;;
+esac
 
 [ -f "$FEED/$RELEASE/$ARCH/Packages.sig" ] || {
 	echo "FAIL: no signed index at $FEED/$RELEASE/$ARCH/Packages.sig; build the feed first"; exit 1; }
@@ -41,7 +47,7 @@ echo "PASS: signed index present for $ARCH, key fingerprint $FP"
 
 # -i is load-bearing: without it docker hands `sh -s` an empty stdin, nothing runs, and
 # this gate reports success having measured nothing.
-docker run --rm -i --platform linux/amd64 -v "$FEED:/feed:ro" "$IMAGE" /bin/sh -s <<CONTAINER
+docker run --rm -i --platform "$PLATFORM" -v "$FEED:/feed:ro" "$IMAGE" /bin/sh -s <<CONTAINER
 set -eu
 fail() { echo "FAIL \$1: \$2"; exit 1; }
 

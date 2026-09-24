@@ -18,11 +18,12 @@
 #      the packages are installed and before init ever runs.
 #   3. --privileged is NOT the fix for anything here. It breaks outbound networking in
 #      this image entirely, so apk cannot reach the feed.
-#   4. A headless browser cannot log into LuCI by submitting the form: the session is
-#      not persisted and the page bounces back. So the login happens with curl INSIDE
-#      the container, and the resulting sysauth cookie is handed to the browser by a
-#      page served from the router itself, which makes it same-origin and makes the
-#      cookie stick.
+#   4. The port is published on 127.0.0.1 only, and login is the router's own LuCI form,
+#      typed by hand. An earlier version published on every host interface and logged in
+#      with curl INSIDE the container, then handed the resulting root sysauth cookie to
+#      the browser through a public /www/enter.html page so a headless browser could pick
+#      it up same-origin. A security review found that page handing out a root session to
+#      anything that could reach the port, on every interface, so both are gone.
 set -eu
 
 ARCH=${ARCH:-aarch64_generic}
@@ -121,7 +122,7 @@ echo "==> booting it with procd as PID 1"
 # directory to a stick, so a screenshot of it has to be the router's number. Mounting
 # from inside needs CAP_SYS_ADMIN, and --privileged breaks outbound networking in this
 # image, so it is a run flag.
-docker run -d --name "$NAME" --platform "linux/$ARCH" -p "$PORT:80" \
+docker run -d --name "$NAME" --platform "linux/$ARCH" -p "127.0.0.1:$PORT:80" \
 	--tmpfs "/srv/hermes:size=${DATA_MB:-6400}m,mode=0700" \
 	"$NAME:latest" /sbin/init >/dev/null
 i=0
@@ -131,26 +132,8 @@ while [ "$i" -lt 40 ]; do
 done
 [ "$i" -lt 40 ] || { echo "luci-preview: ubus or uhttpd never came up"; docker logs "$NAME" | tail -20; exit 1; }
 
-echo "==> logging in inside the container and serving the cookie from the router"
-SID=$(docker exec "$NAME" /bin/sh -c "
-	curl -s -i -o /tmp/login.out -X POST \
-	  -d 'luci_username=root&luci_password=$PASS' \
-	  http://127.0.0.1/cgi-bin/luci >/dev/null 2>&1
-	sed -n 's/.*sysauth_http=\([a-f0-9]*\).*/\1/p' /tmp/login.out | head -1")
-[ -n "$SID" ] || { echo "luci-preview: no session cookie came back from the login"; exit 1; }
-
-docker exec "$NAME" /bin/sh -c "cat > /www/enter.html <<HTML
-<!doctype html><meta charset=utf-8><title>entering</title>
-<script>
-document.cookie = 'sysauth_http=$SID; path=/';
-document.cookie = 'sysauth=$SID; path=/';
-location.replace(new URLSearchParams(location.search).get('to') || '/cgi-bin/luci/admin/services/hermes');
-</script>
-HTML"
-
 echo
-echo "==> ready. Open, in this order:"
-echo "     http://127.0.0.1:$PORT/enter.html?to=/cgi-bin/luci/admin/services/hermes"
-echo "     http://127.0.0.1:$PORT/cgi-bin/luci/admin/services/hermes/settings"
-echo "   session $SID"
+echo "==> ready, on 127.0.0.1 only. Log in like any router, by hand:"
+echo "     http://127.0.0.1:$PORT/cgi-bin/luci/admin/services/hermes"
+echo "   username root, password $PASS"
 echo "   stop it with: docker rm -f $NAME && docker rmi $NAME:latest"

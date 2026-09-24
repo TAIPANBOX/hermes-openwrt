@@ -37,8 +37,9 @@ RELEASE=${RELEASE:-25.12}
 OUT=${OUT:-$ROOT/feed-out}
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 
-# The private key never lives in the repository. In CI it arrives as a secret and is
-# written to a file the job deletes; locally it is whatever path the caller points at.
+# The private key never lives in the repository and never reaches CI: signing happens
+# only on the workstation that holds it locally, at whatever path the caller points at.
+# See publish-feed.sh's header for why CI builds and gates but never signs.
 SIGN_KEY=${SIGN_KEY:-}
 [ -n "$SIGN_KEY" ] && [ -f "$SIGN_KEY" ] || {
 	echo "build-feed.sh: set SIGN_KEY to the private key file" >&2

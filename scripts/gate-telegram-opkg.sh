@@ -117,6 +117,25 @@ chmod 600 /etc/hermes-agent/telegram.token
 msg=$(/etc/init.d/hermes-agent start 2>&1 || true)
 echo "$msg" | grep -q 'no user is allowed' \
 	|| { echo "$msg"; fail "[4/5] check_refuses_without_allowlist" "a bot with a token and an empty allowlist was allowed to start"; }
+
+# The message alone does not prove the refusal; see gate-telegram.sh's twin of this
+# check for why. procd is unreachable here too, so its parameter functions are stubbed
+# and the real start_service is called directly to see whether it opened an instance.
+rm -f /tmp/tg-allowlist-opened
+cat > /tmp/fakeprocd-tg.sh <<'STUB'
+. /lib/functions.sh
+procd_open_instance()      { touch /tmp/tg-allowlist-opened; }
+procd_close_instance()     { :; }
+procd_set_param()          { :; }
+procd_append_param()       { :; }
+procd_add_reload_trigger() { :; }
+. /etc/init.d/hermes-agent
+start_service
+STUB
+sh /tmp/fakeprocd-tg.sh >/tmp/fp-tg.log 2>&1 || true
+[ -e /tmp/tg-allowlist-opened ] && { cat /tmp/fp-tg.log
+	fail "[4/5] check_refuses_without_allowlist" "the refusal message printed but start_service opened a procd instance anyway"; }
+
 uci add_list hermes.telegram.allow_user_id=987654321; uci commit hermes
 msg=$(/etc/init.d/hermes-agent start 2>&1 || true)
 echo "$msg" | grep -q 'no user is allowed' \
