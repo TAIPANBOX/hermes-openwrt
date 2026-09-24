@@ -78,6 +78,13 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     (upstream's `agent/turn_finalizer.py`). A value outside 1 to 500 refuses to start. On
     2026-09-24 one assistant turn spent all of upstream's default of 90 (gate:
     `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
+15. `@decided 2026-09-24`: the routers this package is built for and checked on, and the
+    only ones the repository names, are the GL.iNet Flint 2 (GL-MT6000) and Brume 2
+    (GL-MT2500), two form factors of one job, with Wi-Fi and without. A finding made on
+    another box is described by its architecture. Hardware checks run on both and
+    record the router's state first, then restore it (gate:
+    `scripts/gate-named-routers.sh`, teeth: `scripts/teeth-named-routers.sh`, both in
+    CI's `scenarios` job; the restore is not enforced).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

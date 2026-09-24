@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: every scenario names a check, and every check is described
         run: ./scripts/gate-scenarios-bound.sh
+      - name: the repository names only the routers it is tested on
+        run: ./scripts/gate-named-routers.sh && ./scripts/teeth-named-routers.sh
 
   # There is nothing to unit test here: the payload is upstream's, and what this
   # repository contributes is the assembly and the service around it. So the only

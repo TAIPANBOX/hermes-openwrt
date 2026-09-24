@@ -532,9 +532,11 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-runtime.sh` | 37 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, and the per-turn limit on model calls |
 | `teeth-runtime.py` | 30 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
+| `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
 | `teeth-luci.sh` | four for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, and the refusal to write a slot the service does not read removed |
+| `teeth-named-routers.sh` | a box named by name and one named by model number must fail, the two test routers must pass, and nothing to read must refuse |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather
 than in the harness: a package built with one `.pyc` missing writes that bytecode at
