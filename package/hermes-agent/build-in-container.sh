@@ -58,7 +58,14 @@ PKGREL=${PKGREL:-6}
 # bash is not optional: Hermes runs its terminal tool through bash builtins
 # (tools/environments/local.py), and on busybox ash every command fails with
 # "builtin: not found" while the model reports the box as broken.
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"
+# ripgrep is declared on 25.12 only. OpenWrt's own 24.10.8 index has carried it for
+# aarch64_cortex-a53 but not for aarch64_generic or x86_64 since its rebuilds of
+# 2026-09-23 and 24 (a Rust build failure, openwrt/packages#25779), and a declared
+# dependency the feed does not have makes the whole package uninstallable. Hermes falls
+# back to grep for content search, so on 24.10 it is an optional extra the operator can
+# add with `opkg install ripgrep` where the feed carries it.
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe"
+case "$RELEASE" in 24.10*) ;; *) DEPENDS="$DEPENDS ripgrep" ;; esac
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
