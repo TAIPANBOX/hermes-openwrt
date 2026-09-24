@@ -80,10 +80,10 @@ cat <<EOF
 Public key   $OUT/$NAME.pem          commit this, it is published with the feed
 Private key  $OUT/$NAME.private.pem  NEVER commit this
 
-.gitignore excludes *.private.pem and *.usign.sec. Put the private key where CI can reach it:
+.gitignore excludes *.private.pem and *.usign.sec. Both private keys stay in keys/ on
+this signing workstation and are never uploaded anywhere, including CI: see
+publish-feed.sh's header for why signing happens here and not in a workflow.
 
-  gh secret set FEED_SIGNING_KEY --repo TAIPANBOX/hermes-openwrt < "$OUT/$NAME.private.pem"
-
-and keep your own copy somewhere you would keep a password. There is no way to recover
+Keep your own copy somewhere you would keep a password. There is no way to recover
 it, and no way to revoke it from a router that has already trusted the public half.
 EOF
