@@ -136,8 +136,16 @@ mv /tmp/telegram.bak "$ASITE/telegram"
 # bot by itself; what it does is let a router boot a Telegram bot that answers nobody
 # and explains nothing, which is how an operator ends up setting allow_all to make it
 # work at all.
+#
+# This removes the refusal itself, not its message: the `return 1` inside the
+# empty-allowlist branch becomes `true`, and every echo above it, including "no user is
+# allowed", still runs and still reaches $msg. A fault that only reworded the message
+# (an earlier version of this fault did exactly that) proves the wording is checked, not
+# that anything is refused, and the gate would have to actually observe start_service
+# fall through to procd_open_instance to catch this one.
 cp "$INIT" /tmp/init.bak
-sed 's/no user is allowed/UNCHECKED/' "$INIT" > /tmp/init.new && cp /tmp/init.new "$INIT"
+sed '/no user is allowed to talk to it/,/^[[:space:]]*fi[[:space:]]*$/ s/return 1/true/' "$INIT" > /tmp/init.new
+cp /tmp/init.new "$INIT"
 repack_base
 expect_red "allowlist refusal removed from the init" check_refuses_without_allowlist "$BW/mutant.apk" ""
 cp /tmp/init.bak "$INIT"

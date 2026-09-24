@@ -177,6 +177,27 @@ echo "$msg" | grep -q 'no user is allowed' \
 echo "$msg" | grep -q 'allow_user_id' \
 	|| { echo "$msg"; fail "[6/8] check_refuses_without_allowlist" "refused without saying how to allow a user"; }
 
+# The message alone does not prove the refusal: a fault that reworded it would still be
+# caught above, but a fault that removed the `return 1` and left the echoes in place
+# would print the same message and then keep going. procd is unreachable in this bare
+# rootfs, the same wall check_service_command_runs in gate-package.sh hits, so its
+# parameter functions are stubbed the same way and the real start_service is called
+# directly, to see whether it actually opened an instance after printing the refusal.
+rm -f /tmp/tg-allowlist-opened
+cat > /tmp/fakeprocd-tg.sh <<'STUB'
+. /lib/functions.sh
+procd_open_instance()      { touch /tmp/tg-allowlist-opened; }
+procd_close_instance()     { :; }
+procd_set_param()          { :; }
+procd_append_param()       { :; }
+procd_add_reload_trigger() { :; }
+. /etc/init.d/hermes-agent
+start_service
+STUB
+sh /tmp/fakeprocd-tg.sh >/tmp/fp-tg.log 2>&1 || true
+[ -e /tmp/tg-allowlist-opened ] && { cat /tmp/fp-tg.log
+	fail "[6/8] check_refuses_without_allowlist" "the refusal message printed but start_service opened a procd instance anyway"; }
+
 # The converse, so this is a check about the allowlist and not about refusing always.
 uci add_list hermes.telegram.allow_user_id=987654321
 uci commit hermes
