@@ -215,6 +215,12 @@ ubus call hermes status 2>/dev/null | grep -q '"provider_key_managed": false' \
 	|| fail check_secret_path_mismatch_refused "status still reports the key as page-managed"
 ubus call hermes status 2>/dev/null | grep -q '"provider_key_set": false' \
 	|| fail check_secret_path_mismatch_refused "status does not follow the UCI-configured path"
+# And the other way round: a key at the UCI path shows as set even though the slot this
+# page writes is unchanged, so the status follows the service and not the page.
+printf '%s' 'sk-elsewhere-canary' > /tmp/elsewhere.key
+ubus call hermes status 2>/dev/null | grep -q '"provider_key_set": true' \
+	|| fail check_secret_path_mismatch_refused "status does not see a key at the UCI-configured path"
+rm -f /tmp/elsewhere.key
 uci -q delete hermes.main.key_file
 uci commit hermes
 echo "PASS check_secret_path_mismatch_refused"
