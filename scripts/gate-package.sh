@@ -140,6 +140,10 @@ mkdir -p /etc/hermes-agent /srv/hermes
 printf '%s' "$SECRET" > /etc/hermes-agent/provider.key
 chmod 600 /etc/hermes-agent/provider.key
 
+# This rootfs has no procd cgroup. The runtime gate separately requires a real
+# kernel ceiling and fail-closed startup; this check exercises CLI argv only.
+uci set hermes.main.mem_max_mb=0
+uci commit hermes
 cat > /tmp/fakeprocd.sh <<'STUB'
 . /lib/functions.sh
 procd_open_instance()     { :; }

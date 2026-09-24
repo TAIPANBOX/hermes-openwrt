@@ -226,6 +226,12 @@ returns one.
 `scripts/gate-luci.sh` asserts that rather than trusting it. It writes a canary through
 the RPC and then requires that no readable method mentions it.
 
+The page manages the three key files in `/etc/hermes-agent`. If UCI points the service
+at a different file, the page says so and does not write its own slot, and a write that
+fails is reported as not saved. Read-only access to the page covers its status and log
+calls. It does not include procd's service list, where a service's environment can be
+read.
+
 ## Reaching it from a phone
 
 ![A phone talks to Telegram, the router polls Telegram outbound, and an allowlist decides who is answered](docs/telegram.svg)
@@ -373,9 +379,16 @@ because voice messages and speech transcoding do work here and are cheap.
 
 ## Letting it touch the router
 
-The recommended answer is not a root shell. Run
-[openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) alongside it and grant a narrow,
-audited, expiring window over ubus:
+<!-- @codex 2026-09-19 -->
+**The service runs as root.** Its default file and terminal tools can read and change
+router configuration directly. Give access only to trusted operators on a spare test
+router. Disabling MCP does not remove this local access.
+
+The optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
+policy checks to calls sent through that server. Its policy does not constrain local
+file, terminal, plugins or delegated tools. Pair once on the router and grant a narrow,
+expiring window. openwrt-mcp refuses every tool it has not been granted, so a connection
+without a grant does nothing:
 
 ```sh
 openwrt-mcp pair hermes > /etc/hermes-agent/router-mcp.token
@@ -383,9 +396,39 @@ chmod 600 /etc/hermes-agent/router-mcp.token
 openwrt-mcp allow hermes ubus_call,logread 'network.* iwinfo.* system.*' 30d
 ```
 
-Every call is then policy-checked and written to an audit log, ungranted tools are refused
-by name, and configuration changes carry a rollback timer. Read-only first is worth the
-ten minutes.
+Then set its URL in UCI or LuCI. The package writes `mcp_servers.openwrt` into Hermes
+config with an environment placeholder; the token is read at exec time and never stored
+in YAML or procd's table. An `openwrt` entry of the operator's own is preserved and
+startup is refused until it is renamed, unless it is identical to the entry the package
+writes, which is then adopted. If the token file is missing when the gateway starts, it
+starts without this connection and says so in the log. Clearing the URL removes only the
+package-managed entry.
+
+UCI also selects the primary model and OpenAI-compatible endpoint through
+`model.default`, `model.base_url` and `model.provider` in Hermes config. They are
+written again before every start, including the restarts procd makes on its own, so a
+model switched from a chat lasts until the next start. Credentials remain environment
+references. Conflicting `.env`, named provider, credential pool
+or Authorization-header settings refuse startup; existing credentials are preserved
+for the operator to reconcile. Explicit job/channel overrides and fallback chains
+retain their upstream behavior.
+
+The UCI tool list sets `platform_toolsets.telegram` and `platform_toolsets.cron`.
+Empty means no selected default families. Upstream per-job tool overrides and
+separately configured plugins or MCP servers still apply. This selection is not an
+OS sandbox. Invalid YAML or tool names stop startup instead of loading a broader set.
+
+`mem_max_mb` requires writable **cgroup v2 memory control**. Before every launch,
+the wrapper verifies its dedicated procd cgroup, applies `memory.max`, disables swap
+for that group and enables group OOM termination. Unsupported firmware refuses to
+start with an explanation. Setting `mem_max_mb=0` explicitly accepts an unlimited
+process and lifts a ceiling an earlier start applied. This ceiling protects against
+accidental memory growth; root tools can modify system controls. Verify the controller
+on the target router before testing.
+
+procd retries a gateway that fails at start at most five times within an hour and then
+leaves it stopped, so a refusal is logged a handful of times rather than every five
+seconds.
 
 ## What is checked, and how
 
@@ -396,14 +439,17 @@ OpenWrt's own published rootfs and then asks the running system.
 |---|---|
 | `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean |
 | `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
-| `gate-luci.sh` | 10 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, and **no method returns a key** |
+| `gate-luci.sh` | 13 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission leaves out procd's service list, a failed write is reported, and the page will not write a slot the service does not read |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
-| `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave all 9037 base files |
+| `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave every file owned by the base package |
+| `gate-runtime.sh` | 27 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, and kernel-enforced memory limits, including lifting one |
+| `teeth-runtime.py` | 18 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
-| `teeth.sh` | plants four faults and requires a different check to catch each one |
+| `teeth.sh` | plants five faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
+| `teeth-luci.sh` | three for the web page: procd's service list back in the read permission, the failed-write check removed, and the refusal to write a slot the service does not read removed |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather
 than in the harness: a package built with one `.pyc` missing writes that bytecode at

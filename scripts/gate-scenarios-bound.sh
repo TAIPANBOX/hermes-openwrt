@@ -31,7 +31,7 @@ cd "$ROOT"
 # the 25.12 gate can let apk compare. The set compared below is therefore the UNION of
 # what the gates run. Requiring each gate to cover every scenario on its own would force
 # the 24.10 gate to duplicate checks that differ in nothing but the release.
-PAIRS='features/telegram.feature:scripts/gate-telegram.sh,scripts/gate-telegram-opkg.sh features/feed.feature:scripts/gate-relabel.sh'
+PAIRS='features/telegram.feature:scripts/gate-telegram.sh,scripts/gate-telegram-opkg.sh features/feed.feature:scripts/gate-relabel.sh features/runtime.feature:scripts/gate-runtime.sh features/luci.feature:scripts/gate-luci.sh'
 
 rc=0
 for pair in $PAIRS; do
@@ -41,7 +41,9 @@ for pair in $PAIRS; do
 	[ -f "$feature" ] || { echo "FAIL: no feature file at $feature"; exit 1; }
 
 	# What the feature file claims.
-	claimed=$(grep -o '# -> check_[a-z_]*' "$feature" | sed 's/# -> //' | sort -u)
+	# Digits are part of a check name (check_secret_written_0600): a pattern without them
+	# truncates the name and reports a binding that exists as one that does not.
+	claimed=$(grep -o '# -> check_[a-z0-9_]*' "$feature" | sed 's/# -> //' | sort -u)
 
 	# What the gates actually run, taken together.
 	listed=""

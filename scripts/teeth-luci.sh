@@ -1,0 +1,118 @@
+#!/bin/sh
+# teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
+#
+# Three faults, each a change somebody could plausibly make to the rpcd backend or its
+# ACL, each caught by a different one of the three checks gate-luci.sh added alongside
+# them. The faults are applied to a copy of the already-built LuCI tree and the result
+# repackaged, the same shape as teeth-telegram.sh, and for the same reason: a rebuild
+# from scratch per fault would triple the job and prove nothing extra, none of these is
+# a build error.
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ARCH=${ARCH:-aarch64_generic}
+WORK="$ROOT/build/luci-app-hermes-apk"
+ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
+ACL="$WORK/tree/usr/share/rpcd/acl.d/luci-app-hermes.json"
+RPCD="$WORK/tree/usr/libexec/rpcd/hermes"
+
+[ -d "$WORK/tree" ] || { echo "teeth-luci: no tree at $WORK/tree; build the LuCI package first:"
+	echo "  ./package/luci-app-hermes/build.sh"
+	exit 1; }
+
+# ---- refuse to start on a tree an earlier run left broken ----
+#
+# Same trap teeth-telegram.sh guards against: this script plants faults in a SHARED
+# build tree, and a run that went red partway would otherwise leave its last fault
+# behind for the next run to mistake for the original.
+for pair in "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json:$ACL" \
+            "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes:$RPCD"; do
+	src=${pair%%:*}; tree=${pair##*:}
+	cmp -s "$src" "$tree" || {
+		echo "teeth-luci: the build tree's $(basename "$tree") differs from the repository's." >&2
+		echo "teeth-luci: an earlier run left a fault in it. Rebuild before running teeth:" >&2
+		echo "teeth-luci:   ./package/luci-app-hermes/build.sh" >&2
+		exit 1
+	}
+done
+
+cleanup() {
+	# Unconditional, on every exit path, including a fault that never got restored.
+	cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL" 2>/dev/null || true
+	cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD" 2>/dev/null || true
+	chmod 0644 "$ACL" 2>/dev/null || true
+	chmod 0755 "$RPCD" 2>/dev/null || true
+	# The mutant is a package a feed builder would otherwise collect from this
+	# directory and sign. It does not outlive this script.
+	rm -f "$WORK/mutant.apk"
+}
+trap cleanup EXIT INT TERM
+
+# 0.19.0-r99, not the version build.sh would use, so a stray mutant is unmistakable if
+# it is ever found anywhere but here.
+repack_luci() {
+	# A failed or interrupted repack must never leave a PREVIOUS mutant.apk sitting
+	# there to be silently reused as if it carried this fault: macOS Docker Desktop's
+	# bind-mount sync has been seen to serve stale content to the packaging container
+	# (recorded 2026-09-13), and the surest defense is to remove the old file before
+	# asking for a new one rather than trust that mkpkg always overwrites cleanly.
+	rm -f "$WORK/mutant.apk"
+	docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
+		--info "name:luci-app-hermes" --info "version:0.19.0-r99" --info "arch:noarch" \
+		--info "license:MIT" --info "origin:luci-app-hermes" \
+		--info "description:deliberately broken build, teeth-luci.sh" \
+		--info "depends:luci-base hermes-agent" \
+		--script "post-install:/work/post-install" \
+		--script "pre-deinstall:/work/pre-deinstall" \
+		--files /work/tree --output /work/mutant.apk >/dev/null 2>&1
+}
+
+run_gate() {
+	ARCH="$ARCH" LUCI="$WORK/mutant.apk" "$ROOT/scripts/gate-luci.sh" >/tmp/teeth-luci.out 2>&1
+}
+
+expect_red() {
+	name=$1; want=$2
+	if run_gate; then
+		echo "TEETH FAIL: $name left the gate green"; cat /tmp/teeth-luci.out; exit 1
+	fi
+	if ! grep -q "$want" /tmp/teeth-luci.out; then
+		echo "TEETH FAIL: $name went red, but not at $want"
+		grep FAIL /tmp/teeth-luci.out | head -3; exit 1
+	fi
+	echo "teeth ok: $name -> $want"
+}
+
+# ---- fault 1: service.list is granted again ----
+# The narrow read ACL is the whole point of the check; re-adding the grant is the exact
+# regression a careless merge of an older acl.d file would reintroduce.
+sed 's/"hermes": \[ "status", "logs" \]/"hermes": [ "status", "logs" ], "service": [ "list" ]/' \
+	"$ACL" > /tmp/acl.new && cp /tmp/acl.new "$ACL"
+repack_luci
+expect_red "service.list re-added to the read ACL" check_read_acl_is_narrow
+# Restored here, not only in the exit trap: fault 2 and fault 3 repackage the SAME
+# tree, and an ACL still carrying fault 1 would fail check_read_acl_is_narrow before
+# either of their own checks ever ran, reporting the wrong check as the one that caught
+# them.
+cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
+
+# ---- fault 2: a failed write is reported as ok ----
+sed 's/if \[ "\$write_ok" -ne 1 \]; then/if false; then/' "$RPCD" > /tmp/rpcd.new && cp /tmp/rpcd.new "$RPCD"
+repack_luci
+expect_red "write-failure check removed from set_secret" check_secret_write_failure_reported
+cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
+
+# ---- fault 3: a UCI path mismatch is no longer refused ----
+sed 's/if \[ "\$svc" != "\$path" \]; then/if false; then/' "$RPCD" > /tmp/rpcd.new && cp /tmp/rpcd.new "$RPCD"
+repack_luci
+expect_red "path-mismatch refusal removed from set_secret" check_secret_path_mismatch_refused
+cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
+
+# ---- and green again, so the reds were the faults and not the harness ----
+cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
+repack_luci
+if ! run_gate; then
+	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
+	tail -20 /tmp/teeth-luci.out; exit 1
+fi
+echo "teeth-luci: 3 faults, 3 distinct checks, green restored"

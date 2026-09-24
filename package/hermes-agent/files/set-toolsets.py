@@ -1,73 +1,131 @@
 #!/usr/bin/env python3
-"""Write the router's toolset choice into Hermes' own config.yaml.
+"""Merge UCI gateway defaults and the package-owned MCP connection into Hermes.
 
-Why this exists rather than a command-line flag
------------------------------------------------
-The init script used to pass `--toolsets a,b,c` to `hermes gateway run`. That flag does
-not exist on the gateway subcommand, so the service died at argument parsing on every
-start, with the shipped default configuration, on every router. It was invisible to the
-gates because they ran `hermes gateway run` themselves with an environment and no
-arguments, and visible on the LuCI overview page the moment somebody looked at the log.
-
-`--toolsets` DOES exist as a global option, and putting it before the subcommand parses
-cleanly. That is worse, not better: its own help says it applies to `-z/--oneshot` and
-`--tui`, so the gateway would ignore it and the setting would appear to work.
-
-What the gateway actually reads is the `toolsets` key of $HERMES_HOME/config.yaml.
-
-Merging, not writing
---------------------
-This file belongs to Hermes and holds whatever the agent has learned about itself. Only
-the one key the router owns is touched; everything else is read, kept, and written back.
-An unreadable or corrupt file is left alone and reported, because replacing it would
-destroy state the router cannot regenerate.
+@codex 2026-09-19: platform_toolsets is the shipped gateway's actual contract.
+This selects defaults, not an OS sandbox; explicit cron-job overrides and
+operator-configured plugins/MCP servers retain their upstream semantics.
 """
 from __future__ import annotations
 
+import copy
+import os
 import sys
+import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
+
+
+def _validate_endpoint(value: str, label: str) -> None:
+    parsed = urlsplit(value)
+    if (parsed.scheme not in ("http", "https") or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value)):
+        raise ValueError(f"{label} must be HTTP(S), without embedded credentials")
+    # Also validate the port rather than persisting an unusable endpoint.
+    _ = parsed.port
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        sys.stderr.write("usage: set-toolsets.py <hermes-home> <comma,separated,toolsets>\n")
+    if len(sys.argv) not in (3, 4, 6):
+        sys.stderr.write("usage: set-toolsets.py <home> <comma,separated,tools> [mcp-url [base-url model]]\n")
         return 2
     home, raw = Path(sys.argv[1]), sys.argv[2]
-
-    wanted = [t.strip() for t in raw.split(",") if t.strip()]
-    if not wanted:
-        return 0
-
     try:
         import yaml
-    except ImportError:
-        sys.stderr.write("set-toolsets: no yaml module, leaving config.yaml alone\n")
-        return 0
+        from toolsets import TOOLSETS, validate_toolset
 
-    path = home / "config.yaml"
-    config: dict = {}
-    if path.exists():
+        wanted = list(dict.fromkeys(t.strip() for t in raw.split(",") if t.strip()))
+        if any(not validate_toolset(t) and t != "no_mcp" for t in wanted):
+            raise ValueError("unknown toolset; check the configured tool names")
+        path = home / "config.yaml"
+        config = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else {}
+        if config is None:
+            config = {}
+        if not isinstance(config, dict):
+            raise TypeError("config.yaml must be a mapping")
+        # Compared against at the end, by data rather than by rendered text, so a
+        # human-added comment or a hand-typed quoting style is never destroyed by a
+        # run that would not otherwise have changed anything.
+        original = copy.deepcopy(config)
+        platforms = config.setdefault("platform_toolsets", {})
+        if not isinstance(platforms, dict):
+            raise TypeError("platform_toolsets must be a mapping")
+        known = config.get("known_plugin_toolsets") or {}
+        if not isinstance(known, dict):
+            raise TypeError("known_plugin_toolsets must be a mapping")
+        for platform in ("telegram", "cron"):
+            previous = platforms.get(platform, [])
+            plugins = known.get(platform, []) or []
+            if not isinstance(previous, list) or not isinstance(plugins, list):
+                raise TypeError("platform selections must be lists")
+            # Preserve explicit plugin/custom/MCP selections, including no_mcp.
+            # Known-but-absent plugins stay disabled in upstream's resolver.
+            extras = [name for name in previous if isinstance(name, str)
+                      and (name not in TOOLSETS or name in plugins)]
+            platforms[platform] = list(dict.fromkeys(wanted + extras))
+
+        if len(sys.argv) >= 4:
+            url = sys.argv[3]
+            owned = config.get("_openwrt_mcp_managed") is True
+            if url:
+                _validate_endpoint(url, "MCP URL")
+                servers = config.setdefault("mcp_servers", {})
+                if not isinstance(servers, dict):
+                    raise TypeError("mcp_servers must be a mapping")
+                expected = {"url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}
+                # An operator may already have pasted in exactly this entry by hand,
+                # e.g. from an earlier manual setup. Adopt it rather than refuse: only
+                # a DIFFERENT entry is a real collision.
+                if "openwrt" in servers and not owned and servers["openwrt"] != expected:
+                    raise ValueError("mcp_servers.openwrt is operator-owned; rename it before enabling UCI MCP")
+                servers["openwrt"] = expected
+                config["_openwrt_mcp_managed"] = True
+            elif owned:
+                # Read-only here: an absent mcp_servers must not be created just to
+                # immediately find there is nothing in it to remove.
+                servers = config.get("mcp_servers")
+                if isinstance(servers, dict):
+                    servers.pop("openwrt", None)
+                config.pop("_openwrt_mcp_managed", None)
+
+        if len(sys.argv) == 6:
+            endpoint, model = sys.argv[4:6]
+            _validate_endpoint(endpoint, "model endpoint")
+            if not model.strip() or any(ord(c) < 32 for c in model):
+                raise ValueError("model name is empty or contains control characters")
+            model_config = config.get("model") or {}
+            if isinstance(model_config, str):
+                model_config = {"default": model_config}
+            if not isinstance(model_config, dict):
+                raise TypeError("model must be a mapping or model name")
+            if model_config.get("api_key") not in (None, "", "${OPENAI_API_KEY}"):
+                raise ValueError("model.api_key is operator-owned; move it before enabling the UCI model")
+            model_config.update(default=model, provider="custom", base_url=endpoint,
+                                api_mode="chat_completions", api_key="${OPENAI_API_KEY}")
+            config["model"] = model_config
+
+        if path.exists() and config == original:
+            return 0
+        home.mkdir(parents=True, exist_ok=True)
+        rendered = yaml.safe_dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        # A unique 0600 temporary file avoids following an old .yaml.tmp symlink.
+        temp = None
         try:
-            loaded = yaml.safe_load(path.read_text()) or {}
-        except Exception as exc:
-            sys.stderr.write(f"set-toolsets: {path} will not parse ({exc}); leaving it alone\n")
-            return 0
-        if not isinstance(loaded, dict):
-            sys.stderr.write(f"set-toolsets: {path} is not a mapping; leaving it alone\n")
-            return 0
-        config = loaded
-
-    if config.get("toolsets") == wanted:
-        return 0
-
-    config["toolsets"] = wanted
-    home.mkdir(parents=True, exist_ok=True)
-    # Written beside the target and renamed, so a power cut during the write cannot
-    # leave a router with a half-written config it will refuse to parse at next boot.
-    tmp = path.with_suffix(".yaml.tmp")
-    tmp.write_text(yaml.safe_dump(config, default_flow_style=False, sort_keys=False))
-    tmp.replace(path)
-    sys.stderr.write(f"set-toolsets: toolsets = {', '.join(wanted)}\n")
+            with tempfile.NamedTemporaryFile(mode="w", dir=home, prefix=".config-", delete=False,
+                                             encoding="utf-8") as stream:
+                temp = Path(stream.name)
+                stream.write(rendered)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temp.replace(path)
+        finally:
+            if temp is not None and temp.exists():
+                temp.unlink()
+    except Exception as exc:  # noqa: BLE001 - fail closed without leaking YAML snippets
+        # Do not log YAML exception snippets, which may contain operator secrets.
+        message = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+        sys.stderr.write(f"hermes-config: configuration refused ({message}); existing file preserved\n")
+        return 1
     return 0
 
 

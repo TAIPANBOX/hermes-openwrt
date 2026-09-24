@@ -68,8 +68,14 @@ jobs:
       - name: the add-on installs beside the base and neither claims the other's files
         run: ARCH=${{ matrix.arch }} ./scripts/gate-telegram.sh
 
+      - name: gateway controls and their mutation tests
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-runtime.sh
+
       - name: the web interface installs, registers on ubus, and gives no key back
         run: ARCH=${{ matrix.arch }} ./scripts/gate-luci.sh
+
+      - name: the web interface's gate has teeth
+        run: ARCH=${{ matrix.arch }} ./scripts/teeth-luci.sh
 
       # A gate nobody has seen go red is a gate nobody has tested. Each fault below is
       # one a real change could introduce, and each must be caught by a different check.
@@ -114,7 +120,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
 
       - name: build the base package inside OpenWrt 24.10
-        run: RELEASE=24.10.8 PKGREL=2 ./package/hermes-agent/build-in-container.sh aarch64_generic
+        run: RELEASE=24.10.8 ./package/hermes-agent/build-in-container.sh aarch64_generic
 
       - name: build the Telegram add-on
         run: RELEASE=24.10.8 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
@@ -124,6 +130,9 @@ jobs:
 
       - name: the add-on installs beside it without either overwriting the other
         run: ARCH=aarch64_generic RELEASE=24.10.8 ./scripts/gate-telegram-opkg.sh
+
+      - name: gateway controls on Python 3.11 and opkg
+        run: ARCH=aarch64_generic RELEASE=24.10.8 ./scripts/gate-runtime.sh
 
       - uses: actions/upload-artifact@v4
         with:

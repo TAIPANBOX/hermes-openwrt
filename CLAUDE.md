@@ -1,0 +1,54 @@
+# Hermes OpenWrt invariants
+
+`@claude` 2026-09-24: first written by Codex on 2026-09-19, amended on 2026-09-24. Each
+invariant names what holds it. The upstream Python payload is installed unpatched; the
+package adds one shim (`webbrowser.py`) and its own helpers under `/usr/libexec`.
+
+`@decided 2026-09-24`: the router's own configuration (UCI) is the authority for the
+primary model, its endpoint and the tool selection at every start, including restarts
+procd makes on its own. A model switched from a chat lasts until the next start.
+
+1. Packages install, run, preserve configuration and remove cleanly on each supported
+   release/architecture (gate: `scripts/gate-package.sh`, `scripts/gate-ipk.sh`).
+2. Telegram is optional, disjoint from the base payload, and refuses unusable setup
+   (gate: `scripts/gate-telegram.sh`, `scripts/gate-telegram-opkg.sh`).
+3. All provider, Telegram and MCP credentials are read by the exec wrapper on every
+   launch and respawn; procd stores paths only. A router MCP token missing at exec drops
+   the MCP connection, not the service (gate: `scripts/gate-runtime.sh`).
+4. UCI tool selection writes the upstream Telegram and cron platform defaults,
+   including an empty selection. Invalid YAML or tool names refuse startup and
+   preserve the existing file; a file that already matches UCI is left byte for byte
+   (gate: `scripts/gate-runtime.sh`). This is not a global authorization allowlist:
+   upstream job overrides, plugins and MCP still apply.
+5. The optional MCP connection reaches the upstream loader with a token placeholder,
+   preserves unrelated entries, refuses an operator entry of a different shape, adopts
+   one identical to its own, and is removed when disabled (gate: `scripts/gate-runtime.sh`).
+   MCP policy governs MCP calls only.
+6. A nonzero memory limit is applied and read back before every gateway exec, only in
+   the dedicated procd cgroup. Missing cgroup v2 memory delegation refuses startup.
+   Zero lifts any ceiling an earlier start left in that cgroup, because procd on 25.12
+   never removes it (gate: `scripts/gate-runtime.sh`, kernel OOM and zero-lift).
+7. The service and its file/terminal tools run as root. This is documented at setup;
+   neither tool defaults nor MCP nor memory controls are an OS security sandbox
+   (partly gated: runtime selection tests; wording reviewed manually).
+8. UCI selects the primary model, OpenAI-compatible endpoint and file-backed key, and
+   the wrapper re-applies them before every exec, so upstream state such as a model saved
+   from a chat cannot outlive a restart. The actual upstream resolver must then agree;
+   conflicting dotenv/provider/pool/header settings refuse startup and preserve operator
+   credentials. Explicit job/channel overrides and fallback chains retain upstream
+   semantics (gate: `scripts/gate-runtime.sh`).
+9. Runtime and LuCI scenarios bind both ways to the checks that run them, and product
+   mutations must turn their named test red with green restored and empty discovery
+   refused (gate: `scripts/gate-scenarios-bound.sh`, `scripts/teeth-runtime.py`,
+   `scripts/teeth-luci.sh`).
+10. procd respawn is bounded (`3600 5 5`): a gateway that keeps failing at start is
+    retried at most five times within an hour, then left stopped, instead of being
+    restarted every five seconds (gate: `scripts/gate-runtime.sh`).
+11. LuCI: the read permission covers `hermes` status and logs only, never procd's service
+    list; `set_secret` writes only its fixed slot under `/etc/hermes-agent`, refuses when
+    UCI points the service at another file, and reports a failed write; no method
+    returns a key (gate: `scripts/gate-luci.sh`, `scripts/teeth-luci.sh`).
+
+Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
+its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
+It makes no model API call. Test credentials are synthetic. Host tools are not installed.

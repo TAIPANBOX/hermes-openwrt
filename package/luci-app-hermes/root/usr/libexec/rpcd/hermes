@@ -28,9 +28,9 @@
 CONF_DIR=/etc/hermes-agent
 INIT=/etc/init.d/hermes-agent
 
-# Only these names may be written, and each maps to a fixed path. A caller cannot name
-# an arbitrary file: an unrecognised name is refused rather than defaulted, so neither a
-# typo in the page nor a crafted call can write outside this directory.
+# The fixed, page-managed slot for each secret. A caller cannot name an arbitrary file:
+# an unrecognised name is refused rather than defaulted, so neither a typo in the page
+# nor a crafted call can write outside this directory.
 secret_path() {
 	case "$1" in
 		provider)   echo "$CONF_DIR/provider.key" ;;
@@ -40,12 +40,36 @@ secret_path() {
 	esac
 }
 
+# The path the SERVICE actually reads for this secret, per the matching UCI option the
+# init script itself consults (hermes-agent.init: key_file, router_mcp_token_file,
+# token_file). An operator can point any of these at a file outside CONF_DIR; when they
+# do, the fixed slot above and the service's own path diverge, and writing to the slot
+# would silently produce a key the service never sees.
+service_path() {
+	case "$1" in
+		provider)   uci -q get hermes.main.key_file || echo "$CONF_DIR/provider.key" ;;
+		router_mcp) uci -q get hermes.main.router_mcp_token_file || echo "$CONF_DIR/router-mcp.token" ;;
+		telegram)   uci -q get hermes.telegram.token_file || echo "$CONF_DIR/telegram.token" ;;
+		*)          return 1 ;;
+	esac
+}
+
+# Whether the fixed slot IS the path the service reads. False means this page can report
+# presence but writing here would not reach the service.
+is_managed() {
+	local svc slot
+	svc=$(service_path "$1") || return 1
+	slot=$(secret_path "$1") || return 1
+	[ "$svc" = "$slot" ]
+}
+
 # A file with something in it, ignoring whitespace. An empty or whitespace-only file is
 # not a configured key, and reporting it as one would let the page say "set" while the
-# service refuses to start for the exact reason the page had just called fine.
+# service refuses to start for the exact reason the page had just called fine. Follows
+# the path the SERVICE reads, so this stays accurate even when UCI points elsewhere.
 has_secret() {
 	local p
-	p=$(secret_path "$1") || return 1
+	p=$(service_path "$1") || return 1
 	[ -s "$p" ] && [ -n "$(tr -d ' \t\r\n' < "$p" 2>/dev/null)" ]
 }
 
@@ -76,10 +100,16 @@ method_status() {
 	json_add_string  "version" "$version"
 	json_add_string  "data_dir" "$data_dir"
 	json_add_int     "free_kb" "$free_kb"
-	# Presence only. Never the value, never the length.
+	# Presence only, following the path the service actually reads. Never the value,
+	# never the length.
 	json_add_boolean "provider_key_set"   "$(has_secret provider   && echo 1 || echo 0)"
 	json_add_boolean "router_mcp_key_set" "$(has_secret router_mcp && echo 1 || echo 0)"
 	json_add_boolean "telegram_key_set"   "$(has_secret telegram   && echo 1 || echo 0)"
+	# Whether this page can actually WRITE the key the service reads. False means an
+	# operator has pointed UCI at a custom path this page does not manage.
+	json_add_boolean "provider_key_managed"   "$(is_managed provider   && echo 1 || echo 0)"
+	json_add_boolean "router_mcp_key_managed" "$(is_managed router_mcp && echo 1 || echo 0)"
+	json_add_boolean "telegram_key_managed"   "$(is_managed telegram   && echo 1 || echo 0)"
 
 	# Whether Telegram can work at all here. Without this the settings page would offer
 	# a token field for a platform that cannot load, and the only clue would be a line
@@ -106,7 +136,7 @@ method_logs() {
 }
 
 method_set_secret() {
-	local name value path input
+	local name value path svc write_ok input
 	read -r input
 	json_load "$input" 2>/dev/null
 	json_get_var name name
@@ -118,24 +148,58 @@ method_set_secret() {
 		return 0
 	fi
 
+	# This page manages exactly one path per secret: the fixed slot. If UCI points the
+	# service somewhere else, writing to the slot would produce a key the service never
+	# reads and a page that wrongly says "set" afterwards, so this refuses instead.
+	svc=$(service_path "$name") || svc="$path"
+	if [ "$svc" != "$path" ]; then
+		json_init; json_add_boolean "ok" 0
+		json_add_string "error" "the service reads $svc; this page manages only $path"
+		json_dump
+		return 0
+	fi
+
 	mkdir -p "$CONF_DIR" && chmod 0700 "$CONF_DIR"
 
 	# An empty value means "forget this key", which is a real thing to want and must not
 	# be confused with writing an empty file that the service would then refuse to start
 	# on while the page reports a key is present.
 	if [ -z "$(printf '%s' "$value" | tr -d ' \t\r\n')" ]; then
-		rm -f "$path"
-		json_init; json_add_boolean "ok" 1; json_add_string "action" "cleared"; json_dump
+		if rm -f "$path" 2>/dev/null && [ ! -e "$path" ]; then
+			json_init; json_add_boolean "ok" 1; json_add_string "action" "cleared"; json_dump
+		else
+			json_init; json_add_boolean "ok" 0
+			json_add_string "error" "could not clear the $name key"; json_dump
+		fi
 		return 0
 	fi
 
 	# Create with the final permissions BEFORE any content is written. Writing first and
 	# chmod-ing afterwards leaves a window in which the key is world-readable, and on a
 	# router with more than one account that window is real rather than theoretical.
+	#
+	# Every step is checked, and the end state is checked again afterwards: none of
+	# these three commands failing (the path being a directory, a full filesystem, a
+	# permissions problem) may be reported back as a successful write.
+	#
+	# `true`, not `:`. `:` is a POSIX SPECIAL built-in, and a redirection error on a
+	# special built-in is defined to end the whole non-interactive script rather than
+	# just the one command, so `|| write_ok=0` after it would never run: the backend
+	# would die mid-call instead of answering ok:false, which rpcd then reports as no
+	# response at all. `true` is an ordinary utility and fails like any other command.
+	# stderr is redirected before the truncation, so the shell's own "Is a directory"
+	# never reaches rpcd's log.
 	umask 077
-	: > "$path"
-	chmod 0600 "$path"
-	printf '%s' "$value" | tr -d ' \t\r\n' > "$path"
+	write_ok=1
+	true 2>/dev/null >"$path" || write_ok=0
+	chmod 0600 "$path" 2>/dev/null || write_ok=0
+	printf '%s' "$value" | tr -d ' \t\r\n' 2>/dev/null > "$path" || write_ok=0
+	[ -f "$path" ] && [ -s "$path" ] || write_ok=0
+	if [ "$write_ok" -ne 1 ]; then
+		json_init; json_add_boolean "ok" 0
+		json_add_string "error" "could not write the $name key"; json_dump
+		return 0
+	fi
 
 	json_init; json_add_boolean "ok" 1; json_add_string "action" "written"; json_dump
 }
