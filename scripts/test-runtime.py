@@ -80,6 +80,19 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotEqual(self.configure(mcp="http://127.0.0.1:8730/mcp").returncode, 0)
         self.assertEqual(self.config(), original)
 
+    def test_mcp_identical_manual_entry_is_adopted(self):
+        url = "http://127.0.0.1:8730/mcp"
+        manual = {"mcp_servers": {"openwrt": {"url": url,
+                  "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}}}
+        (self.home / "config.yaml").write_text(yaml.safe_dump(manual))
+        result = self.configure(mcp=url)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = self.config()
+        self.assertEqual(config["mcp_servers"]["openwrt"], manual["mcp_servers"]["openwrt"])
+        self.assertTrue(config.get("_openwrt_mcp_managed"))
+        self.assertEqual(self.configure(mcp="").returncode, 0)
+        self.assertNotIn("openwrt", self.config().get("mcp_servers", {}))
+
     def test_config_preserves_other_settings(self):
         original = {"model": "operator-model", "platform_toolsets": {"discord": ["web"]},
                     "mcp_servers": {"other": {"command": "operator-command"}}}
@@ -94,6 +107,23 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.configure("memory,memory", "https://localhost/mcp").returncode, 0)
         self.assertEqual(inode, (self.home / "config.yaml").stat().st_ino)
         self.assertEqual((self.home / "config.yaml").stat().st_mode & 0o777, 0o600)
+
+    def test_config_untouched_when_already_current(self):
+        self.assertEqual(self.configure().returncode, 0)
+        path = self.home / "config.yaml"
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write('# operator note\noperator_note: "Привіт"\n')
+        before = path.read_bytes()
+        self.assertEqual(self.configure().returncode, 0)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_config_rewrite_keeps_unicode_readable(self):
+        (self.home / "config.yaml").write_text('operator_note: "Привіт"\n', encoding="utf-8")
+        self.assertEqual(self.configure("memory,web").returncode, 0)
+        text = (self.home / "config.yaml").read_text(encoding="utf-8")
+        self.assertIn("Привіт", text)
+        self.assertNotIn("\\u", text)
+        self.assertEqual(yaml.safe_load(text)["operator_note"], "Привіт")
 
     def test_existing_plugin_and_mcp_selection_survives(self):
         config = {
@@ -143,7 +173,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
         env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
                    HERMES_MEM_MAX_MB="0", HERMES_TELEGRAM_TOKEN_FILE=str(files["telegram"]),
-                   HERMES_MCP_TOKEN_FILE=str(files["mcp"]))
+                   HERMES_MCP_TOKEN_FILE=str(files["mcp"]), HERMES_OPENWRT_TOOLSETS="memory",
+                   HERMES_OPENWRT_MCP_URL="http://127.0.0.1:8730/mcp")
         for rotation in range(2):
             values = {"provider": f"provider-{rotation}", "telegram": f"123456:{'A' * 30}{rotation}",
                       "mcp": f"mcp-{rotation}"}
@@ -156,10 +187,6 @@ class RuntimeTests(unittest.TestCase):
             for name, key in (("provider", "OPENAI_API_KEY"), ("telegram", "TELEGRAM_BOT_TOKEN"),
                               ("mcp", "OPENWRT_MCP_TOKEN")):
                 self.assertEqual(child[key], values[name])
-        files["mcp"].unlink()
-        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(files["provider"])],
-                                env=env, check=False, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
         env.pop("HERMES_TELEGRAM_TOKEN_FILE")
         env.pop("HERMES_MCP_TOKEN_FILE")
         env.update(TELEGRAM_BOT_TOKEN="stale", OPENWRT_MCP_TOKEN="stale")
@@ -169,6 +196,73 @@ class RuntimeTests(unittest.TestCase):
         child = json.loads(result.stdout)
         self.assertNotIn("TELEGRAM_BOT_TOKEN", child)
         self.assertNotIn("OPENWRT_MCP_TOKEN", child)
+
+    def test_wrapper_reapplies_uci_after_model_switch(self):
+        # Upstream's own /model switch drops base_url/api_mode/api_key for a named
+        # provider and persists only default/provider. UCI must win back at the very
+        # next exec, not merely at the init's first start.
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        switched = {"model": {"default": "chat-choice", "provider": "openrouter"}}
+        (self.home / "config.yaml").write_text(yaml.safe_dump(switched))
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        key = self.home / "key"
+        key.write_text("provider-runtime-canary")
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="",
+                   HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model")
+        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        model = self.config()["model"]
+        self.assertEqual(model["default"], "runtime-model")
+        self.assertEqual(model["provider"], "custom")
+        self.assertEqual(model["base_url"], endpoint)
+
+    def test_wrapper_drops_mcp_when_token_missing(self):
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        key = self.home / "key"
+        key.write_text("provider-runtime-canary")
+        mcp_token_file = self.home / "mcp-missing"
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory",
+                   HERMES_OPENWRT_MCP_URL="http://127.0.0.1:8730/mcp",
+                   HERMES_MCP_TOKEN_FILE=str(mcp_token_file),
+                   HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model")
+        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        child = json.loads(result.stdout)
+        self.assertNotIn("OPENWRT_MCP_TOKEN", child)
+        self.assertNotIn("openwrt", self.config().get("mcp_servers", {}))
+        self.assertIn(str(mcp_token_file), result.stderr)
+
+    def test_wrapper_names_the_missing_credential(self):
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="",
+                   HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model")
+        missing_key = self.home / "missing-key"
+        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(missing_key)],
+                                env=env, check=False, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("provider key", result.stderr)
+        self.assertIn(str(missing_key), result.stderr)
+
+        key = self.home / "key"
+        key.write_text("provider-runtime-canary")
+        missing_tg = self.home / "missing-telegram"
+        env2 = dict(env, HERMES_TELEGRAM_TOKEN_FILE=str(missing_tg))
+        result2 = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                 env=env2, check=False, capture_output=True, text=True)
+        self.assertNotEqual(result2.returncode, 0)
+        self.assertIn("Telegram token", result2.stderr)
 
     def test_memory_validation_and_identity(self):
         spec = importlib.util.spec_from_file_location("memory_limit", FILES / "memory-limit.py")
@@ -213,21 +307,100 @@ class RuntimeTests(unittest.TestCase):
         key.write_text("synthetic")
         self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
         env = dict(self.env, HERMES_MEM_MAX_MB="64", OPENAI_BASE_URL="http://127.0.0.1:9/v1",
-                   HERMES_MODEL="runtime-model")
+                   HERMES_MODEL="runtime-model", HERMES_OPENWRT_TOOLSETS="memory",
+                   HERMES_OPENWRT_MCP_URL="")
         wrapper = ["sh", str(FILES / "hermes-gateway"), str(key)]
         wrong = subprocess.run(wrapper, env=env, check=False, capture_output=True, text=True)
         self.assertNotEqual(wrong.returncode, 0, "wrapper ran without its cgroup")
         self.assertIn("refusing unbounded start", wrong.stderr)
         group = Path("/sys/fs/cgroup/services/hermes-agent/instance1")
         group.mkdir(parents=True, exist_ok=True)
+        # An earlier test, or an earlier run of this one in the same long-lived
+        # container, can leave this real cgroup with its own ceiling already in place
+        # and its own oom_kill count already above zero. Neither may be allowed to make
+        # this run pass without this run itself proving anything: the ceiling is reset
+        # before the wrapper is asked to apply its own, and only the DELTA in oom_kill
+        # is asserted, never the absolute count.
+        for name in ("memory.max", "memory.swap.max"):
+            target = group / name
+            if target.exists():
+                target.write_text("max")
+        events_path = group / "memory.events"
+        if events_path.exists():
+            before = dict(line.split() for line in events_path.read_text().splitlines())
+            oom_before = int(before.get("oom_kill", 0))
+        else:
+            oom_before = 0
         command = 'echo $$ > ' + str(group / "cgroup.procs") + '; exec ' + shlex.join(wrapper)
         child = subprocess.run(["sh", "-c", command], env=env, check=False, capture_output=True, text=True, timeout=30)
         self.assertEqual(child.returncode, -9, child.stdout + child.stderr)
         self.assertEqual((group / "memory.max").read_text().strip(), "67108864")
         self.assertEqual((group / "memory.swap.max").read_text().strip(), "0")
         events = dict(line.split() for line in (group / "memory.events").read_text().splitlines())
-        self.assertGreater(int(events["oom_kill"]), 0)
-        print("kernel proof: memory.max=67108864, swap.max=0, child SIGKILL, oom_kill=" + events["oom_kill"])
+        oom_after = int(events["oom_kill"])
+        self.assertGreater(oom_after - oom_before, 0)
+        print("kernel proof: memory.max=67108864, swap.max=0, child SIGKILL, oom_kill delta=" +
+              str(oom_after - oom_before))
+
+    def test_memory_zero_lifts_previous_ceiling(self):
+        spec = importlib.util.spec_from_file_location("memory_limit_zero", FILES / "memory-limit.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        membership = self.home / "membership"
+        module.MEMBERSHIP = membership
+        module.CGROUP_ROOT = self.home / "cgroups"
+        for parent in ("", "services", "services/hermes-agent"):
+            path = module.CGROUP_ROOT / parent
+            path.mkdir(parents=True, exist_ok=True)
+            (path / "cgroup.controllers").write_text("memory")
+            (path / "cgroup.subtree_control").write_text("memory")
+        leaf = module.CGROUP_ROOT / module.INSTANCE.lstrip("/")
+        leaf.mkdir()
+        membership.write_text("0::" + module.INSTANCE)
+        module.apply("64")
+        self.assertEqual((leaf / "memory.max").read_text(), "67108864")
+        module.apply("0")
+        self.assertEqual((leaf / "memory.max").read_text(), "max")
+        self.assertEqual((leaf / "memory.swap.max").read_text(), "max")
+        self.assertEqual((leaf / "memory.oom.group").read_text(), "0")
+
+        other_root = self.home / "cgroups-other"
+        module.CGROUP_ROOT = other_root
+        membership.write_text("0::/services/other/instance1")
+        module.apply("0")
+        self.assertFalse(other_root.exists())
+
+    def test_memory_kernel_zero_lifts_ceiling(self):
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        cli.write_text("#!/bin/sh\necho started\n")
+        key = self.home / "key"
+        key.write_text("synthetic")
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        group = Path("/sys/fs/cgroup/services/hermes-agent/instance1")
+        group.mkdir(parents=True, exist_ok=True)
+        wrapper = ["sh", str(FILES / "hermes-gateway"), str(key)]
+        base_env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
+                        HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="")
+
+        def run_in_group(mem):
+            env = dict(base_env, HERMES_MEM_MAX_MB=mem)
+            command = 'echo $$ > ' + str(group / "cgroup.procs") + '; exec ' + shlex.join(wrapper)
+            return subprocess.run(["sh", "-c", command], env=env, check=False,
+                                  capture_output=True, text=True, timeout=30)
+
+        # 256, not 64: this run must leave enough headroom for the wrapper's own Python
+        # helpers (memory-limit.py, set-toolsets.py, runtime-check.py) to run to
+        # completion; it is proving the LIFT, not another OOM kill.
+        result = run_in_group("256")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((group / "memory.max").read_text().strip(), "268435456")
+
+        result = run_in_group("0")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((group / "memory.max").read_text().strip(), "max")
+        self.assertEqual((group / "memory.swap.max").read_text().strip(), "max")
 
     def test_runtime_override_conflicts_are_refused(self):
         endpoint = "http://127.0.0.1:9/v1"
@@ -379,8 +552,10 @@ class RuntimeTests(unittest.TestCase):
         gateway = subprocess.run(["python3", "-c", command], env=env, check=False, capture_output=True, text=True)
         self.assertEqual(gateway.returncode, 0, gateway.stderr)
 
-    def test_all_secrets_absent_from_procd(self):
+    def _service_instance_json(self):
         # Real OpenWrt config and procd serializers, only the ubus submission is replaced.
+        # Shared by every test that needs to know exactly what procd would be handed,
+        # rather than each building its own copy of the same script.
         script = f'''
 mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
 printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
@@ -405,9 +580,19 @@ procd_close_service
 '''
         result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        json.loads(result.stdout)
+        return json.loads(result.stdout), result.stdout
+
+    def test_all_secrets_absent_from_procd(self):
+        _parsed, raw = self._service_instance_json()
         for secret in ("provider-canary-runtime", "telegramCanary", "mcp-canary-runtime"):
-            self.assertNotIn(secret, result.stdout)
+            self.assertNotIn(secret, raw)
+
+    def test_procd_respawn_is_bounded(self):
+        parsed, _raw = self._service_instance_json()
+        instance = parsed["instances"]["instance1"]
+        self.assertEqual(instance["respawn"], ["3600", "5", "5"])
+        self.assertIn("HERMES_OPENWRT_TOOLSETS", instance["env"])
+        self.assertIn("HERMES_OPENWRT_MCP_URL", instance["env"])
 
 
 if __name__ == "__main__":

@@ -41,6 +41,25 @@ mutants = [
      '        pass', 'test_memory_kernel_and_fail_closed'),
     ('wrong cgroup accepted', 'memory-limit.py', '    if membership != [INSTANCE]:',
      '    if False:', 'test_memory_validation_and_identity'),
+    ('limits not written', 'memory-limit.py', '    target.write_text(value)',
+     '    pass  # limits not written', 'test_memory_kernel_and_fail_closed'),
+    ('UCI not re-applied at exec', 'hermes-gateway',
+     'PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 '
+     '/usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" '
+     '"$OPENAI_BASE_URL" "$HERMES_MODEL"',
+     ': # bridge skipped', 'test_wrapper_reapplies_uci_after_model_switch'),
+    ('respawn unbounded', 'hermes-agent.init', 'procd_set_param respawn 3600 5 5',
+     'procd_set_param respawn 3600 5 0', 'test_procd_respawn_is_bounded'),
+    ('zero keeps the old ceiling', 'memory-limit.py', '        _lift_previous_ceiling()',
+     '        pass  # zero keeps the old ceiling', 'test_memory_zero_lifts_previous_ceiling'),
+    ('text compared, not data', 'set-toolsets.py', '        if path.exists() and config == original:',
+     '        if False:', 'test_config_untouched_when_already_current'),
+    ('missing MCP token fatal', 'hermes-gateway',
+     'echo "hermes-gateway: router MCP token file ${HERMES_MCP_TOKEN_FILE:-} is missing or empty; '
+     'starting without the MCP connection" >&2',
+     'echo "hermes-gateway: router MCP token file ${HERMES_MCP_TOKEN_FILE:-} is missing or empty; '
+     'starting without the MCP connection" >&2; exit 1',
+     'test_wrapper_drops_mcp_when_token_missing'),
 ]
 installed = {'set-toolsets.py': Path('/usr/libexec/hermes-set-toolsets'),
              'memory-limit.py': Path('/usr/libexec/hermes-memory'),
