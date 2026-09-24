@@ -87,6 +87,13 @@ Feature: What is set on the router is what the gateway runs with
     And upstream's resolver gives back terminal and file reading
     # -> check_admin_profile_restores_them_and_keeps_operator_entries
 
+  Scenario: an empty restriction list is read as empty, the way upstream reads it
+    Given the gateway's configuration has the agent section, or its restriction list, left with no value
+    When the profile is assistant
+    Then the start goes ahead
+    And terminal, file and code execution are the restriction list
+    # -> check_assistant_profile_reads_an_empty_restriction_as_empty
+
   Scenario: the admin profile removes the restriction list entirely once nothing is left in it
     Given the gateway's configuration disables only terminal, file and code execution, and nothing else
     When the profile is admin
@@ -280,3 +287,9 @@ Feature: What is set on the router is what the gateway runs with
     Then procd retries at most five times when the gateway fails within an hour of starting
     And the wrapper receives the UCI tool list and MCP URL it re-applies at every start
     # -> check_procd_respawn_is_bounded
+
+  Scenario: the agent gives way to the router's own work
+    When the init hands the service to procd
+    Then procd runs it at a lower priority than the router's own processes
+    And the gateway and every tool it starts inherit that priority
+    # -> check_gateway_runs_below_the_routers_own_work

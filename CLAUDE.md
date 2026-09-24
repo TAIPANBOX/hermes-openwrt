@@ -60,6 +60,11 @@ procd makes on its own. A model switched from a chat lasts until the next start.
     including on an existing router's configuration from before this option existed, and
     an unrecognised value refuses to start (gate: `scripts/gate-runtime.sh`,
     `scripts/teeth-runtime.py`).
+13. The service runs at nice 10, so the router's own work keeps the processor: on a
+    Brume 2 carrying a WireGuard tunnel on 2026-09-24, a conversation at the default
+    priority took a third of the tunnel's throughput while it ran and a quarter at
+    nice 10 (README, "Under the router's own work") (gate: `scripts/gate-runtime.sh`,
+    `scripts/teeth-runtime.py`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

@@ -74,6 +74,10 @@ mutants = [
      "config_get profile        main profile 'assistant'",
      "config_get profile        main profile 'admin'",
      'test_profile_defaults_to_assistant_and_refuses_unknown'),
+    ('gateway at the router\'s own priority', 'hermes-agent.init', 'procd_set_param nice 10',
+     'true', 'test_gateway_runs_below_the_routers_own_work'),
+    ('an empty restriction refused', 'set-toolsets.py', '            if disabled is None:\n                disabled = []\n',
+     '', 'test_assistant_profile_reads_an_empty_restriction_as_empty'),
     ('wrapper stops passing the profile', 'hermes-gateway',
      'PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 '
      '/usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" '

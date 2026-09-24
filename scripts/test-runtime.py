@@ -605,6 +605,14 @@ procd_close_service
         self.assertIn("HERMES_OPENWRT_TOOLSETS", instance["env"])
         self.assertIn("HERMES_OPENWRT_MCP_URL", instance["env"])
 
+    def test_gateway_runs_below_the_routers_own_work(self):
+        # 2026-09-24, a Brume 2 carrying a WireGuard tunnel at 580 Mbit/s: while a
+        # conversation ran at the default priority the tunnel lost a third of its
+        # throughput, at nice 10 a quarter. procd applies it to the wrapper; the
+        # gateway it execs and every tool process the gateway starts inherit it.
+        parsed, _raw = self._service_instance_json()
+        self.assertEqual(parsed["instances"]["instance1"].get("nice"), 10)
+
     # ---- Profiles: assistant governs terminal, code execution and file; admin does not ----
 
     def test_assistant_profile_removes_command_and_file_tools(self):
@@ -671,6 +679,18 @@ procd_close_service
         check = subprocess.run(["python3", "-c", command], env=self.env, check=False,
                                capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_assistant_profile_reads_an_empty_restriction_as_empty(self):
+        # YAML leaves `agent:` or `disabled_toolsets:` with no value as null, and
+        # upstream reads both as empty (`... or []`, `... or {}`). The bridge must
+        # agree rather than refuse a start over a configuration upstream accepts.
+        for content in ("agent:\n  disabled_toolsets:\n  max_turns: 5\n", "agent:\n"):
+            with self.subTest(content=content):
+                (self.home / "config.yaml").write_text(content)
+                configured = self.configure(profile="assistant")
+                self.assertEqual(configured.returncode, 0, configured.stderr)
+                self.assertEqual(self.config()["agent"]["disabled_toolsets"],
+                                 ["code_execution", "file", "terminal"])
 
     def test_admin_profile_removes_empty_disabled_toolsets_key(self):
         # admin's choice, stated in the bridge's own comment: when removing the

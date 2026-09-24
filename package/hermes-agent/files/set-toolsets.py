@@ -5,16 +5,19 @@
 This selects defaults, not an OS sandbox; explicit cron-job overrides and
 operator-configured plugins/MCP servers retain their upstream semantics.
 
-@decided 2026-09-24: an optional profile argument governs agent.disabled_toolsets,
+@decided 2026-09-24: two profiles; assistant turns off terminal, code execution and
+file tools and applies wherever no profile is set, existing routers included; admin
+keeps every selected tool, as root.
+
+How, and why these three: an optional profile argument governs agent.disabled_toolsets,
 which model_tools._compute_tool_definitions always subtracts after enabled_toolsets
 is resolved (upstream #17309), which hermes_cli.tools_config._get_platform_tools
 also subtracts last from the per-platform list above, and which cron/scheduler.py
-layers over per-job overrides (#25752). The assistant profile disables
-code_execution, file and terminal regardless of the toolsets list, because the
-file tool's own sensitive-path guard does not cover /usr/lib/hermes-agent and
-could otherwise rewrite the agent's own code to lift the restriction. The admin
-profile removes it. Entries outside those three are the operator's and are left
-alone either way. Omitting the argument leaves agent.disabled_toolsets untouched.
+layers over per-job overrides (#25752); delegated sub-agents inherit it. file goes
+with the other two because the file tool's own sensitive-path guard does not cover
+/usr/lib/hermes-agent and could otherwise rewrite the agent's own code to lift the
+restriction. Entries outside those three are the operator's and are left alone
+either way. Omitting the argument leaves agent.disabled_toolsets untouched.
 """
 from __future__ import annotations
 
@@ -134,10 +137,16 @@ def main() -> int:
         # see the module docstring for why (upstream subtracts it as a final,
         # always-applied step, so it holds regardless of what toolsets says).
         if profile == "assistant":
-            agent_cfg = config.setdefault("agent", {})
+            # A key left with no value is null in YAML, and upstream reads null as
+            # empty for both (`... or {}`, `... or []`), so this does too.
+            if config.get("agent") is None:
+                config["agent"] = {}
+            agent_cfg = config["agent"]
             if not isinstance(agent_cfg, dict):
                 raise ValueError("agent must be a mapping")
-            disabled = agent_cfg.get("disabled_toolsets", [])
+            disabled = agent_cfg.get("disabled_toolsets")
+            if disabled is None:
+                disabled = []
             if not isinstance(disabled, list) or not all(isinstance(t, str) for t in disabled):
                 raise ValueError("agent.disabled_toolsets must be a list of strings")
             disabled = list(disabled)

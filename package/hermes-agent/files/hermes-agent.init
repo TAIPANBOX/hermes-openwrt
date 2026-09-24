@@ -223,6 +223,11 @@ start_service() {
 
 	[ "$respawn" -eq 1 ] && procd_set_param respawn 3600 5 5
 	procd_set_param limits core="0"
+	# The router's own work keeps the processor. Measured 2026-09-24 on a Brume 2
+	# carrying a WireGuard tunnel: a conversation at the default priority took a third
+	# of the tunnel's throughput while it ran, at nice 10 a quarter. Inherited by the
+	# gateway the wrapper execs and by every tool process it starts.
+	procd_set_param nice 10
 
 	procd_set_param stdout 1
 	procd_set_param stderr 1
