@@ -171,20 +171,40 @@ sh /tmp/fakeprocd.sh >/tmp/fp.log 2>&1 || { cat /tmp/fp.log; fail "[6/11] check_
 [ -s /tmp/argv ] || { cat /tmp/fp.log; fail "[6/11] check_service_command_runs" "the init built no command at all, so this check measured nothing"; }
 
 # Run exactly that, with exactly that environment, and require it to still be alive.
-# A gateway that exits inside ten seconds against an unreachable endpoint is one that
-# failed before it ever tried to reach it.
+# A gateway that exits inside its first seconds against an unreachable endpoint is one
+# that failed before it ever tried to reach it.
+#
+# The clock starts at the EXEC, not at launch. The wrapper runs three Python helpers (the
+# memory ceiling, the UCI bridge, the preflight) before it execs the gateway, and on an
+# emulated CPU they alone outlast the fixed ten seconds this check used to wait from
+# launch: a gateway that died at argument parsing looked alive because it had not started
+# yet, and teeth.sh fault 4 left this check green on the aarch64 leg of CI on 2026-09-24.
+# After the exec the process is polled, so a gateway that dies says when. Its argument
+# parsing costs about what `hermes --version` does, which was 6.3 s on that same leg
+# (check 3 above), so 30 s leaves more than four times that. A zombie counts as dead.
 set -- $(cat /tmp/argv)
+t0=$(date +%s)
 # shellcheck disable=SC2046
 env $(cat /tmp/envv) "$@" >/tmp/svc.log 2>&1 &
 SVC=$!
-sleep 10
-if ! kill -0 "$SVC" 2>/dev/null; then
+alive() { kill -0 "$1" 2>/dev/null && ! grep -q '^State:[[:space:]]*Z' "/proc/$1/status" 2>/dev/null; }
+svc_fail() {
 	echo "argv:"; sed 's/^/  /' /tmp/argv
 	sed 's/\x1b\[[0-9;]*m//g' /tmp/svc.log | tail -8
-	fail "[6/11] check_service_command_runs" "the command the init builds does not stay up"
-fi
+	fail "[6/11] check_service_command_runs" "$1"
+}
+until tr '\0' ' ' < "/proc/$SVC/cmdline" 2>/dev/null | grep -q 'gateway run'; do
+	alive "$SVC" || svc_fail "the command exited before this check saw it start the gateway"
+	[ $(($(date +%s) - t0)) -lt 180 ] || svc_fail "the wrapper did not reach the gateway within 180 s"
+	sleep 1
+done
+t1=$(date +%s)
+while [ $(($(date +%s) - t1)) -lt 30 ]; do
+	sleep 1
+	alive "$SVC" || svc_fail "the gateway exited $(($(date +%s) - t1)) s after the wrapper started it"
+done
 kill "$SVC" 2>/dev/null || true
-echo "PASS [6/11] check_service_command_runs ($(wc -l < /tmp/argv | tr -d ' ') argv words, $(wc -l < /tmp/envv | tr -d ' ') env entries)"
+echo "PASS [6/11] check_service_command_runs ($(wc -l < /tmp/argv | tr -d ' ') argv words, $(wc -l < /tmp/envv | tr -d ' ') env entries; gateway after $((t1 - t0)) s, up 30 s)"
 
 # ---- 7 and 8. the key reaches neither argv nor uci ----
 SECRET=sk-gate-canary-value
