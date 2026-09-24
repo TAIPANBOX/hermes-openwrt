@@ -411,6 +411,22 @@ because voice messages and speech transcoding do work here and are cheap.
 router configuration directly. Give access only to trusted operators on a spare test
 router. Disabling MCP does not remove this local access.
 
+Two profiles decide how much of that access the agent actually has. **assistant**, the
+default, including on upgrade and on any router whose configuration predates this
+option, turns the terminal, code execution and file tools off regardless of what the
+toolsets list below selects: the agent can still chat, search the web, keep memory and
+schedule reminders, and it reaches the router only through an MCP server such as
+openwrt-mcp, if one is configured, never directly. **admin** leaves every tool the
+toolsets list selects in place, running as root as described above. Choose it in
+**Services -> Hermes Agent -> Settings -> Profile**, or from the command line:
+
+```sh
+uci set hermes.main.profile=admin && uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+A value other than `assistant` or `admin` refuses to start rather than guess which was
+meant.
+
 The optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
 policy checks to calls sent through that server. Its policy does not constrain local
 file, terminal, plugins or delegated tools. Pair once on the router and grant a narrow,
@@ -508,6 +524,7 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] **Measured under load**: concurrency ceiling, thermals, throughput, flash writes, leak check
 - [x] **The feed installs on hardware** with its signature verified and no `--allow-untrusted`
 - [x] Telegram, as a two-distribution add-on package, on both release lines
+- [x] Two profiles, assistant and admin, governing terminal, code execution and file tools
 - [ ] Native Anthropic provider, which needs the `anthropic` package as a second add-on
 - [ ] Track upstream releases automatically, which arrive every two to four days
 
