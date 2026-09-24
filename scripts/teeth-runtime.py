@@ -19,7 +19,7 @@ def run(test=None):
 
 
 mutants = [
-    ('UCI model ignored', 'set-toolsets.py', '        if len(sys.argv) == 6:',
+    ('UCI model ignored', 'set-toolsets.py', '        if len(sys.argv) in (6, 7):',
      '        if False:', 'test_model_endpoint_produces_agent_reply'),
     ('runtime conflicts ignored', 'runtime-check.py', '        return 1',
      '        return 0', 'test_runtime_override_conflicts_are_refused'),
@@ -62,6 +62,26 @@ mutants = [
      'test_wrapper_drops_mcp_when_token_missing'),
     ('zero lifts a cgroup it is not in', 'memory-limit.py', '    if _instance_membership() != [INSTANCE]:',
      '    if False:', 'test_memory_zero_lifts_previous_ceiling'),
+    ('bridge ignores the profile', 'set-toolsets.py',
+     '    profile = sys.argv[6] if len(sys.argv) == 7 else None',
+     '    profile = None',
+     'test_assistant_profile_removes_command_and_file_tools'),
+    ('admin also strips operator entries', 'set-toolsets.py',
+     '                    kept = [name for name in disabled if name not in GOVERNED]',
+     '                    kept = []',
+     'test_admin_profile_restores_them_and_keeps_operator_entries'),
+    ('init default flips to admin', 'hermes-agent.init',
+     "config_get profile        main profile 'assistant'",
+     "config_get profile        main profile 'admin'",
+     'test_profile_defaults_to_assistant_and_refuses_unknown'),
+    ('wrapper stops passing the profile', 'hermes-gateway',
+     'PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 '
+     '/usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" '
+     '"$OPENAI_BASE_URL" "$HERMES_MODEL" "${HERMES_OPENWRT_PROFILE:-assistant}"',
+     'PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 '
+     '/usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" '
+     '"$OPENAI_BASE_URL" "$HERMES_MODEL"',
+     'test_wrapper_reapplies_profile_at_exec'),
 ]
 installed = {'set-toolsets.py': Path('/usr/libexec/hermes-set-toolsets'),
              'memory-limit.py': Path('/usr/libexec/hermes-memory'),
