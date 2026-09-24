@@ -69,7 +69,15 @@ opkg update && opkg install hermes-agent luci-app-hermes
 
 # and, to reach it from a phone:
 opkg install hermes-agent-telegram
+
+# optional on 24.10, where the feed carries it: faster file search
+opkg install ripgrep
 ```
+
+On 24.10 the package does not declare `ripgrep`. OpenWrt's 24.10.8 index has not carried
+it for `aarch64_generic` or `x86_64` since its rebuilds of 2026-09-23 and 24, and a
+declared dependency the feed lacks blocks the whole install. Without it Hermes searches
+file contents with `grep`.
 
 No `--allow-untrusted` and no `--force` anywhere. That is the point of signing the feed.
 

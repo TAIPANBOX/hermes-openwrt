@@ -9,7 +9,10 @@ primary model, its endpoint and the tool selection at every start, including res
 procd makes on its own. A model switched from a chat lasts until the next start.
 
 1. Packages install, run, preserve configuration and remove cleanly on each supported
-   release/architecture (gate: `scripts/gate-package.sh`, `scripts/gate-ipk.sh`).
+   release/architecture (gate: `scripts/gate-package.sh`, `scripts/gate-ipk.sh`). On
+   24.10 `ripgrep` is not declared: `@measured` 2026-09-24 by curl of downloads.openwrt.org,
+   the 24.10.8 index lacks it for aarch64_generic and x86_64, and Hermes falls back to
+   `grep` (gate: `scripts/gate-ipk.sh`, `check_deps_resolve`).
 2. Telegram is optional, disjoint from the base payload, and refuses unusable setup
    (gate: `scripts/gate-telegram.sh`, `scripts/gate-telegram-opkg.sh`).
 3. All provider, Telegram and MCP credentials are read by the exec wrapper on every

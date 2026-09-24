@@ -50,7 +50,7 @@ mkdir -p "$CTRL"
 # written), so the two release lines cannot drift apart; the default below only serves
 # a bare invocation. Getting the separator wrong yields a package that installs and then
 # cannot run because nothing pulled Python in.
-DEPENDS=${DEPENDS:-"python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"}
+DEPENDS=${DEPENDS:-"python3 python3-pip ca-bundle bash ffmpeg ffprobe"}
 DEPENDS_OPKG=$(echo "$DEPENDS" | sed 's/  */, /g')
 cat > "$CTRL/control" <<EOF
 Package: $PKG
