@@ -74,7 +74,7 @@ jobs:
       - name: the web interface installs, registers on ubus, and gives no key back
         run: ARCH=${{ matrix.arch }} ./scripts/gate-luci.sh
 
-      - name: and so does the web interface's gate
+      - name: the web interface's gate has teeth
         run: ARCH=${{ matrix.arch }} ./scripts/teeth-luci.sh
 
       # A gate nobody has seen go red is a gate nobody has tested. Each fault below is
