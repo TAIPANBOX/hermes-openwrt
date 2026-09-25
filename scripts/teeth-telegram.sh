@@ -1,9 +1,9 @@
 #!/bin/sh
 # teeth-telegram.sh -- prove gate-telegram.sh can fail, and fail at the right check.
 #
-# Four faults, each one a change somebody could plausibly make, each caught by a
-# different check. Two are packaging faults in the add-on and two are edits to the base
-# package's init script, because half of what this gate protects is not in the add-on at
+# Five faults, each one a change somebody could plausibly make, each caught by a
+# different check. Two are packaging faults in the add-on, two are edits to the base
+# package's init script and one to its launcher, because half of what this gate protects is not in the add-on at
 # all: it is the four refusals that keep a bot with router tools from answering strangers.
 #
 # The faults are applied to trees that were already built and the result repackaged. A
@@ -44,10 +44,21 @@ if ! cmp -s "$ROOT/package/hermes-agent/files/hermes-agent.init" "$INIT"; then
 	exit 1
 fi
 
+# The launcher is written by build.sh, not copied from the repository, so it has no
+# original to compare with; fault 5 marks what it plants, and a marked launcher means an
+# earlier run left it there.
+LAUNCHER="$BW/tree/usr/bin/hermes"
+if grep -q 'teeth-telegram fault 5' "$LAUNCHER"; then
+	echo "teeth-telegram: the build tree's launcher still carries fault 5; rebuild first" >&2
+	exit 1
+fi
+cp "$LAUNCHER" /tmp/teeth-tg-launcher.orig
+
 cleanup() {
 	# Unconditional, on every exit path, including a fault that never got restored.
 	cp "$ROOT/package/hermes-agent/files/hermes-agent.init" "$INIT" 2>/dev/null || true
 	chmod 0755 "$INIT" 2>/dev/null || true
+	cp /tmp/teeth-tg-launcher.orig "$LAUNCHER" 2>/dev/null && chmod 0755 "$LAUNCHER" 2>/dev/null || true
 	[ -d /tmp/telegram.bak ] && mv /tmp/telegram.bak "$ASITE/telegram" 2>/dev/null
 	rm -f "$AW/tree/usr/bin/hermes"
 	rmdir "$AW/tree/usr/bin" 2>/dev/null || true
@@ -161,6 +172,19 @@ repack_base
 expect_red "the missing-library message removed" check_refuses_without_library "$BW/mutant.apk" ""
 cp /tmp/init.bak "$INIT"
 
+# ---- fault 5: the launcher hands the bot token over on the command line ----
+# The one place a token becomes readable by every user on the router: /proc/<pid>/cmdline
+# is world-readable, the environment is not. The launcher is the last thing between the
+# init's careful file handling and the process, so the fault goes there.
+grep -q 'exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"' "$LAUNCHER" || {
+	echo "TEETH FAIL: the launcher's exec line moved; retarget fault 5"; exit 1; }
+sed 's|exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"|exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@" ${TELEGRAM_BOT_TOKEN:+"--bot-token=$TELEGRAM_BOT_TOKEN"} # teeth-telegram fault 5|' \
+	/tmp/teeth-tg-launcher.orig > "$LAUNCHER"
+chmod 0755 "$LAUNCHER"
+repack_base
+expect_red "the bot token passed on the command line" check_token_never_readable "$BW/mutant.apk" ""
+cp /tmp/teeth-tg-launcher.orig "$LAUNCHER"; chmod 0755 "$LAUNCHER"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 repack_base
 repack_addon
@@ -168,4 +192,4 @@ if ! run_gate "$BW/mutant.apk" "$AW/mutant.apk"; then
 	echo "TEETH FAIL: the restored packages are not green, so a fault was not undone"
 	tail -20 /tmp/teeth-tg.out; exit 1
 fi
-echo "teeth-telegram: 4 faults, 4 distinct checks, green restored"
+echo "teeth-telegram: 5 faults, 5 distinct checks, green restored"

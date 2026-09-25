@@ -232,18 +232,33 @@ env HERMES_HOME=/tmp/h TELEGRAM_BOT_TOKEN="$TOKEN" TELEGRAM_ALLOWED_USERS=987654
 	OPENAI_API_KEY=sk-not-real OPENAI_BASE_URL=https://example.invalid/v1 \
 	HERMES_DISABLE_LAZY_INSTALLS=1 /usr/bin/hermes gateway run >/tmp/gw.log 2>&1 &
 GW=$!
-sleep 6
-if kill -0 "$GW" 2>/dev/null; then
-	# /proc rather than ps|grep: a grep for the token matches its own command line and
-	# reports a leak that is not there.
-	if tr '\0' '\n' < "/proc/$GW/cmdline" | grep -q "$TOKEN"; then
-		kill "$GW" 2>/dev/null
-		fail "[7/8] check_token_never_readable" "the token is in the process command line"
-	fi
-	kill "$GW" 2>/dev/null || true
-else
+# Read the command line as soon as the launcher has exec'd Python into `gateway run`,
+# rather than after a fixed wait. The token here is synthetic, so Telegram rejects it and
+# from 0.21 the gateway then exits by itself (code 78, "non-retryable startup conflict"),
+# about 7 s after start. The check used to look once at 6 s and needed the process still
+# alive: it passed under QEMU and on a laptop and failed on a native arm64 CI runner,
+# where the gateway got there first. The argv does not change after exec, so the first
+# look at the Python process is the look that matters. busybox sleep takes whole seconds.
+seen=0; i=0
+while [ "$i" -lt 20 ]; do
+	cmd=$(tr '\0' ' ' < "/proc/$GW/cmdline" 2>/dev/null) || break
+	case "$cmd" in
+	*"main.py gateway run"*)
+		seen=1
+		# /proc rather than ps|grep: a grep for the token matches its own command line
+		# and reports a leak that is not there.
+		if tr '\0' '\n' < "/proc/$GW/cmdline" | grep -q "$TOKEN"; then
+			kill "$GW" 2>/dev/null
+			fail "[7/8] check_token_never_readable" "the token is in the process command line"
+		fi
+		break ;;
+	esac
+	sleep 1; i=$((i + 1))
+done
+kill "$GW" 2>/dev/null || true
+if [ "$seen" != 1 ]; then
 	sed 's/\x1b\[[0-9;]*m//g' /tmp/gw.log | tail -5
-	fail "[7/8] check_token_never_readable" "the gateway exited, so no command line was inspected"
+	fail "[7/8] check_token_never_readable" "measured nothing: the gateway's own command line was never seen"
 fi
 echo "PASS [7/8] check_token_never_readable"
 
