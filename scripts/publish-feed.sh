@@ -16,7 +16,7 @@
 #
 # What this does
 #
-#   1. builds 25.12 for every architecture it serves (slow: aarch64 is emulated)
+#   1. builds 25.12 for every architecture it serves (native on an arm64 workstation)
 #   2. signs the packages and the index with the EC key
 #   3. runs the feed gate against the result
 #   4. commits the feed to the gh-pages branch and pushes it
