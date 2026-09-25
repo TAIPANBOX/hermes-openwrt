@@ -108,8 +108,7 @@ start_service() {
 		# same fact. See package/hermes-agent-telegram.
 		if [ ! -f /usr/lib/hermes-agent/telegram.manifest ]; then
 			echo "$NAME: telegram is enabled but its client library is not installed." >&2
-			echo "$NAME:   apk add hermes-agent-telegram      # 25.12 and later" >&2
-			echo "$NAME:   opkg install hermes-agent-telegram # 24.10" >&2
+			echo "$NAME:   apk add hermes-agent-telegram" >&2
 			return 1
 		fi
 

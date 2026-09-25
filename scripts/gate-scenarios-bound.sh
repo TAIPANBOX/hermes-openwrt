@@ -25,13 +25,9 @@ cd "$ROOT"
 
 # feature file : the gates whose --selftest lists their checks, comma separated
 #
-# More than one gate per feature file, because a scenario describes BEHAVIOUR and the
-# repository ships two release lines that prove it differently: apk refuses a colliding
-# install and opkg silently accepts one, so the 24.10 gate has to compare file lists that
-# the 25.12 gate can let apk compare. The set compared below is therefore the UNION of
-# what the gates run. Requiring each gate to cover every scenario on its own would force
-# the 24.10 gate to duplicate checks that differ in nothing but the release.
-PAIRS='features/telegram.feature:scripts/gate-telegram.sh,scripts/gate-telegram-opkg.sh features/feed.feature:scripts/gate-relabel.sh features/runtime.feature:scripts/gate-runtime.sh features/luci.feature:scripts/gate-luci.sh features/routers.feature:scripts/gate-named-routers.sh'
+# A feature file may name more than one gate, and the set compared below is then the
+# UNION of what they run. Since 24.10 was dropped (2026-09-25) every feature has one.
+PAIRS='features/telegram.feature:scripts/gate-telegram.sh features/feed.feature:scripts/gate-relabel.sh features/runtime.feature:scripts/gate-runtime.sh features/luci.feature:scripts/gate-luci.sh features/routers.feature:scripts/gate-named-routers.sh features/upstream.feature:scripts/gate-upstream.sh'
 
 rc=0
 for pair in $PAIRS; do

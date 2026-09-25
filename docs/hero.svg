@@ -59,8 +59,8 @@
 <text x="512" y="262" font-size="18" font-weight="700" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">hermes-agent</text>
 <rect x="714" y="244" width="60" height="20" rx="10" ry="10" fill="#141a23" stroke="#2dd4bf" stroke-width="1"/>
 <text x="744" y="258" font-size="12.5" fill="#2dd4bf" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">procd</text>
-<text x="512" y="296" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">Python 3.13 or 3.11</text>
-<text x="512" y="318" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">185 MB installed</text>
+<text x="512" y="296" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">Python 3.13</text>
+<text x="512" y="318" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">239 MB installed</text>
 <text x="512" y="340" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">~130 MB RSS</text>
 
 <!-- luci-app-hermes card -->
@@ -96,7 +96,7 @@
 
 <!-- bottom strip -->
 <line x1="60" y1="560" x2="1220" y2="560" stroke="#222b38" stroke-width="1"/>
-<text x="640" y="592" font-size="15" fill="#9aa7b8" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">Not Docker. Not a chroot. An apk or ipk that installs into a private site-packages and runs under procd.</text>
+<text x="640" y="592" font-size="15" fill="#9aa7b8" font-family="ui-sans-serif, -apple-system, Segoe UI, sans-serif" text-anchor="middle">Not Docker. Not a chroot. An apk that installs into a private site-packages and runs under procd.</text>
 
 <text x="1252" y="702" font-size="12" fill="#69788b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="end">github.com/TAIPANBOX/hermes-openwrt</text>
 </svg>

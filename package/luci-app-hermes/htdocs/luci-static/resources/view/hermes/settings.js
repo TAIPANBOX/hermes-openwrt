@@ -184,7 +184,7 @@ return view.extend({
 		s = m.section(form.NamedSection, 'telegram', 'platform', _('Telegram'),
 			st.telegram_lib_installed
 				? _('Reach the agent from a phone. Messages arrive over Telegram; the agent still runs here.')
-				: _('The Telegram adapter is installed but its client library is not, so this cannot start yet. Install it with <code>apk add hermes-agent-telegram</code> on OpenWrt 25.12, or <code>opkg install hermes-agent-telegram</code> on 24.10.'));
+				: _('The Telegram adapter is installed but its client library is not, so this cannot start yet. Install it with <code>apk add hermes-agent-telegram</code>.'));
 		s.anonymous = true;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'),

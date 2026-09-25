@@ -17,16 +17,15 @@
 set -eu
 
 ARCH=${1:-aarch64_generic}
-# 25.12.x uses apk; 24.10.x is the older maintained line and still uses opkg. The payload
-# is identical either way, but the container format, the index and the signature scheme
-# all differ, and so does Python: 3.13 on 25.12 against 3.11 on 24.10. That last one is
-# why the tree cannot be built once and reused across the two: the wheel set differs.
 RELEASE=${RELEASE:-25.12.4}
+# 25.12 only (2026-09-25). The 24.10 line, its opkg packages and its feed were dropped;
+# the last build that could make them is in git history before that date.
 case "$RELEASE" in
-	24.10*) FORMAT=ipk ;;
-	*)      FORMAT=apk ;;
+	25.*) ;;
+	*) echo "$0: RELEASE=$RELEASE is not built any more; this package is for OpenWrt 25.12" >&2; exit 1 ;;
 esac
-HERMES_VERSION=${HERMES_VERSION:-0.19.0}
+# The upstream version, commit and exclusions come from one file; see package/upstream/.
+. "$(cd "$(dirname "$0")/../upstream" && pwd)/upstream.env"
 # r2: the init script learned to read the telegram section, refuse the four ways a
 # Telegram setup cannot work, and hand the token over as an environment variable.
 #
@@ -64,21 +63,19 @@ HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # the anthropic extra for upstream's native Anthropic provider; hermes-login chatgpt.
 #
 # r10: hermes-login chatgpt --logout, for the settings page's sign-out.
-PKGREL=${PKGREL:-10}
+#
+# 0.21.5-r1: upstream Hermes 0.21.5 (tag v2026.9.24), built from the pinned commit's
+# archive rather than PyPI, which stops at 0.19.0; dependency versions from upstream's
+# uv.lock; nemo-relay and pillow-heif left out; skills, locales and the MCP catalogue
+# under /usr/share/hermes-agent. The revision restarts at 1 with the new version.
+PKGREL=${PKGREL:-1}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
 # bash is not optional: Hermes runs its terminal tool through bash builtins
 # (tools/environments/local.py), and on busybox ash every command fails with
 # "builtin: not found" while the model reports the box as broken.
-# ripgrep is declared on 25.12 only. OpenWrt's own 24.10.8 index has carried it for
-# aarch64_cortex-a53 but not for aarch64_generic or x86_64 since its rebuilds of
-# 2026-09-23 and 24 (a Rust build failure, openwrt/packages#25779), and a declared
-# dependency the feed does not have makes the whole package uninstallable. Hermes falls
-# back to grep for content search, so on 24.10 it is an optional extra the operator can
-# add with `opkg install ripgrep` where the feed carries it.
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe"
-case "$RELEASE" in 24.10*) ;; *) DEPENDS="$DEPENDS ripgrep" ;; esac
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
@@ -100,25 +97,22 @@ OUT="hermes-agent-$HERMES_VERSION-r$PKGREL.apk"
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
-echo "==> assembling the tree inside $IMAGE"
+# On the host: the rootfs has no curl, and the checksum is checked before any byte of
+# the archive reaches the build.
+ARCHIVE=$("$ROOT/package/upstream/fetch.sh")
+
+echo "==> assembling the tree inside $IMAGE (hermes-agent $HERMES_VERSION, $HERMES_COMMIT)"
 docker run --rm -i --platform "linux/$ARCH" \
 	-v "$SRC:/src:ro" -v "$WORK:/work" \
+	-v "$ROOT/package/upstream:/upstream-src:ro" -v "$ARCHIVE:/upstream/archive.tar.gz:ro" \
 	"$IMAGE" /bin/sh -s <<CONTAINER
 set -eu
 # python3 is the meta package; python3-pip brings the resolver. Both are in the release
-# feed on either line, so this needs no third-party repository. Which tool installs them
-# depends on the release: 25.12 has apk, 24.10 has opkg, and neither image carries the
-# other. opkg also refuses to do anything at all without /var/lock, which a bare rootfs
-# image does not have.
+# feed, so this needs no third-party repository. A bare rootfs image has no /var/lock.
 mkdir -p /var/lock /var/run /var/state
-if command -v apk >/dev/null 2>&1; then
-	apk update -q
-	apk add -q python3 python3-pip
-else
-	opkg update >/dev/null
-	opkg install python3 python3-pip >/dev/null
-fi
-HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp,anthropic}" \\
+apk update -q
+apk add -q python3 python3-pip
+UPSTREAM_ARCHIVE=/upstream/archive.tar.gz EXTRAS="${EXTRAS:-cron,mcp,anthropic}" \\
 	/src/build.sh "$ARCH" /work/tree
 CONTAINER
 
@@ -129,30 +123,6 @@ CONTAINER
 docker run --rm -i --platform "linux/$ARCH" -v "$WORK:/work" "$IMAGE" \
 	chown -R "$(id -u):$(id -g)" /work 2>/dev/null || true
 
-if [ "$FORMAT" = ipk ]; then
-	echo "==> packaging with mkipk.sh (opkg, $RELEASE)"
-	# In a container, because mkipk.sh needs GNU tar for --sort and --mtime and macOS
-	# ships BSD tar, which fails with "Option --sort=name is not supported". Those flags
-	# are what make the package reproducible, so dropping them is not the answer.
-	docker run --rm -i -v "$SRC:/src:ro" -v "$WORK:/work" -v "$ROOT:/out" \
-		-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEPENDS="$DEPENDS" -e DEST=/out \
-		"$ALPINE" sh -c "apk add -q --no-cache tar >/dev/null 2>&1; /src/mkipk.sh /work/tree '$ARCH' '$HERMES_VERSION'"
-	# Keep a per-architecture copy too, so a feed build can tell the two apart: unlike
-	# apk, an .ipk filename does carry the architecture, but the feed layout wants them
-	# separated anyway.
-	cp "$ROOT"/hermes-agent_*_"$ARCH".ipk "$WORK/" 2>/dev/null || true
-
-	# The same relabelling the apk path does, and for the same reason: a Flint 2 asks
-	# opkg for aarch64_cortex-a53 and will not take a package whose Architecture says
-	# otherwise, while OpenWrt publishes no aarch64_cortex-a53 rootfs to build inside.
-	for extra in ${EXTRA_ARCHES:-}; do
-		docker run --rm -i -v "$SRC:/src:ro" -v "$WORK:/work" -v "$ROOT:/out" \
-			-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEPENDS="$DEPENDS" -e DEST=/out \
-			"$ALPINE" sh -c "apk add -q --no-cache tar >/dev/null 2>&1; /src/mkipk.sh /work/tree '$extra' '$HERMES_VERSION'"
-		echo "==> also $extra"
-	done
-	exit 0
-fi
 
 # macOS puts a .DS_Store into any directory Finder or Spotlight touches, and it can
 # appear between apk reading the file list and apk writing the contents. The package

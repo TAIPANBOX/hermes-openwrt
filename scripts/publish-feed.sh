@@ -16,16 +16,16 @@
 #
 # What this does
 #
-#   1. builds both release lines for every architecture (slow: aarch64 is emulated)
-#   2. signs the 25.12 packages and index with the EC key, the 24.10 index with usign
-#   3. runs both feed gates against the result
+#   1. builds 25.12 for every architecture it serves (slow: aarch64 is emulated)
+#   2. signs the packages and the index with the EC key
+#   3. runs the feed gate against the result
 #   4. commits the feed to the gh-pages branch and pushes it
 #
 # GitHub Pages serves that branch. The workflow no longer deploys, and the two signing
 # secrets have been deleted from the repository.
 #
 # On macOS, run this from a checkout outside the home folder, for example a clone under
-# /private/tmp, with EC_KEY and USIGN_KEY pointing at the keys there. Finder writes
+# /private/tmp, with EC_KEY pointing at the key there. Finder writes
 # .DS_Store into directories while this script is building them, and this script refuses
 # to publish a feed with one in it rather than fail on the router with a bare "file
 # integrity error" the way an unswept .DS_Store already once did in a package build.
@@ -55,10 +55,9 @@ PUBLISH_SHORT=$(git rev-parse --short "$PUBLISH_SHA")
 echo "==> publishing commit $PUBLISH_SHA"
 
 EC_KEY=${EC_KEY:-$ROOT/keys/hermes-openwrt.private.pem}
-USIGN_KEY=${USIGN_KEY:-$ROOT/keys/hermes-openwrt.usign.sec}
 SKIP_BUILD=${SKIP_BUILD:-0}
 
-for k in "$EC_KEY" "$USIGN_KEY"; do
+for k in "$EC_KEY"; do
 	[ -f "$k" ] || { echo "publish-feed.sh: missing signing key $k" >&2
 		echo "  generate them once with: ./scripts/feed-keygen.sh" >&2; exit 1; }
 done
@@ -72,23 +71,15 @@ if [ "$SKIP_BUILD" != 1 ]; then
 	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
 	./package/luci-app-hermes/build.sh
-	echo "==> building 24.10"
-	RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
-	RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
-	FORMAT=ipk ./package/luci-app-hermes/build.sh
 fi
 
 echo "==> signing"
 SIGN_KEY="$EC_KEY" ./scripts/build-feed.sh
-SIGN_KEY="$USIGN_KEY" ./scripts/build-feed-opkg.sh
 
 echo "==> gating what is about to be published"
-# Both formats and both packages. A feed is the one artefact where "we will notice if it
-# is broken" is wrong: the router that notices is somebody else's.
-# Both, and before the push rather than after. A feed is the one artefact where "we will
-# notice if it is broken" is wrong: the router that notices is someone else's.
+# Before the push rather than after. A feed is the one artefact where "we will notice if
+# it is broken" is wrong: the router that notices is someone else's.
 ARCH=aarch64_generic ./scripts/gate-feed.sh
-ARCH=aarch64_generic ./scripts/gate-feed-opkg.sh
 
 # Finder again: a .DS_Store that crept into feed-out/ while it was being built would
 # otherwise ship inside the published feed itself.

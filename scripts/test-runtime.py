@@ -163,7 +163,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_mcp_upstream_loader_receives_token(self):
         self.assertEqual(self.configure(mcp="http://127.0.0.1:8730/mcp").returncode, 0)
-        command = "from tools.mcp_tool import _load_mcp_config; " + \
+        command = "from tools.mcp_tool_config import _load_mcp_config; " + \
                   "c=_load_mcp_config(); assert c['openwrt']['headers']['Authorization']=='Bearer runtime-token'"
         result = subprocess.run(["python3", "-c", command], check=False, capture_output=True, text=True,
                                 env=dict(self.env, OPENWRT_MCP_TOKEN="runtime-token"))
@@ -518,7 +518,8 @@ class RuntimeTests(unittest.TestCase):
                 if self.path != "/v1/chat/completions":
                     self.send_error(404)
                     return
-                received.append((self.path, request.get("model"), self.headers.get("Authorization")))
+                received.append((self.path, request.get("model"), self.headers.get("Authorization"),
+                                 bool(request.get("tools"))))
                 data = json.dumps({"id": "runtime-proof", "object": "chat.completion", "created": 1,
                                    "model": "runtime-model", "choices": [{"index": 0,
                                    "message": {"role": "assistant", "content": "HERMES_RUNTIME_OK"},
@@ -558,7 +559,14 @@ class RuntimeTests(unittest.TestCase):
                                 check=False, capture_output=True, text=True, timeout=90)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("HERMES_RUNTIME_OK", result.stdout)
-        self.assertEqual(received, [("/v1/chat/completions", "runtime-model", "Bearer provider-runtime-canary")])
+        # Every call reaches the endpoint UCI names, with its model and key. Exactly one is
+        # the agent's turn, with tools; from 0.21 upstream also names the session with one
+        # more call to the same model, without tools, which is allowed and nothing else is.
+        self.assertTrue(received)
+        for call in received:
+            self.assertEqual(call[:3], ("/v1/chat/completions", "runtime-model", "Bearer provider-runtime-canary"))
+        self.assertEqual(sum(1 for call in received if call[3]), 1, received)
+        self.assertLessEqual(len(received), 2, received)
         command = "from gateway.run import _resolve_gateway_model; assert _resolve_gateway_model()=='runtime-model'"
         gateway = subprocess.run(["python3", "-c", command], env=env, check=False, capture_output=True, text=True)
         self.assertEqual(gateway.returncode, 0, gateway.stderr)

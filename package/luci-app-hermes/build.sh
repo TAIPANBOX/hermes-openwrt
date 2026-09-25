@@ -24,14 +24,12 @@ set -eu
 # will be created, instead of 0 and a low-space warning.
 # r7: a Providers page: further providers with write-only keys, and ChatGPT sign-in
 # and sign-out from the page.
-PKGREL=${PKGREL:-9}
+# r10: 25.12 only; the Telegram hints no longer name opkg or 24.10.
+PKGREL=${PKGREL:-10}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
-# Keyed by format. The apk and ipk builds stage the same files but leave different
-# metadata beside them, and a shared directory means whichever ran last is what both
-# feeds pick up: the 25.12 feed then quietly ships one package instead of two.
-WORK="$ROOT/build/luci-app-hermes-${FORMAT:-apk}"
+WORK="$ROOT/build/luci-app-hermes-apk"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 OUT="luci-app-hermes-$VERSION-r$PKGREL.apk"
 
@@ -78,39 +76,6 @@ chmod 0755 "$WORK/post-install" "$WORK/pre-deinstall"
 # arch is noarch, not "all". OpenWrt's own package-pack.mk maps PKGARCH=all to
 # arch:noarch, and apk refuses anything whose arch is neither noarch nor the router's
 # own with a bare "error: uninstallable" that names nothing and explains less.
-# 24.10 predates apk and needs the opkg container format instead. Same tree, same files,
-# different wrapper; FORMAT=ipk selects it.
-if [ "${FORMAT:-apk}" = ipk ]; then
-	IOUT="luci-app-hermes_${VERSION}-r${PKGREL}_all.ipk"
-	CTRL="$WORK/ipkctrl"; mkdir -p "$CTRL"
-	cat > "$CTRL/control" <<CTL
-Package: luci-app-hermes
-Version: $VERSION-r$PKGREL
-Depends: luci-base, hermes-agent
-Source: https://github.com/TAIPANBOX/hermes-openwrt
-Section: luci
-Architecture: all
-Maintainer: TAIPANBOX <yukosemail@gmail.com>
-License: MIT
-Description: LuCI interface for the Hermes Agent service.
- Status, service control, log tail, and write-only key fields.
-CTL
-	cp "$WORK/post-install" "$CTRL/postinst"
-	cp "$WORK/pre-deinstall" "$CTRL/prerm"
-	chmod 0755 "$CTRL/postinst" "$CTRL/prerm"
-	docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" sh -c '
-		apk add -q --no-cache tar >/dev/null 2>&1
-		T="tar --numeric-owner --owner=0 --group=0 --sort=name --mtime=@0 --format=gnu"
-		(cd /work/ipkctrl && $T -czf /work/control.tar.gz ./*)
-		(cd /work/tree    && $T -czf /work/data.tar.gz ./*)
-		echo "2.0" > /work/debian-binary
-		# gzipped tar, not ar: opkg on these targets rejects the ar form outright.
-		(cd /work && $T -czf "/work/'"$IOUT"'" ./debian-binary ./control.tar.gz ./data.tar.gz)'
-	cp "$WORK/$IOUT" "$ROOT/$IOUT"
-	echo "==> $IOUT  ($(du -h "$ROOT/$IOUT" | cut -f1))"
-	exit 0
-fi
-
 docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "name:luci-app-hermes" \
 	--info "version:$VERSION-r$PKGREL" \

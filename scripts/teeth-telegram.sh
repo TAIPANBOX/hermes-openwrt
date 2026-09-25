@@ -57,14 +57,17 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# 0.19.0-r99, not the 0.0.0-r1 that teeth.sh uses for the base package on its own.
-# The add-on declares `hermes-agent>=0.19.0 hermes-agent<0.19.1`, so a mutant base
-# outside that range is refused by apk before any of these faults can be exercised: the
-# first run of this script went red at check_no_file_collision for every base fault,
-# which was the version constraint doing its job and telling us nothing about the fault.
+# <upstream version>-r99, not the 0.0.0-r1 that teeth.sh uses for the base package on its
+# own. The add-on declares `hermes-agent>=X hermes-agent<X+1` for the upstream version X,
+# so a mutant base outside that range is refused by apk before any of these faults can be
+# exercised: the first run of this script went red at check_no_file_collision for every
+# base fault, which was the version constraint doing its job and telling us nothing about
+# the fault. The version comes from upstream.env: a hard-coded 0.19.0 did the same thing
+# again on the move to 0.21.5.
+. "$ROOT/package/upstream/upstream.env"
 repack_base() {
 	docker run --rm -i -v "$BW:/work" -w /work "$ALPINE" apk mkpkg \
-		--info "name:hermes-agent" --info "version:0.19.0-r99" --info "arch:$ARCH" \
+		--info "name:hermes-agent" --info "version:$HERMES_VERSION-r99" --info "arch:$ARCH" \
 		--info "license:MIT" --info "origin:hermes-agent" \
 		--info "description:deliberately broken build, teeth-telegram.sh" \
 		--info "depends:python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep" \

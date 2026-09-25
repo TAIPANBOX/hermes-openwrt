@@ -152,7 +152,7 @@ h2{margin-top:2.2rem}</style>
 and luci-app-hermes</a>: the Hermes Agent as a native OpenWrt service. The reference
 devices are the GL.iNet Flint 2 and Brume 2; generic 64-bit ARM is served too.</p>
 
-<h2>OpenWrt 25.12 and later (apk)</h2>
+<h2>OpenWrt 25.12 and later</h2>
 <pre>wget -O /etc/apk/keys/hermes-openwrt.pem \\
   https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem
 
@@ -161,30 +161,9 @@ echo "https://taipanbox.github.io/hermes-openwrt/25.12/\$(cat /etc/apk/arch)/pac
 
 apk update && apk add hermes-agent luci-app-hermes</pre>
 
-<h2>OpenWrt 24.10 (opkg)</h2>
-<p>Pick the line for your device. opkg needs the exact architecture, and
-<code>opkg print-architecture</code> lists several of which only one is right.</p>
-<pre># GL.iNet Flint 2 and other Cortex-A53 routers
-ARCH=aarch64_cortex-a53
-# other 64-bit ARM:     ARCH=aarch64_generic
-
-wget -O /tmp/hermes.pub \\
-  https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.usign.pub
-opkg-key add /tmp/hermes.pub
-
-echo "src/gz hermes https://taipanbox.github.io/hermes-openwrt/24.10/\$ARCH" \\
-  >> /etc/opkg/customfeeds.conf
-
-opkg update && opkg install hermes-agent luci-app-hermes</pre>
-
-<h2>Why the two look different</h2>
-<p>They are not the same feed in two shapes. 25.12 signs every package and the index with
-an EC key that apk verifies; 24.10 signs only the index, with a usign Ed25519 key that
-opkg verifies against a fingerprint in <code>/etc/opkg/keys</code>. Neither key works for
-the other line.</p>
-<p>Without the right key: apk drops the repository silently and the package simply does
-not exist, while opkg says <code>Signature check failed</code> and refuses. In both cases
-no <code>--force</code> and no <code>--allow-untrusted</code> appears anywhere above.</p>
+<p>Without the key, apk drops the repository silently and the package simply does not
+exist; no <code>--allow-untrusted</code> appears anywhere above. OpenWrt 24.10 is not
+served.</p>
 <p>Architectures: $ARCHES</p>
 HTML
 

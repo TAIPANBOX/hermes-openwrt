@@ -5,12 +5,12 @@
 # hermes-openwrt
 
 [**Hermes Agent**](https://github.com/NousResearch/hermes-agent) packaged for the router
-it runs on: an `apk` for OpenWrt 25.12 and an `ipk` for 24.10, a signed feed, a LuCI page,
+it runs on: an `apk` for OpenWrt 25.12, a signed feed, a LuCI page,
 and figures measured on hardware rather than in a container.
 
 [![ci](https://github.com/TAIPANBOX/hermes-openwrt/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/hermes-openwrt/actions/workflows/ci.yml)
-![OpenWrt 25.12 and 24.10](https://img.shields.io/badge/OpenWrt-25.12%20%C2%B7%2024.10-2dd4bf)
-![Python 3.13 and 3.11](https://img.shields.io/badge/Python-3.13%20%C2%B7%203.11-4493f8)
+![OpenWrt 25.12](https://img.shields.io/badge/OpenWrt-25.12-2dd4bf)
+![Hermes 0.21.5 on Python 3.13](https://img.shields.io/badge/Hermes%200.21.5-Python%203.13-4493f8)
 ![signed feed](https://img.shields.io/badge/feed-signed-3fb950)
 ![license MIT](https://img.shields.io/badge/license-MIT-9aa7b8)
 ![tested on two routers](https://img.shields.io/badge/hardware-two%20routers%2C%20measured-3fb950)
@@ -28,16 +28,35 @@ package and a 950 MB container image:
 
 On `openwrt/rootfs:aarch64_generic-25.12.4`, `pip debug --verbose` reports
 `cp313-cp313-musllinux_1_2_aarch64` as its top tag. A `pydantic-core` wheel, which is
-compiled Rust, installs and imports and validates. The router profile is 69 packages in
-22 seconds with nothing compiled and no toolchain present. On 24.10 the same holds with
-`cp311`.
+compiled Rust, installs and imports and validates. For Hermes 0.21.5 the router profile
+is 77 packages in under 30 seconds with nothing compiled and no toolchain present.
 
 So Hermes does not need to be built for OpenWrt. It needs to be assembled for it, and
 that is what this repository does.
 
+### Which Hermes, and from where
+
+The package carries **Hermes 0.21.5** (upstream tag `v2026.9.24`). PyPI stops at 0.19.0,
+and upstream's own `setup.py` now refuses to build a wheel anywhere but inside its Nix
+build, so the package is built the way that Nix build does it:
+
+- from the archive of one pinned upstream commit, whose checksum is checked before a byte
+  is unpacked (`package/upstream/upstream.env`);
+- every library at the version upstream's `uv.lock` names at that commit, not whatever
+  PyPI serves that day;
+- skills, optional skills, translations and the MCP catalogue beside the wheel, under
+  `/usr/share/hermes-agent`, found through the same `HERMES_BUNDLED_*` variables upstream's
+  Nix wrapper sets.
+
+Two upstream dependencies are left out, about 49 MB of an unpacked 278 MB: NVIDIA's Relay
+runtime (`nemo-relay`), for which upstream falls back to a no-op host, and the HEIC/AVIF
+image decoder (`pillow-heif`), which upstream imports only if it is there. Everything else
+upstream depends on ships. The router records what it carries in
+`/usr/lib/hermes-agent/upstream`, and `gate-upstream.sh` checks all of it.
+
 ## Install
 
-### OpenWrt 25.12 and later (apk)
+### OpenWrt 25.12
 
 ```sh
 wget -O /etc/apk/keys/hermes-openwrt.pem \
@@ -52,131 +71,104 @@ apk update && apk add hermes-agent luci-app-hermes
 apk add hermes-agent-telegram
 ```
 
-### OpenWrt 24.10 (opkg)
-
-```sh
-ARCH=aarch64_cortex-a53          # GL.iNet Flint 2, Brume 2 and other Cortex-A53 routers
-# ARCH=aarch64_generic           # other 64-bit ARM
-
-wget -O /tmp/hermes.pub https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.usign.pub
-opkg-key add /tmp/hermes.pub
-
-echo "src/gz hermes https://taipanbox.github.io/hermes-openwrt/24.10/$ARCH" \
-  >> /etc/opkg/customfeeds.conf
-
-opkg update && opkg install hermes-agent luci-app-hermes
-
-# and, to reach it from a phone:
-opkg install hermes-agent-telegram
-
-# optional on 24.10, where the feed carries it: faster file search
-opkg install ripgrep
-```
-
-On 24.10 the package does not declare `ripgrep`. OpenWrt's 24.10.8 index has not carried
-it for `aarch64_generic` or `x86_64` since its rebuilds of 2026-09-23 and 24, and a
-declared dependency the feed lacks blocks the whole install. Without it Hermes searches
-file contents with `grep`.
+OpenWrt 24.10 is not served: the package is built and tested for 25.12 only.
 
 No `--allow-untrusted` and no `--force` anywhere. That is the point of signing the feed.
 
 ## Measured on hardware
 
-Those four lines install it. This section is what happened when they were run on actual
-routers rather than in CI, which until 2026-09-13 had never been done: everything the
-repository claimed was true of container images. Two boxes changed that, and every figure
-below comes from them.
+Every figure in this section was measured on two routers with **Hermes 0.21.5**, the
+version the package carries, on 2026-09-25: not in a container and not on a VM.
 
 ![The two routers behind these numbers](docs/boxes.svg)
 
 Both are GL.iNet hardware running **vanilla OpenWrt 25.12.5**, not the vendor firmware
-they ship with: the stock image was replaced entirely, over the network, and the package
-was installed from the signed feed exactly as the instructions above describe. They are
-the two routers this package is tested on, chosen as two form factors doing the same job:
-the Flint 2 is a Wi-Fi 6 router with four cores and six ports, and the Brume 2 is a
-wired-only gateway with two cores, closer to what a small always-on box looks like.
+they ship with. They are the two routers this package is tested on, chosen as two form
+factors doing the same job: the Flint 2 is a Wi-Fi 6 router with four cores and six
+ports, and the Brume 2 is a wired-only gateway with two cores, closer to what a small
+always-on box looks like. Before each run the router was cleaned of every trace of the
+package, Python and ffmpeg included, and put back exactly as it was afterwards.
 
 | | GL-MT6000 (Flint 2) | GL-MT2500 (Brume 2) |
 |---|---|---|
 | SoC | MT7986, 4x Cortex-A53 | MT7981, 2x Cortex-A53 |
 | RAM / free flash | 1 GB / 6.8 GB | 1 GB / 6.8 GB |
-| `apk add hermes-agent luci-app-hermes` | 16 s | 48 s |
-| installed tree | 185 MB | 185 MB |
-| `hermes --version`, cold | 3 s | 4 s |
-| gateway resident | 128 MB | 131 MB |
-| one agent task, end to end | 25 s | 33 s |
-| four concurrent agents | 32 s, all finished | 62 s, all finished |
-| six concurrent agents | 57 s, **3 OOM kills** | 164 s, **3 OOM kills** |
+| `apk add hermes-agent luci-app-hermes`, from nothing | 17 s, 46 packages | 48 s, 45 packages |
+| package tree (`/usr/lib` and `/usr/share/hermes-agent`) | 239 MB | 239 MB |
+| `hermes --version`, cold | 2 s | 3 s |
+| gateway resident | 179 MB | 178 MB |
+| one conversation, end to end | 18 s | 25 s |
+| six conversations at once | 25 s, all answered | 30 s, all answered |
+| all of Hermes at six, memory | 361 MB | 379 MB |
+| temperature, fanless | 51 to 52 C | 45 to 47 C |
+
+A conversation here is a real diagnosis: the model (`openai/gpt-4o-mini` on OpenRouter)
+runs five commands through the terminal tool and answers from what they printed. The
+wall clock is mostly the model's own time.
 
 ![Measured on hardware](docs/measured.svg)
 
 ### What fits alongside your other services
 
 A box with WireGuard, Tailscale and the usual packages still has to run all of them, so
-the number that matters is what Hermes takes while working, not while idle. Concurrency
-was pushed until something broke:
+the number that matters is what Hermes takes while working, not while idle.
+Conversations were run the way the gateway runs them, as threads of one process inside
+the service's own memory group, one, two, four and then six at once:
 
-![How many agents fit on a 1 GB router](docs/concurrency.svg)
+![How many conversations fit on a 1 GB router](docs/concurrency.svg)
 
-In that run every agent was its own `hermes chat` process, and each one loaded all of
-Hermes, about 130 MB apiece: four at once is the ceiling for that shape on a 1 GB router,
-and six made the kernel kill processes three times on each box. It is not the shape a
-Telegram bot uses. The gateway runs every conversation as a thread of one process, so an
-extra conversation costs a few megabytes rather than a whole interpreter; the next
-section measures that.
-
-Two things that were worth checking and turned out fine. **Routing is not disturbed**:
-iperf3 across the box measured 938 Mbit/s idle and 931 Mbit/s while three agents were
-working, which is inside the noise. **Nothing leaks over a run**: eight sequential
-sessions moved the gateway's resident memory from 108688 kB to 108716 kB, and each
-session still took its usual 24 s. Temperature stayed between 41 and 47 C on the Flint 2
-and between 39 and 43 C on the Brume 2, fanless, with no throttling.
+The gateway takes about 180 MB and stays there. Conversations on top of it cost little:
+all of Hermes peaked at 361 to 384 MB whether one conversation ran or six, the kernel
+killed nothing, and the router kept 270 MB or more of memory available throughout.
+The gateway was the same process with the same 179 MB after all four runs. The
+service's own 512 MB ceiling never came into play. Cores buy wall clock rather than
+capacity: six conversations took 25 s on four cores and 30 s on two.
 
 ### Under the router's own work
 
-Measured on 2026-09-24, with conversations run the way the gateway runs them (threads of
-one process inside the service's own cgroup), each a real diagnosis through the terminal
-tool with `openai/gpt-4o-mini` on OpenRouter:
+Measured on 2026-09-25, with the same conversations running while the router did its
+real job:
 
-- **Flint 2, carrying a house's internet as a transparent bridge.** With one and then
-  three conversations running, the house's latency to the internet stayed at a median of
-  11 ms (21 ms at most, no loss), a download through the bridge from a Wi-Fi client ran at
-  the same 440 to 490 Mbit/s, the kernel dropped no packets, and the four cores stayed
-  about 80% idle.
-- **Brume 2, carrying a WireGuard tunnel at 580 Mbit/s.** A conversation running at the
-  same time took about a third of the tunnel's throughput (395 and 383 Mbit/s with one
-  and three), and a quarter at nice 10 (438 Mbit/s), which is why the service runs at
-  nice 10. Latency through the tunnel stayed at 4 to 5 ms throughout.
-- **Memory.** Three conversations took 230 MB for all of Hermes on the Brume and 291 MB
-  on the Flint; six took 258 MB on the Brume. The 512 MB ceiling never came into play.
+- **Flint 2, carrying a house's internet as a transparent bridge.** A 25 MB download
+  through it ran at 340 to 400 Mbit/s with Hermes idle, 336 to 384 with one
+  conversation, 438 to 458 with three and 401 to 406 with three at nice 10: the line's
+  own variation, not Hermes. The kernel dropped no packets, the four cores stayed 70 to
+  75% idle while the model was thinking, and the house's latency to the internet held a
+  median of 11 ms over 511 seconds with no loss.
+- **Brume 2, carrying a WireGuard tunnel at 574 Mbit/s.** A conversation running at the
+  same time took about a quarter of the tunnel's throughput (414 and 404 Mbit/s with one
+  and three), and less at nice 10 (439 Mbit/s), which is why the service runs at nice 10.
+  Latency through the tunnel stayed at 4 to 6 ms on average, with no loss.
 
-One run per step, and how long a conversation takes is mostly the model's own time.
+One run per step.
 
 ### Which models can actually drive it
 
 The package is provider-agnostic, so the useful question is which models can call a tool
-rather than talk about calling one. Same task on the same box, through OpenRouter:
+rather than talk about calling one. The same task for each, one turn, on the Brume 2
+through OpenRouter: read `/proc/uptime` with the terminal tool and give the uptime in
+minutes. "Called the tool" is counted from the turn's own messages, and "right" is the
+answer checked against the router's uptime.
 
 ![Which models can call a tool on the router](docs/models.svg)
 
 The same runs as text, since a picture is not greppable:
 
-| Model | Called the tool | Wall clock | Note |
-|---|---|---|---|
-| `anthropic/claude-haiku-4.5` | yes | 25 s | reference |
-| `google/gemini-2.5-flash` | yes | 25 s | clean |
-| `openai/gpt-4o-mini` | yes | 24 s | clean |
-| `moonshotai/kimi-k2-0905` | yes | 25 s | clean |
-| `deepseek/deepseek-chat-v3.1` | yes | 34 s | leaks its reasoning into the reply |
-| `qwen/qwen3-8b` | yes | 43 s | slowest that still works |
-| `mistralai/mistral-small-3.2-24b` | yes | 24 s | called the tool, then did the arithmetic wrong |
-| `meta-llama/llama-3.3-70b` | no | 35 s | provider returned an empty stream |
-| `google/gemma-3-12b-it` | **no** | 26 s | printed `[terminal(command=...)]` as plain text |
+| Model | Called the tool | Right | Wall clock | Note |
+|---|---|---|---|---|
+| `anthropic/claude-haiku-4.5` | yes | yes | 18 s | |
+| `google/gemini-2.5-flash` | yes | yes | 4 s | |
+| `openai/gpt-4o-mini` | yes | yes | 7 s | |
+| `moonshotai/kimi-k2-0905` | yes | yes | 11 s | |
+| `deepseek/deepseek-chat-v3.1` | yes | yes | 16 s | three calls where one would do |
+| `qwen/qwen3-8b` | yes | yes | 14 s | 8B, and it works |
+| `mistralai/mistral-small-3.2-24b-instruct` | yes | yes | 4 s | |
+| `meta-llama/llama-3.3-70b-instruct` | cut off | no | 15 s | ran out of output tokens mid-call; Hermes refused to run the half-written command |
+| `google/gemma-3-12b-it` | **no** | no | 5 s | printed the call as JSON text |
 
 The floor is native tool calling, not parameter count: an 8B model works, a 12B model
-without tool support does not, and a 24B model can call the tool correctly and still get
-the answer wrong. Pick accordingly, and prefer a model with real function calling over a
-larger one without it.
+without tool support does not, and a 70B one can still fail on the output limit its
+provider sets. Pick for function calling, not for size.
 
 One provider note: OpenRouter and any OpenAI-compatible endpoint work as the main
 provider, Anthropic's own included: its OpenAI-compatible endpoint takes an Anthropic key
@@ -186,14 +178,14 @@ Anthropic runs on upstream's native transport, which the package now carries.
 ### Small flash: put the data directory on a USB stick
 
 On a router that has never had Hermes, the install also brings Python, ffmpeg and ripgrep
-from OpenWrt's own feed. Measured on 2026-09-25 on both routers, after removing every trace of the package
-and running the lines above as written: the install took 285 MB of flash on the Brume 2
-and 290 MB on the Flint 2, Telegram add-on included. The first start then downloads a
-32 MB helper (`tirith`) into the data directory, 323 MB in all on the Flint 2. Sessions,
-memory and a SQLite journal grow there from then on, so budget at least 325 MB plus room
-to grow, not the 185 MB the package tree alone takes. On a router with 8 MB or 128 MB of
-flash that does not fit, and even where it fits, the writes land on the same flash the
-firmware lives on.
+from OpenWrt's own feed. Measured on 2026-09-25 on both routers, from a router cleaned of
+every trace of the package: the agent and its web page took 332 MB of flash on the
+Brume 2 and 337 MB on the Flint 2, 343 and 348 MB with the Telegram add-on. The first
+start then puts 37 MB into the data directory, 32 MB of it a helper (`tirith`) the agent
+downloads, which makes 382 and 387 MB in all. Sessions, memory and a SQLite journal grow
+there from then on, so budget at least 400 MB plus room to grow. On a router with 8 MB or
+128 MB of flash that does not fit, and even where it fits, the writes land on the same
+flash the firmware lives on.
 
 ![Moving the data directory to a USB stick](docs/usb.svg)
 
@@ -235,28 +227,22 @@ again.
 
 ### The service controls, on both routers
 
-On 2026-09-24 the controls described under "Letting it touch the router" were checked on
-real procd on both routers, with a local build of this revision installed over the release
-each one had.
+On 2026-09-25 the controls described under "Letting it touch the router" were checked on
+real procd on both routers, with 0.21.5 freshly installed:
 
-- The upgrade kept the router's own `/etc/config/hermes` byte for byte and put the new
-  defaults beside it as `hermes.apk-new`; with no profile set, the gateway started as admin.
 - procd holds the bounded respawn (3600 s, 5 s, 5 retries), and the key does not appear
   in `ubus call service list`.
-- `mem_max_mb=256` reaches the kernel: `memory.max` 268435456, `memory.swap.max` 0,
-  `memory.oom.group` 1.
+- `mem_max_mb=256` reaches the kernel: `memory.max` 268435456, `memory.swap.max` 0.
 - A model saved the way a chat's `/model ... --global` saves it, then `kill -9`: procd
-  had the gateway back in 8 s on the Flint 2 and 9 s on the Brume 2, with the model,
+  had the gateway back in 9 s on the Flint 2 and 10 s on the Brume 2, with the model,
   provider and endpoint from UCI in place again.
-- `mem_max_mb=0` and a restart: `memory.max` and `memory.swap.max` read `max`, and
-  `memory.oom.group` 0.
+- `mem_max_mb=0` and a restart: `memory.max` and `memory.swap.max` read `max`.
 - With the key file removed and the gateway killed, procd started it five more times,
   each start was refused and logged, and procd then left the service stopped.
-- From start to the gateway's own exec takes 3 to 4 s on the Flint 2 and 4 to 5 s on the
-  Brume 2.
+- From start to the gateway's own exec takes 4 s on the Flint 2 and 5 s on the Brume 2.
 
 The Flint 2 carried the house's internet the whole time. A machine in the house pinged
-the house router and 1.1.1.1 once a second throughout, 222 times each, lost none, and
+the house router and 1.1.1.1 once a second throughout, 511 times each, lost none, and
 the internet median stayed at 11 ms.
 
 ## The web interface
@@ -345,8 +331,7 @@ the address and the code to enter.
 ![A phone talks to Telegram, the router polls Telegram outbound, and an allowlist decides who is answered](docs/telegram.svg)
 
 ```sh
-apk add hermes-agent-telegram          # 25.12 and later
-opkg install hermes-agent-telegram     # 24.10
+apk add hermes-agent-telegram
 ```
 
 Then, in **Services -> Hermes Agent -> Settings**, switch Telegram on, paste the token
@@ -389,21 +374,21 @@ The Telegram adapter is already inside `hermes-agent`. Upstream's wheel ships
 ported. What is missing from a router is the client library, and that is all this
 package is.
 
-Measured on 2026-09-08 inside `openwrt/rootfs` for aarch64, on both 25.12.4 (CPython
-3.13) and 24.10.8 (CPython 3.11): adding `python-telegram-bot[webhooks]` to the router
-profile adds **two** distributions and changes the version of nothing already installed.
+Measured on every build inside `openwrt/rootfs` for aarch64 25.12: adding
+`python-telegram-bot[webhooks]` to the router profile adds **two** distributions and
+changes the version of nothing already installed.
 
 | | |
 |---|---|
-| added | `python-telegram-bot` 22.6, `tornado` 6.5.8 |
-| version changes to the base package's 69 | none |
-| installed size | 9.3 MB, against the base package's 185 MB |
+| added | `python-telegram-bot` 22.8, `tornado` 6.5.8 |
+| version changes to the base package's 77 | none |
+| flash it takes | 12 MB, against the base package's 239 MB tree (2026-09-25, both routers) |
 
 That second row is what makes an add-on possible at all. Two OpenWrt packages cannot own
-one file: apk refuses such an install and opkg silently accepts it, then breaks the base
-package when the add-on is later removed. So the contents are not written down anywhere.
+one file, and apk refuses such an install. So the contents are not written down anywhere.
 `package/hermes-agent-telegram/files/delta.py` resolves the base profile and the base
-profile plus Telegram on every build and subtracts, and it stops the build if a shared
+profile plus Telegram on every build, through the same resolution the base package is
+built with, and subtracts, and it stops the build if a shared
 package would have to change version. Upstream's pin is read from upstream's own
 metadata, so a version bump carries the right one automatically.
 
@@ -412,23 +397,10 @@ support, which pulls compiled crypto, and Slack. The router was asked for Telegr
 
 ## The signed feed
 
-![The same feed for two release lines, with different index formats, signatures and key locations](docs/feed.svg)
-
-|  | 25.12 | 24.10 |
-|---|---|---|
-| index | `packages.adb`, binary | `Packages` + `Packages.gz`, text |
-| signed with | `apk adbsign`, EC prime256v1 | `usign`, Ed25519 |
-| signature | inside the index | a separate `Packages.sig` |
-| trusted keys | `/etc/apk/keys/<name>.pem` | `/etc/opkg/keys/<fingerprint>` |
-| what is signed | every package **and** the index | the index only |
-
-Neither key works for the other line. The last row is the one worth knowing: on 24.10 a
-package is trusted because its SHA256 appears in a signed index, so an `.ipk` handed over
-on its own is never verifiable and `opkg install ./file.ipk` checks nothing at all.
-
-Both refuse an untrusted feed, and only one says so out loud. apk drops the repository in
-silence, so the package merely appears not to exist and the available count is two lower.
-opkg prints `Signature check failed` and stops.
+The index (`packages.adb`) and every package in it are signed with an EC prime256v1 key
+through `apk adbsign`; the router trusts it through `/etc/apk/keys/hermes-openwrt.pem`.
+An untrusted feed is refused in silence: apk drops the repository, so the package merely
+appears not to exist.
 
 **Signing happens on a workstation, not in CI.** A key held as a repository secret is
 readable by anyone who can push a workflow to the default branch, and this one cannot be
@@ -441,11 +413,8 @@ private half until a person logs in and deletes the file. So CI builds and gates
 ![Upstream, built inside the target release, one shim, packaged, signed locally](docs/build.svg)
 
 ```sh
-# 25.12: apk, Python 3.13. EXTRA_ARCHES relabels the same tree for the Flint 2 and Brume 2.
+# 25.12, Python 3.13. EXTRA_ARCHES relabels the same tree for the Flint 2 and Brume 2.
 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
-
-# 24.10: opkg, Python 3.11
-RELEASE=24.10.8 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 ```
 
 Docker is required; the OpenWrt SDK is not. The build runs **inside** the OpenWrt release
@@ -475,9 +444,9 @@ agent's own system prompt is thousands of tokens, and a router CPU spends minute
 it before answering a word. Cortex-A53 in particular is ARMv8.0 with neither dotprod nor
 i8mm, exactly the case llama.cpp has no fast path for.
 
-**It will not fit a small router.** About 325 MB of flash on a new router, Python and the
+**It will not fit a small router.** About 400 MB of flash on a new router, Python and the
 first-run helper included, rules out anything without real storage, and
-the gateway wants about 130 MB of RAM before it does any work. Below 1 GB,
+the gateway wants about 180 MB of RAM before it does any work. Below 1 GB,
 run [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) on the router instead and
 keep Hermes on a machine with room. That is the better shape anyway: the router becomes a
 narrow, audited tool provider rather than the host of a Python runtime.
@@ -576,17 +545,16 @@ OpenWrt's own published rootfs and then asks the running system.
 | gate | what it proves |
 |---|---|
 | `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean |
-| `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
 | `gate-luci.sh` | 24 checks: files land where luci-base looks, the views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, reads the agent's version from disk without starting it, and, before the first start, reports the free space where the data will go, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission is exactly the page's two calls and its UCI config, a failed write is reported, and the page will not write a slot the service does not read; on the Providers page a provider's key lands 0600 in its own slot, a crafted name writes nothing, a key file set elsewhere is refused, and ChatGPT signs in and out with the call returning at once; an upgrade restarts rpcd, as an install does; and the installed pages' own JavaScript, run against a stand-in for LuCI, deletes a provider's key with the provider and keeps what it says across the reload that follows a sign-in, or Save & Apply once LuCI reports the apply went through, dropping what is older than ten minutes, and says "Saved" at once, once, for a Save & Apply that changed only a key, which LuCI neither announces nor reloads for |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
-| `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
+| `gate-upstream.sh` | 7 checks: built from the pinned upstream commit and archive, reports that version, every library at its `uv.lock` version, `nemo-relay` and `pillow-heif` absent with nothing else missing, the Relay host falls back to upstream's no-op, skills, translations and the MCP catalogue found under `/usr/share/hermes-agent`, the platform plugins shipped |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
-| `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave every file owned by the base package |
 | `gate-runtime.sh` | 49 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
 | `teeth-runtime.py` | 44 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
+| `teeth-upstream.sh` | seven faults, one per check: another commit recorded, the agent's metadata saying 0.21.4, a library off its locked version, `nemo-relay` back, the Relay fallback raising, the translations variable forgotten, the Telegram plugin manifest missing |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
 | `teeth-luci.sh` | seventeen for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, the refusal to write a slot the service does not read removed, the free space measured on the missing data directory again, a provider slot that takes any name, ChatGPT reported as signed in regardless, a sign-in run in the foreground, a package without its post-upgrade script, the version read by running Hermes again, a provider deleted without its key, a message not kept across the reload, an old message shown anyway, a Save & Apply message kept before the apply went through, a key-only Save & Apply that never says it saved, a leftover message shown twice, and "Saved" beside a key that did not save |
 | `teeth-named-routers.sh` | a box named by name and one named by model number must fail, the two test routers must pass, and nothing to read must refuse |
@@ -610,17 +578,18 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 
 ## Status
 
-- [x] Native package for 25.12 (apk) and 24.10 (opkg)
+- [x] Native package for OpenWrt 25.12 (apk); 24.10 was served until 2026-09-25 and is not any more
+- [x] Hermes 0.21.5 from a pinned upstream commit, libraries at upstream's locked versions
 - [x] `aarch64_cortex-a53` for the Flint 2 and Brume 2, plus `aarch64_generic`
 - [x] LuCI interface with write-only key handling
-- [x] Signed feed for both lines, signed on a workstation
+- [x] Signed feed, signed on a workstation
 - [x] Every gate runs on OpenWrt's own rootfs images in CI
 - [x] **Run on real hardware.** Two GL.iNet routers on vanilla OpenWrt 25.12.5; see the figures above
 - [x] **Service controls on real procd**: bounded respawn, the memory ceiling and its removal, UCI back in place after a crash (Flint 2 and Brume 2, 25.12.5)
 - [x] **A full agent turn on a router**, model calling a tool and answering from what it read
-- [x] **Measured under load**: concurrency ceiling, thermals, throughput, flash writes, leak check
+- [x] **Measured under load** on 0.21.5: concurrent conversations, thermals, throughput through the router
 - [x] **The feed installs on hardware** with its signature verified and no `--allow-untrusted`
-- [x] Telegram, as a two-distribution add-on package, on both release lines
+- [x] Telegram, as a two-distribution add-on package
 - [x] Two profiles, admin by default and assistant by choice, governing terminal, code execution and file tools
 - [x] A per-turn limit on model calls, set on the router
 - [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included

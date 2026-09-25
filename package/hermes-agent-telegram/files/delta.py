@@ -16,67 +16,46 @@ Refusal 2: the delta is empty.
 Deliberately not hardcoded: the pin comes from hermes-agent's own metadata, under its
 `messaging` extra. Taking that extra whole would also pull Discord with voice (PyNaCl)
 and Slack onto a router that was asked for Telegram.
+
+Both resolutions go through package/upstream/resolve.py, the one the base package is
+built with: the same wheel, the same uv.lock versions and the same HERMES_EXCLUDE. A
+delta computed any other way would describe a base tree that is not the one on the
+router, and would carry nemo-relay back in as "added by Telegram", since Hermes declares
+it and only the base build leaves it out.
 """
 from __future__ import annotations
 
-import json
-import re
+import os
 import subprocess
 import sys
-import tempfile
-import urllib.request
+
+RESOLVE = os.path.join(os.environ.get("UPSTREAM_SRC", "/upstream-src"), "resolve.py")
 
 
-def upstream_telegram_pin(version: str) -> str:
-    """The python-telegram-bot requirement hermes-agent itself declares."""
-    url = f"https://pypi.org/pypi/hermes-agent/{version}/json"
-    with urllib.request.urlopen(url, timeout=60) as fh:
-        meta = json.load(fh)
-    for req in meta["info"].get("requires_dist") or []:
-        if req.lower().startswith("python-telegram-bot") and re.search(
-            r"""extra\s*==\s*['"]messaging['"]""", req
-        ):
-            return req.split(";")[0].strip()
-    raise SystemExit(
-        f"delta.py: hermes-agent {version} declares no python-telegram-bot under its "
-        f"messaging extra. Upstream has moved it; find where before packaging."
-    )
+def run(*args: str) -> str:
+    return subprocess.run([sys.executable, RESOLVE, *args], check=True,
+                          capture_output=False, stdout=subprocess.PIPE, text=True).stdout
 
 
-def resolve(*requirements: str) -> dict[str, str]:
-    """The full set pip would install, as {canonical name: version}."""
-    with tempfile.NamedTemporaryFile(suffix=".json") as report:
-        subprocess.run(
-            [
-                sys.executable, "-m", "pip", "install",
-                "--quiet", "--no-cache-dir", "--disable-pip-version-check",
-                "--root-user-action=ignore", "--only-binary=:all:",
-                "--dry-run", "--report", report.name,
-                "--target", tempfile.mkdtemp(),
-                *requirements,
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        with open(report.name) as fh:
-            data = json.load(fh)
-    return {
-        item["metadata"]["name"].lower().replace("_", "-"): item["metadata"]["version"]
-        for item in data["install"]
-    }
+def resolve(workdir: str, extras: str, *requirements: str) -> dict[str, str]:
+    """The set the package build would install, as {canonical name: version}."""
+    out = {}
+    for line in run("closure", workdir, extras, *requirements).split():
+        name, version = line.split("==", 1)
+        out[name.lower().replace("_", "-")] = version
+    return out
 
 
 def main() -> int:
     if len(sys.argv) != 3:
-        raise SystemExit("usage: delta.py <hermes-version> <extras>")
-    version, extras = sys.argv[1], sys.argv[2]
+        raise SystemExit("usage: delta.py <upstream-workdir> <extras>")
+    workdir, extras = sys.argv[1], sys.argv[2]
 
-    pin = upstream_telegram_pin(version)
+    pin = run("pin", workdir, "python-telegram-bot", "messaging").strip()
     print(f"delta.py: upstream pins {pin}", file=sys.stderr)
 
-    profile = f"hermes-agent[{extras}]=={version}"
-    base = resolve(profile)
-    full = resolve(profile, pin)
+    base = resolve(workdir, extras)
+    full = resolve(workdir, extras, pin)
 
     changed = sorted(k for k in set(full) & set(base) if full[k] != base[k])
     if changed:
