@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Nine faults, each a change somebody could plausibly make to the rpcd backend or its
+# Seventeen faults, each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
 # page's ubus object rather than inside it; fault 5 measures the free space on the data
@@ -11,6 +11,9 @@
 # Faults 10 to 14 are LuCI r8's: the version read by running Hermes again, a provider
 # deleted without its key, a message not kept across the reload, an old message shown
 # anyway, and a Save & Apply message kept before the apply went through; the last four are in the page's own JavaScript, which gate-luci.sh runs
+# Faults 15 to 17 are LuCI r9's, in the same JavaScript: a key-only Save & Apply that
+# waits for an apply LuCI never announces, a leftover message shown beside the next one,
+# and "Saved" beside a key that did not save.
 # from the installed package. The faults are applied to a copy of the
 # already-built LuCI tree and the result repackaged, the same shape as teeth-telegram.sh,
 # and for the same reason: a rebuild from scratch per fault would quadruple the job and
@@ -244,6 +247,26 @@ repack_luci
 expect_red "a Save & Apply message kept before the apply went through" check_messages_survive_the_reload
 cp "$SRC_FLASH" "$FLASH"
 
+# ---- fault 15: a key-only Save & Apply waits for an apply LuCI never announces ----
+# What LuCI r8 did: with nothing staged LuCI answers 204, neither announces nor reloads,
+# and "Saved" was never shown.
+plant "$FLASH" "if (!changed) {" "if (false) {" "fault 15"
+repack_luci
+expect_red "a key-only Save & Apply that never says it saved" check_saved_when_only_a_key_changed
+cp "$SRC_FLASH" "$FLASH"
+
+# ---- fault 16: what a rolled-back apply left waiting is shown beside the next one ----
+plant "$FLASH" "this.dropPending();" "void 0;" "fault 16"
+repack_luci
+expect_red "a leftover Save & Apply message shown twice" check_saved_when_only_a_key_changed
+cp "$SRC_FLASH" "$FLASH"
+
+# ---- fault 17: "Saved" beside a key that did not save, with nothing else to apply ----
+plant "$FLASH" "if (!failures.length)" "if (true)" "fault 17"
+repack_luci
+expect_red "\"Saved\" beside a key that did not save" check_saved_when_only_a_key_changed
+cp "$SRC_FLASH" "$FLASH"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -251,4 +274,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 14 faults on 11 checks, green restored"
+echo "teeth-luci: 17 faults on 12 checks, green restored"

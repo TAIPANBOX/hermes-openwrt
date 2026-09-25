@@ -228,14 +228,11 @@ return view.extend({
 	},
 
 	/* LuCI reloads the page a few seconds after the apply, so what this has to say is
-	 * kept for the page it reloads into rather than shown here. */
+	 * kept for the page it reloads into, or said at once when there is nothing to apply
+	 * and so no reload: a key alone. See hermes/flash.js. */
 	handleSaveApply: function (ev, mode) {
 		failures = [];
-		return this.super('handleSaveApply', [ev, mode]).then(function () {
-			return restartService();
-		}).then(function () {
-			failures.forEach(function (text) { flash.keepOnApply(text, 'danger'); });
-			flash.keepOnApply(_('Saved. The service was restarted; the Overview tab shows whether it stayed up and which providers it left out.'), 'info');
-		});
+		return flash.applyAndSay(this, ev, mode, restartService, failures,
+			_('Saved. The service was restarted; the Overview tab shows whether it stayed up and which providers it left out.'));
 	}
 });

@@ -19,7 +19,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_stale_message_not_shown check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -438,10 +438,11 @@ CONTAINER
 # ---- the views, as the browser runs them ----
 # scripts/test-luci-views.mjs loads the installed pages with a stand-in for LuCI and
 # checks what they decide: a deleted provider takes its key, a message said just before
-# a reload is there after it, and an old one is not.
+# a reload is there after it, a Save & Apply that changed only a key says so at once
+# (LuCI then does not reload), and an old message is not shown.
 echo "-- the views, on the installed files --"
 docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
-	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_stale_message_not_shown
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

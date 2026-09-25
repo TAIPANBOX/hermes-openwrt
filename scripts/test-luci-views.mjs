@@ -64,8 +64,14 @@ function world(replies) {
 			return Promise.resolve(typeof r === 'function' ? r(...args) : (r ?? {}));
 		},
 	};
+	// What LuCI would apply: by default one UCI change, so the apply goes through, announces
+	// itself ('uci-applied') and reloads. {} is what a key alone leaves, since keys go past
+	// UCI; LuCI then answers the apply with 204 and neither announces nor reloads.
+	w.staged = { hermes: [['set', 'main', 'model', 'x']] };
+	w.ui.changes = { apply: (checked) => { w.calls.push({ method: 'ui.changes.apply', args: [checked] }); } };
 	w.poll = { add: (fn) => { w.polls.push(fn); }, remove: (fn) => { w.polls = w.polls.filter(f => f !== fn); } };
-	w.uci = { load: () => Promise.resolve(), sections: () => [] };
+	w.uci = { load: () => Promise.resolve(), sections: () => [],
+		changes: () => { w.calls.push({ method: 'uci.changes' }); return Promise.resolve(w.staged); } };
 
 	class Option {
 		constructor(section, name) { this.section = section; this.name = name; }
@@ -88,6 +94,8 @@ function world(replies) {
 	w.view = {
 		extend: (o) => Object.assign(Object.create({
 			super(name) { w.calls.push({ method: `view.${name}` }); return Promise.resolve(w.duringSuper?.()); },
+			// LuCI's own: every map on the page saved, which is when a key field writes.
+			handleSave() { w.calls.push({ method: 'view.handleSave' }); return Promise.resolve(w.duringSuper?.()); },
 		}), o),
 	};
 	w.baseclass = { extend: (o) => o };
@@ -212,6 +220,54 @@ check('check_messages_survive_the_reload', async () => {
 		await v.handleSaveApply({}, '0');
 		await open(w, page);
 		assert(!w.notes.some(n => /^Saved\./.test(n.text)), `${page}: an apply that never went through left "Saved" for the next visit`);
+	}
+});
+
+check('check_saved_when_only_a_key_changed', async () => {
+	// Found on a Brume 2 on 2026-09-25 with LuCI r8: a new key typed alone, Save & Apply,
+	// the key written, and the page said only LuCI's "There are no changes to apply",
+	// because "Saved" waited for an announcement that an empty apply never makes; the next
+	// real Save & Apply then showed "Saved" twice.
+	const saved = (w) => w.notes.filter(n => /^Saved\./.test(n.text)).length;
+	for (const [page, field, id] of [['providers', '_key', 'claude'], ['settings', '_provider_key', 'main']]) {
+		const ok = { 'hermes.status': { provider_keys: {} }, 'hermes.set_secret': { ok: true, action: 'written' } };
+		const keyField = (w) => w.map.sections.map(s => s.options[field]).find(Boolean);
+
+		let w = world(ok);
+		let v = await open(w, page);
+		w.staged = {};
+		w.duringSuper = () => keyField(w).write(id, 'sk-test');
+		await v.handleSaveApply({}, '0');
+		assert(saved(w) === 1, `${page}: a Save & Apply that changed only a key says "Saved" ${saved(w)} times on the page, not once`);
+		assert(w.calls.some(c => c.method === 'ui.changes.apply'), `${page}: LuCI was not asked to apply`);
+		assert(!w.storage.has('luci-app-hermes.flash'), `${page}: a key-only Save & Apply left a message for a reload that never comes`);
+
+		// The next Save & Apply on the same page changes something, goes through and reloads.
+		w.staged = { hermes: [['set', 'main', 'model', 'x']] };
+		w.duringSuper = null;
+		await v.handleSaveApply({}, '0');
+		w.document.dispatchEvent({ type: 'uci-applied' });
+		await open(w, page);
+		assert(saved(w) === 1, `${page}: after the next Save & Apply that went through, "Saved" is shown ${saved(w)} times`);
+
+		// A key that did not save, with nothing else to apply: the failure once, no "Saved".
+		w = world({ ...ok, 'hermes.set_secret': { ok: false, error: 'the canary refusal' } });
+		v = await open(w, page);
+		w.staged = {};
+		w.duringSuper = () => keyField(w).write(id, 'sk-test');
+		await v.handleSaveApply({}, '0');
+		const shown = w.notes.filter(n => n.kind === 'danger' && n.text.includes('the canary refusal')).length;
+		assert(shown === 1, `${page}: the key that did not save is shown ${shown} times, not once`);
+		assert(saved(w) === 0, `${page}: "Saved" shown beside a key that did not save, with nothing else saved`);
+
+		// An apply that was rolled back (never announced), then one that goes through.
+		w = world(ok);
+		v = await open(w, page);
+		await v.handleSaveApply({}, '0');
+		await v.handleSaveApply({}, '0');
+		w.document.dispatchEvent({ type: 'uci-applied' });
+		await open(w, page);
+		assert(saved(w) === 1, `${page}: after a rolled-back apply and one that went through, "Saved" is shown ${saved(w)} times`);
 	}
 });
 

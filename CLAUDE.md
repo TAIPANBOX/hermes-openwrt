@@ -66,7 +66,10 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     runs `hermes`. The Providers page deletes a provider's key with the provider, unless
     UCI points it at a file the page does not manage, and what the pages say just before
     a reload is shown after it, once: for Save & Apply only once LuCI reports the apply
-    went through, and never when older than ten minutes (gate: `scripts/gate-luci.sh`,
+    went through, and never when older than ten minutes. A Save & Apply with nothing for
+    LuCI to apply (a key alone goes past UCI, and LuCI then neither announces nor reloads)
+    says "Saved" at once, unless a key failed; what an unannounced apply left waiting is
+    dropped at the next one, so "Saved" is never shown twice (gate: `scripts/gate-luci.sh`,
     `scripts/teeth-luci.sh`, `scripts/test-luci-views.mjs`).
 12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
     tools the agent may use. assistant disables terminal, code execution and file tools
