@@ -46,7 +46,7 @@
 <text x="72" y="136" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="66" font-weight="700" letter-spacing="-1.5" fill="url(#wordmark)">hermes-openwrt</text>
 
 <text x="74" y="178" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3">Hermes Agent as a <tspan font-weight="600" fill="#2dd4bf">native OpenWrt service</tspan>. Not Docker. Not a chroot.</text>
-<text x="74" y="206" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" fill="#69788b">An apk or an ipk that installs into a private site-packages and runs under procd.</text>
+<text x="74" y="206" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" fill="#69788b">An apk that installs into a private site-packages and runs under procd.</text>
 
 <!-- three facts, the ones a reader decides on -->
 <g transform="translate(72,240)">
@@ -56,7 +56,7 @@
 
   <rect x="252" y="0" width="232" height="62" rx="10" fill="#141a23" stroke="#1b2331"/>
   <text x="270" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">COSTS</text>
-  <text x="270" y="48" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="600" fill="#e6edf3">128 MB resident</text>
+  <text x="270" y="48" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="600" fill="#e6edf3">179 MB resident</text>
 
   <rect x="504" y="0" width="232" height="62" rx="10" fill="#141a23" stroke="#1b2331"/>
   <text x="522" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">SHIPS AS</text>

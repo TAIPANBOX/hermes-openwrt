@@ -19,7 +19,7 @@
 <rect x="0" y="0" width="1280" height="4" fill="url(#accent)"/>
 
 <text x="48" y="60" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" font-weight="600" fill="#e6edf3">The two boxes behind every number here</text>
-<text x="48" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Both flashed to vanilla OpenWrt 25.12.5, package arch aarch64_cortex-a53, no vendor firmware left on either</text>
+<text x="48" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, Hermes 0.21.5, measured 2026-09-25</text>
 
 <!-- left: Flint 2 -->
 <rect x="48" y="118" width="580" height="316" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
@@ -46,11 +46,11 @@
 
 <rect x="96" y="290" width="500" height="1" fill="#1b2331"/>
 <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
-  <text x="96" y="318" fill="#69788b">install</text>       <text x="250" y="318" fill="#e6edf3">16 s</text>
-  <text x="96" y="342" fill="#69788b">gateway resident</text><text x="250" y="342" fill="#e6edf3">128 MB</text>
-  <text x="96" y="366" fill="#69788b">one agent task</text> <text x="250" y="366" fill="#3fb950">25 s</text>
-  <text x="96" y="390" fill="#69788b">four at once</text>   <text x="250" y="390" fill="#3fb950">32 s, all finished</text>
-  <text x="96" y="414" fill="#69788b">temperature</text>    <text x="250" y="414" fill="#e6edf3">41 to 47 C, fanless</text>
+  <text x="96" y="318" fill="#69788b">install, clean</text>       <text x="250" y="318" fill="#e6edf3">17 s</text>
+  <text x="96" y="342" fill="#69788b">gateway resident</text><text x="250" y="342" fill="#e6edf3">179 MB</text>
+  <text x="96" y="366" fill="#69788b">one conversation</text> <text x="250" y="366" fill="#3fb950">18 s</text>
+  <text x="96" y="390" fill="#69788b">six at once</text>   <text x="250" y="390" fill="#3fb950">25 s, all answered</text>
+  <text x="96" y="414" fill="#69788b">temperature</text>    <text x="250" y="414" fill="#e6edf3">51 to 52 C, fanless</text>
 </g>
 
 <!-- right: Brume 2 -->
@@ -77,10 +77,10 @@
 
 <rect x="700" y="290" width="500" height="1" fill="#1b2331"/>
 <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
-  <text x="700" y="318" fill="#69788b">install</text>        <text x="854" y="318" fill="#e6edf3">48 s</text>
-  <text x="700" y="342" fill="#69788b">gateway resident</text><text x="854" y="342" fill="#e6edf3">131 MB</text>
-  <text x="700" y="366" fill="#69788b">one agent task</text>  <text x="854" y="366" fill="#3fb950">33 s</text>
-  <text x="700" y="390" fill="#69788b">four at once</text>    <text x="854" y="390" fill="#e3b341">62 s, all finished</text>
-  <text x="700" y="414" fill="#69788b">temperature</text>     <text x="854" y="414" fill="#e6edf3">39 to 43 C, fanless</text>
+  <text x="700" y="318" fill="#69788b">install, clean</text>        <text x="854" y="318" fill="#e6edf3">48 s</text>
+  <text x="700" y="342" fill="#69788b">gateway resident</text><text x="854" y="342" fill="#e6edf3">178 MB</text>
+  <text x="700" y="366" fill="#69788b">one conversation</text>  <text x="854" y="366" fill="#3fb950">25 s</text>
+  <text x="700" y="390" fill="#69788b">six at once</text>    <text x="854" y="390" fill="#e3b341">30 s, all answered</text>
+  <text x="700" y="414" fill="#69788b">temperature</text>     <text x="854" y="414" fill="#e6edf3">45 to 47 C, fanless</text>
 </g>
 </svg>

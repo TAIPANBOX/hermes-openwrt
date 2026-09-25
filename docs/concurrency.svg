@@ -1,92 +1,77 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="724" viewBox="0 0 1280 724" role="img" aria-label="How many agents fit on a 1 GB router: one, two, four and six concurrent agents on each of two boxes, with the point where the kernel starts killing processes">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="690" viewBox="0 0 1280 690" role="img" aria-label="How many conversations fit on a 1 GB router: one, two, four and six at once on each of two boxes, Hermes 0.21.5, no kernel OOM kill at any count">
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
   <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
   <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
-  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/></filter>
 </defs>
-<rect width="1280" height="724" fill="url(#bg)"/><rect width="1280" height="724" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="690" fill="url(#bg)"/><rect width="1280" height="690" fill="url(#grid)" opacity="0.5"/>
 <rect width="1280" height="4" fill="url(#accent)"/>
-
-<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" font-weight="600" fill="#e6edf3">How many agents fit on a 1 GB router</text>
-<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Same task, same counts on both boxes. Each bar is the memory a router actually has to give: about 880 MB once the kernel and the rest of the system have theirs.</text>
-
-<rect x="48" y="104" width="14" height="14" rx="3" fill="#4493f8"/><text x="70" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">gateway, always resident</text>
-<rect x="250" y="104" width="14" height="14" rx="3" fill="#2dd4bf"/><text x="272" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">agents working</text>
-<rect x="400" y="104" width="14" height="14" rx="3" fill="#e3b341"/><text x="422" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">past what the box can hold</text>
-<rect x="606" y="104" width="14" height="14" rx="3" fill="#1b2331" stroke="#30363d"/><text x="628" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">still free</text>
-
-<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">
-<text x="48" y="158" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">GL-MT6000 &#183; MT7986 &#183; 4 cores</text>
-  <text x="48" y="193" fill="#9aa7b8">1 agent</text>
-  <rect x="150" y="180" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="180" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="180" width="122" height="18" fill="#2dd4bf"/>
-  <text x="872" y="193" fill="#9aa7b8" font-size="12">25 s</text>
-  <text x="940" y="193" fill="#3fb950" font-size="12">1/1 finished</text>
-  <text x="1050" y="193" fill="#69788b" font-size="12">535 MB free &#183; 42 C</text>
-  <text x="48" y="229" fill="#9aa7b8">2 agents</text>
-  <rect x="150" y="216" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="216" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="216" width="209" height="18" fill="#2dd4bf"/>
-  <text x="872" y="229" fill="#9aa7b8" font-size="12">27 s</text>
-  <text x="940" y="229" fill="#3fb950" font-size="12">2/2 finished</text>
-  <text x="1050" y="229" fill="#69788b" font-size="12">415 MB free &#183; 42 C</text>
-  <text x="48" y="265" fill="#9aa7b8">4 agents</text>
-  <rect x="150" y="252" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="252" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="252" width="412" height="18" fill="#2dd4bf"/>
-  <text x="872" y="265" fill="#9aa7b8" font-size="12">32 s</text>
-  <text x="940" y="265" fill="#3fb950" font-size="12">4/4 finished</text>
-  <text x="1050" y="265" fill="#69788b" font-size="12">165 MB free &#183; 43 C</text>
-  <text x="48" y="301" fill="#9aa7b8">6 agents</text>
-  <rect x="150" y="288" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="288" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="288" width="562" height="18" fill="#e3b341"/>
-  <text x="872" y="301" fill="#9aa7b8" font-size="12">57 s</text>
-  <text x="940" y="301" fill="#e3b341" font-size="12">6/6, but</text>
-  <text x="1050" y="301" fill="#e3b341" font-size="12">18 MB free &#183; 47 C</text>
-  <text x="1180" y="301" fill="#ff6b63" font-size="12" font-weight="600">OOM</text>
-</g>
-<line x1="48" y1="340" x2="1232" y2="340" stroke="#1b2331"/>
-<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">
-<text x="48" y="368" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">GL-MT2500 &#183; MT7981 &#183; 2 cores</text>
-  <text x="48" y="403" fill="#9aa7b8">1 agent</text>
-  <rect x="150" y="390" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="390" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="390" width="99" height="18" fill="#2dd4bf"/>
-  <text x="872" y="403" fill="#9aa7b8" font-size="12">32 s</text>
-  <text x="940" y="403" fill="#3fb950" font-size="12">1/1 finished</text>
-  <text x="1050" y="403" fill="#69788b" font-size="12">622 MB free &#183; 41 C</text>
-  <text x="48" y="439" fill="#9aa7b8">2 agents</text>
-  <rect x="150" y="426" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="426" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="426" width="196" height="18" fill="#2dd4bf"/>
-  <text x="872" y="439" fill="#9aa7b8" font-size="12">36 s</text>
-  <text x="940" y="439" fill="#3fb950" font-size="12">2/2 finished</text>
-  <text x="1050" y="439" fill="#69788b" font-size="12">495 MB free &#183; 42 C</text>
-  <text x="48" y="475" fill="#9aa7b8">4 agents</text>
-  <rect x="150" y="462" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="462" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="462" width="407" height="18" fill="#2dd4bf"/>
-  <text x="872" y="475" fill="#9aa7b8" font-size="12">62 s</text>
-  <text x="940" y="475" fill="#3fb950" font-size="12">4/4 finished</text>
-  <text x="1050" y="475" fill="#69788b" font-size="12">229 MB free &#183; 42 C</text>
-  <text x="48" y="511" fill="#9aa7b8">6 agents</text>
-  <rect x="150" y="498" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-  <rect x="150" y="498" width="102" height="18" rx="4" fill="#4493f8"/>
-  <rect x="252" y="498" width="597" height="18" fill="#e3b341"/>
-  <text x="872" y="511" fill="#e3b341" font-size="12">164 s</text>
-  <text x="940" y="511" fill="#e3b341" font-size="12">6/6, but</text>
-  <text x="1050" y="511" fill="#e3b341" font-size="12">4 MB free &#183; 43 C</text>
-  <text x="1180" y="511" fill="#ff6b63" font-size="12" font-weight="600">OOM</text>
-</g>
-
-<rect x="48" y="560" width="1184" height="136" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
-<text x="72" y="590" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" font-weight="600" fill="#2dd4bf">READ IT LIKE THIS</text>
-<g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">
-  <text x="72" y="618">Budget about <tspan fill="#e6edf3" font-weight="600">130 MB per agent you want running at the same time</tspan>, on top of a gateway that is always there. <tspan fill="#e6edf3" font-weight="600">Four at once is the safe ceiling</tspan> on a 1 GB router.</text>
-  <text x="72" y="640">At six, both boxes went over: the kernel killed processes three times on each, the sessions happened to finish anyway, and the gateway survived. Do not plan for six.</text>
-  <text x="72" y="668">Cores buy <tspan fill="#e6edf3">time, not capacity</tspan>. Four agents: 32 s on four cores against 62 s on two, for the same memory. Six: 57 s against 164 s. Temperature stayed between 41 and 47 C, fanless.</text>
-</g>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">How many conversations fit on a 1 GB router</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Hermes 0.21.5, 2026-09-25. Conversations run as the gateway runs them: threads of one process in the service&#x27;s memory group. Bar width: 880 MB.</text>
+<rect x="48" y="104" width="14" height="14" rx="3" fill="#4493f8"/><text x="70" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">gateway, resident</text>
+<rect x="229" y="104" width="14" height="14" rx="3" fill="#2dd4bf"/><text x="251" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">the rest of Hermes while working</text>
+<rect x="515" y="104" width="14" height="14" rx="3" fill="#1b2331" stroke="#30363d"/><text x="537" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">still available</text>
+<text x="48" y="158" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" fill="#2dd4bf" font-weight="600">GL-MT6000 · MT7986 · 4 cores</text>
+<text x="48" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 conversation</text>
+<rect x="200" y="180" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="180" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="180" width="157" height="18" fill="#2dd4bf"/>
+<text x="916" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">18 s</text>
+<text x="972" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">1/1 answered</text>
+<text x="1098" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">301 MB free · 52 C</text>
+<text x="48" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">2 conversations</text>
+<rect x="200" y="216" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="216" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="216" width="150" height="18" fill="#2dd4bf"/>
+<text x="916" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">19 s</text>
+<text x="972" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">2/2 answered</text>
+<text x="1098" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">319 MB free · 52 C</text>
+<text x="48" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">4 conversations</text>
+<rect x="200" y="252" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="252" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="252" width="146" height="18" fill="#2dd4bf"/>
+<text x="916" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">21 s</text>
+<text x="972" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">4/4 answered</text>
+<text x="1098" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">314 MB free · 52 C</text>
+<text x="48" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">6 conversations</text>
+<rect x="200" y="288" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="288" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="288" width="145" height="18" fill="#2dd4bf"/>
+<text x="916" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">24 s</text>
+<text x="972" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">6/6 answered</text>
+<text x="1098" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">312 MB free · 52 C</text>
+<text x="48" y="350" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" fill="#2dd4bf" font-weight="600">GL-MT2500 · MT7981 · 2 cores</text>
+<text x="48" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 conversation</text>
+<rect x="200" y="372" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="372" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="372" width="164" height="18" fill="#2dd4bf"/>
+<text x="916" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">25 s</text>
+<text x="972" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">1/1 answered</text>
+<text x="1098" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">272 MB free · 47 C</text>
+<text x="48" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">2 conversations</text>
+<rect x="200" y="408" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="408" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="408" width="158" height="18" fill="#2dd4bf"/>
+<text x="916" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">24 s</text>
+<text x="972" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">2/2 answered</text>
+<text x="1098" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">271 MB free · 46 C</text>
+<text x="48" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">4 conversations</text>
+<rect x="200" y="444" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="444" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="444" width="159" height="18" fill="#2dd4bf"/>
+<text x="916" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">24 s</text>
+<text x="972" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">4/4 answered</text>
+<text x="1098" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">270 MB free · 46 C</text>
+<text x="48" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">6 conversations</text>
+<rect x="200" y="480" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
+<rect x="200" y="480" width="142" height="18" rx="4" fill="#4493f8"/>
+<rect x="342" y="480" width="160" height="18" fill="#2dd4bf"/>
+<text x="916" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">30 s</text>
+<text x="972" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">6/6 answered</text>
+<text x="1098" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">270 MB free · 47 C</text>
+<rect x="48" y="546" width="1184" height="120" rx="10" fill="#0f1520" stroke="#30363d"/>
+<text x="72" y="576" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600">READ IT LIKE THIS</text>
+<text x="72" y="602" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">The gateway holds about 180 MB and stays there. All of Hermes peaked at 361 to 384 MB whether one conversation ran or six:</text>
+<text x="72" y="624" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">an extra conversation costs a thread, not a second interpreter. No kernel OOM kill at any count, and 270 MB or more stayed available.</text>
+<text x="72" y="646" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">Cores buy time, not capacity: six at once took 25 s on four cores and 30 s on two. Fanless, 45 to 52 C.</text>
 </svg>
