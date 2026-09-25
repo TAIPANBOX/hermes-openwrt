@@ -16,6 +16,10 @@ def main() -> int:
                  "TELEGRAM_BOT_TOKEN", "OPENWRT_MCP_TOKEN",
                  "TELEGRAM_ALLOWED_USERS", "TELEGRAM_ALLOW_ALL_USERS", "TELEGRAM_HOME_CHANNEL",
                  "HERMES_DISABLE_LAZY_INSTALLS")
+    # The further providers' keys, as the exec wrapper exported them from their UCI key
+    # files: an upstream .env must not replace them either.
+    protected += tuple(sorted(name for name in os.environ
+                              if name.startswith("HERMES_PROVIDER_") and name.endswith("_KEY")))
     expected = {name: os.environ.get(name) for name in protected}
     try:
         from hermes_cli.config import _sanitize_env_lines

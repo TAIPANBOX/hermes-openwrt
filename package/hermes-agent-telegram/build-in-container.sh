@@ -74,7 +74,7 @@ else
 	opkg update >/dev/null
 	opkg install python3 python3-pip >/dev/null
 fi
-HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp}" \\
+HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp,anthropic}" \\
 	/src/build.sh "$ARCH" /work/tree /base
 CONTAINER
 

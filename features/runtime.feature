@@ -40,6 +40,15 @@
 #                        ended at max_iterations_reached(1/1) and a call without tools
 #                        summed up; in assistant the note was in the prompt, no terminal was
 #                        offered, and it answered in 1 call.
+#   @decided 2026-09-25  More than one provider on one router, working at the same time: a
+#                        key for one, a different key for another, a ChatGPT subscription
+#                        for a third. Every chat starts on the main model and can switch
+#                        itself to another configured provider.
+#   @measured 2026-09-25 on a Brume 2, three agents in one process started together, each
+#                        asked for the router's uptime through the terminal: OpenRouter
+#                        (gpt-4o-mini), Anthropic with an API key (claude-haiku-4-5) and
+#                        a ChatGPT subscription (gpt-5.6-luna) all answered with the same
+#                        figures while running together; 150 MB for the whole process.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -323,3 +332,74 @@ Feature: What is set on the router is what the gateway runs with
     Then procd runs it at a lower priority than the router's own processes
     And the gateway and every tool it starts inherit that priority
     # -> check_gateway_runs_below_the_routers_own_work
+
+  # ---- Further providers ----
+
+  Scenario: several providers are offered at once, each chat on the one it picks
+    Given two provider sections in the router's configuration, besides the main model
+    When the service starts
+    Then upstream resolves each by its name, with the key read from its own file
+    And /model lists both beside the main one and switches a chat to either
+    And the main model still passes the check made before every start
+    # -> check_extra_providers_reach_upstream
+
+  Scenario: a provider section that cannot work refuses the start
+    Given a provider named like one upstream already has, or with a bad name, address or model
+    When the service starts
+    Then it refuses and says why, and the agent's configuration is left as it was
+    # -> check_provider_names_upstream_owns_are_refused
+
+  Scenario: the operator's own provider entries are left alone
+    Given a provider the operator added to the agent's configuration by hand
+    When provider sections are added to or removed from the router's configuration
+    Then only the entries the router's configuration made are added or removed
+    And one with the same name as the operator's is refused rather than overwritten
+    # -> check_operator_provider_entries_survive
+
+  Scenario: each provider's key is read at every start, and a missing one drops only that provider
+    Given one provider whose key file is there and one whose key file is missing
+    When the gateway starts
+    Then the first provider's key reaches the gateway and the second provider is left out
+    And the log names the missing file, and the main model starts anyway
+    # -> check_wrapper_exports_provider_keys_and_drops_missing_ones
+
+  Scenario: provider keys stay out of procd's service table
+    Given a provider section with its key in a root-only file
+    When the init hands the service to procd
+    Then procd holds the path to the key and never the key
+    # -> check_provider_keys_absent_from_procd
+
+  Scenario: a bad provider section anywhere stops the start
+    Given a broken provider section followed by a good one
+    When the service starts
+    Then it refuses and names the broken section
+    # -> check_bad_provider_section_refuses_the_start
+
+  Scenario: a leftover setting cannot swap a provider's key
+    Given a provider key read from its file at start
+    When upstream's own .env names a different key for it
+    Then the start is refused without printing either key
+    # -> check_preflight_protects_provider_keys
+
+  Scenario: /model does not offer a provider that would leak the main key
+    Given the main key held where upstream also looks for an OpenAI API key
+    When the service starts
+    Then /model does not offer the OpenAI API as a provider
+    # -> check_openai_api_is_hidden_from_the_picker
+
+  Scenario: a chat switched to Anthropic's own endpoint works
+    Given the package installed
+    Then the library upstream uses for Anthropic's own endpoint is there
+    # -> check_native_anthropic_provider_is_installed
+
+  Scenario: a ChatGPT subscription is signed in where the service looks for it
+    Given the router's configuration names the service's data directory
+    When the owner runs the sign-in command for ChatGPT
+    Then it signs in there and nowhere else, and refuses anything but chatgpt
+    # -> check_login_helper_uses_the_service_home
+
+  Scenario: signing in to ChatGPT leaves the main model in charge
+    Given a ChatGPT subscription signed in and set as upstream's default by the sign-in
+    When the service starts
+    Then the main model from the router's configuration is back in place and the start goes ahead
+    # -> check_chatgpt_login_does_not_trip_the_preflight

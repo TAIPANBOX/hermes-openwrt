@@ -68,7 +68,9 @@ GUARD
 # the wake-word stack pull heavy dependencies for capabilities a router does not have.
 # cron and mcp are what make it useful here - scheduled work, and the ability to reach
 # openwrt-mcp for the router's own ubus.
-EXTRAS=${EXTRAS:-cron,mcp}
+# anthropic: upstream's native Anthropic provider, which /model picks for api.anthropic.com
+# whatever transport a provider entry names, so without it that chat would fail.
+EXTRAS=${EXTRAS:-cron,mcp,anthropic}
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 SITE="$OUT/usr/lib/hermes-agent/site-packages"
@@ -123,6 +125,7 @@ cp "$SRC/files/hermes-agent.init"   "$OUT/etc/init.d/hermes-agent" && chmod 0755
 # The gateway wrapper reads the key at exec time so procd never holds it; see the file
 # itself and check_key_not_in_procd_env.
 cp "$SRC/files/hermes-gateway"      "$OUT/usr/sbin/hermes-gateway"    && chmod 0755 "$OUT/usr/sbin/hermes-gateway"
+cp "$SRC/files/hermes-login"        "$OUT/usr/sbin/hermes-login"      && chmod 0755 "$OUT/usr/sbin/hermes-login"
 cp "$SRC/files/hermes-agent.config" "$OUT/etc/config/hermes" && chmod 0644 "$OUT/etc/config/hermes"
 
 # Survive a firmware upgrade: sysupgrade keeps what is listed here, and losing the key

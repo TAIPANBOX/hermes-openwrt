@@ -43,7 +43,7 @@ BASE_TREE=${3:-}
 HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # Must match what the base package was built with, or the resolution below describes a
 # base tree that is not the one on the router.
-EXTRAS=${EXTRAS:-cron,mcp}
+EXTRAS=${EXTRAS:-cron,mcp,anthropic}
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 SITE="$OUT/usr/lib/hermes-agent/site-packages"

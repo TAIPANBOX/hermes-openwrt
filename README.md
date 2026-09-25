@@ -178,9 +178,10 @@ without tool support does not, and a 24B model can call the tool correctly and s
 the answer wrong. Pick accordingly, and prefer a model with real function calling over a
 larger one without it.
 
-One provider note: OpenRouter and any OpenAI-compatible endpoint work. Anthropic's own
-API does not, because the native provider wants the `anthropic` python package, which
-this wheel set does not carry, and the OpenAI-compatible endpoint answers 401.
+One provider note: OpenRouter and any OpenAI-compatible endpoint work as the main
+provider, Anthropic's own included: its OpenAI-compatible endpoint takes an Anthropic key
+(`https://api.anthropic.com/v1`, measured 2026-09-25). As a further provider, below,
+Anthropic runs on upstream's native transport, which the package now carries.
 
 ### Small flash: put the data directory on a USB stick
 
@@ -291,6 +292,50 @@ at a different file, the page says so and does not write its own slot, and a wri
 fails is reported as not saved. Read-only access to the page covers its status and log
 calls and its own UCI configuration, and nothing else: not procd's service list, where a
 service's environment can be read, and no file on the router.
+
+## More than one provider
+
+One router can offer several providers at once: a key for one, another key for another,
+a ChatGPT subscription for a third. Every chat starts on the main model; in a chat,
+`/model` lists the others beside it and switches that chat only, so several chats run on
+several providers at the same time. On 2026-09-25 three agents in one process on the
+Brume 2, on OpenRouter, an Anthropic key and a ChatGPT subscription, answered together
+from what the router's `uptime` said, in 150 MB.
+
+Each further provider is a UCI section, and its key a root-only file, like the main one:
+
+```sh
+printf '%s' 'sk-ant-...' > /etc/hermes-agent/claude.key && chmod 600 /etc/hermes-agent/claude.key
+uci set hermes.claude=provider
+uci set hermes.claude.label='Anthropic'
+uci set hermes.claude.base_url='https://api.anthropic.com/v1'
+uci set hermes.claude.model='claude-haiku-4-5'
+uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+`key_file` defaults to `/etc/hermes-agent/<name>.key`. A name upstream already uses for a
+provider of its own (`anthropic`, `openrouter`, `openai` and the like) refuses the start,
+because upstream would resolve its own first and the chat would land somewhere else. A
+key that goes missing drops that provider alone, with a line in the log. A provider on
+the same address as the main model is switched to with the main key, which is what
+upstream does for an endpoint it is already using, so a second account on the main
+model's own service does not work as a further provider.
+
+A ChatGPT subscription needs no section. Allow device code sign-in once in ChatGPT's
+security settings, then:
+
+```sh
+hermes-login chatgpt
+```
+
+It prints a code to enter at `auth.openai.com/codex/device`, in a browser signed in to
+ChatGPT; the tokens stay in the agent's data directory, readable by root only, and no
+password passes through the router. ChatGPT then shows up in `/model`.
+
+**Anyone the bot answers can switch their chat to any provider listed here**, including
+keys that cost money per call. The allowlist is the boundary, as it is for everything
+else the agent can do. The settings page does not manage further providers yet; UCI and
+the command line do.
 
 ## Reaching it from a phone
 
@@ -534,8 +579,8 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
 | `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave every file owned by the base package |
-| `gate-runtime.sh` | 37 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, and the per-turn limit on model calls |
-| `teeth-runtime.py` | 30 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
+| `gate-runtime.sh` | 48 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
+| `teeth-runtime.py` | 43 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
@@ -575,7 +620,8 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] Telegram, as a two-distribution add-on package, on both release lines
 - [x] Two profiles, admin by default and assistant by choice, governing terminal, code execution and file tools
 - [x] A per-turn limit on model calls, set on the router
-- [ ] Native Anthropic provider, which needs the `anthropic` package as a second add-on
+- [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included
+- [x] Upstream's native Anthropic provider
 - [ ] Track upstream releases automatically, which arrive every two to four days
 
 ## Prior art, and what is not ours
