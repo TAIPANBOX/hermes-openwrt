@@ -15,11 +15,17 @@
 #                        three checks added for those.
 #   @claude 2026-09-24   From review: check_read_acl_is_narrow read two keys of the read
 #                        block and no others, so a file grant beside them would have passed.
+#   @measured 2026-09-25 on a Flint 2 and a Brume 2, right after a clean install by README:
+#                        `ubus call hermes status` gave free_kb 0, because the data directory
+#                        is created at the first start and df on the missing path failed.
+#   @claude 2026-09-25   From overview.js: with 0 the page shows 0 B and the warning that
+#                        less than 256 MB is free, while both routers had 6.5 GB.
 #
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
-# both ways, and scripts/teeth-luci.sh plants a fault for each of the three newest checks
-# plus a second one for the read permission, a file grant beside the page's calls.
+# both ways, and scripts/teeth-luci.sh plants a fault for each of the three checks added
+# on 2026-09-24, a second one for the read permission (a file grant beside the page's
+# calls), and one for the free space before the first start.
 
 Feature: The web page manages the agent and never hands a key back
 
@@ -53,6 +59,14 @@ Feature: The web page manages the agent and never hands a key back
     When the page asks for status
     Then the reply has running, enabled, version, data directory, free space and whether a key is set
     # -> check_status_answers
+
+  Scenario: before the first start the page shows the free space where the data will go
+    Given the agent is installed and its data directory is not created yet
+    When the page asks for the status
+    Then the free space is that of the nearest directory that exists, not zero
+    And an empty data directory setting means the directory the service uses
+    And asking does not create the directory
+    # -> check_free_space_before_first_start
 
   Scenario: a key written through the page lands readable by root only
     When a key with stray spaces is written through the page

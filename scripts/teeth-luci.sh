@@ -1,10 +1,11 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Four faults, each a change somebody could plausibly make to the rpcd backend or its
+# Five faults, each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
-# page's ubus object rather than inside it. The faults are applied to a copy of the
+# page's ubus object rather than inside it; fault 5 measures the free space on the data
+# directory itself again, which a new install does not have yet. The faults are applied to a copy of the
 # already-built LuCI tree and the result repackaged, the same shape as teeth-telegram.sh,
 # and for the same reason: a rebuild from scratch per fault would quadruple the job and
 # prove nothing extra, none of these is a build error.
@@ -125,6 +126,19 @@ repack_luci
 expect_red "a file read grant beside the page's own calls" check_read_acl_is_narrow
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 
+# ---- fault 5: free space measured on the missing data directory again ----
+# The first version of status ran df on the configured path, which a new install does
+# not have until the first start, and reported 0. Put back, only the check added for it
+# may catch it.
+sed 's|free_kb=$(df -k "$probe" 2>/dev/null|free_kb=$(df -k "$data_dir" 2>/dev/null|' "$RPCD" > /tmp/rpcd.new
+grep -q 'free_kb=$(df -k "$data_dir" 2>/dev/null' /tmp/rpcd.new || {
+	echo "teeth-luci: fault 5 planted nothing; the free space line in the backend no longer reads as expected" >&2
+	exit 1; }
+cp /tmp/rpcd.new "$RPCD"
+repack_luci
+expect_red "free space measured on the missing data directory" check_free_space_before_first_start
+cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -132,4 +146,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 4 faults on 3 checks, green restored"
+echo "teeth-luci: 5 faults on 4 checks, green restored"

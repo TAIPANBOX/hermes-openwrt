@@ -19,7 +19,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -129,6 +129,37 @@ for k in running enabled version data_dir free_kb provider_key_set; do
 	echo "$out" | grep -q "\"$k\"" || { echo "$out"; fail check_status_answers "no $k in the reply"; }
 done
 echo "PASS check_status_answers"
+
+# ---- 5b. free space before the first start, where the data will live ----
+# The service creates its data directory at its first start, so a new install has none
+# yet. status used to run df on the missing path, get nothing and report 0, which put
+# 0 B and the low-space warning in front of every new owner: seen on both test routers
+# on 2026-09-25, after a clean install by README, with 6.5 GB free. The figure has to be
+# the free space of the nearest directory that exists, for the directory the service
+# will actually use, and asking must not create anything.
+free_case() { # $1 data_dir as set in UCI, $2 the directory the service would use
+	uci set hermes.main.data_dir="$1"; uci commit hermes
+	st=$(ubus call hermes status 2>/dev/null)
+	got=$(echo "$st" | jsonfilter -e '@.free_kb')
+	dir=$(echo "$st" | jsonfilter -e '@.data_dir')
+	[ "$dir" = "$2" ] || fail check_free_space_before_first_start "data_dir '$1' is reported as '$dir'; the service would use '$2'"
+	probe=$2
+	while [ ! -d "$probe" ]; do probe=$(dirname "$probe"); done
+	want=$(df -k "$probe" | awk 'NR==2 {print $4}')
+	[ -n "$got" ] && [ "$got" -gt 0 ] \
+		|| fail check_free_space_before_first_start "free_kb is ${got:-missing} for $2 before it exists; $probe has $want KiB free"
+	d=$((got - want)); [ "$d" -ge 0 ] || d=$((0 - d))
+	[ "$d" -le $((want / 100 + 1024)) ] \
+		|| fail check_free_space_before_first_start "free_kb is $got for $2, but $probe has $want KiB free"
+	[ -e "$2" ] && fail check_free_space_before_first_start "asking for status created $2"
+	true
+}
+rm -rf /srv/hermes /mnt/gate-not-mounted
+free_case /srv/hermes /srv/hermes
+free_case /mnt/gate-not-mounted/hermes /mnt/gate-not-mounted/hermes
+free_case '' /srv/hermes
+uci set hermes.main.data_dir=/srv/hermes; uci commit hermes
+echo "PASS check_free_space_before_first_start"
 
 # ---- 6. a key written through the RPC lands root-only ----
 ubus call hermes set_secret "{\"name\":\"provider\",\"value\":\"  $CANARY  \"}" >/dev/null 2>&1 \

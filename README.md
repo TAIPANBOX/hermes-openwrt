@@ -184,10 +184,14 @@ this wheel set does not carry, and the OpenAI-compatible endpoint answers 401.
 
 ### Small flash: put the data directory on a USB stick
 
-The agent keeps sessions, memory and a SQLite journal under its data directory, and
-Hermes downloads a further 34 MB helper binary on first run, so budget about 220 MB
-rather than the 185 MB the package reports. On a router with 8 MB or 128 MB of flash
-that does not fit, and even where it fits, the writes land on the same flash the
+On a router that has never had Hermes, the install also brings Python, ffmpeg and ripgrep
+from OpenWrt's own feed. Measured on 2026-09-25 on both routers, after removing every trace of the package
+and running the lines above as written: the install took 285 MB of flash on the Brume 2
+and 290 MB on the Flint 2, Telegram add-on included. The first start then downloads a
+32 MB helper (`tirith`) into the data directory, 323 MB in all on the Flint 2. Sessions,
+memory and a SQLite journal grow there from then on, so budget at least 325 MB plus room
+to grow, not the 185 MB the package tree alone takes. On a router with 8 MB or 128 MB of
+flash that does not fit, and even where it fits, the writes land on the same flash the
 firmware lives on.
 
 ![Moving the data directory to a USB stick](docs/usb.svg)
@@ -423,8 +427,9 @@ agent's own system prompt is thousands of tokens, and a router CPU spends minute
 it before answering a word. Cortex-A53 in particular is ARMv8.0 with neither dotprod nor
 i8mm, exactly the case llama.cpp has no fast path for.
 
-**It will not fit a small router.** 185 MB installed rules out anything without real
-storage, and the gateway wants about 130 MB of RAM before it does any work. Below 1 GB,
+**It will not fit a small router.** About 325 MB of flash on a new router, Python and the
+first-run helper included, rules out anything without real storage, and
+the gateway wants about 130 MB of RAM before it does any work. Below 1 GB,
 run [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) on the router instead and
 keep Hermes on a machine with room. That is the better shape anyway: the router becomes a
 narrow, audited tool provider rather than the host of a Python runtime.
@@ -524,7 +529,7 @@ OpenWrt's own published rootfs and then asks the running system.
 |---|---|
 | `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean |
 | `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
-| `gate-luci.sh` | 13 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission is exactly the page's two calls and its UCI config, a failed write is reported, and the page will not write a slot the service does not read |
+| `gate-luci.sh` | 14 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus and, before the first start, reports the free space where the data will go, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission is exactly the page's two calls and its UCI config, a failed write is reported, and the page will not write a slot the service does not read |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
@@ -535,7 +540,7 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
-| `teeth-luci.sh` | four for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, and the refusal to write a slot the service does not read removed |
+| `teeth-luci.sh` | five for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, the refusal to write a slot the service does not read removed, and the free space measured on the missing data directory again |
 | `teeth-named-routers.sh` | a box named by name and one named by model number must fail, the two test routers must pass, and nothing to read must refuse |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather

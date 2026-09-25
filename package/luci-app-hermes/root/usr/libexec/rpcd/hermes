@@ -79,7 +79,7 @@ has_secret() {
 TELEGRAM_MANIFEST=/usr/lib/hermes-agent/telegram.manifest
 
 method_status() {
-	local running enabled version data_dir free_kb tg_lib
+	local running enabled version data_dir probe free_kb tg_lib
 	running=0; "$INIT" running >/dev/null 2>&1 && running=1
 	enabled=0; "$INIT" enabled >/dev/null 2>&1 && enabled=1
 
@@ -88,10 +88,22 @@ method_status() {
 	version=$(/usr/bin/hermes --version 2>/dev/null | head -n1)
 	[ -n "$version" ] || version="not installed"
 
-	data_dir=$(uci -q get hermes.main.data_dir || echo /srv/hermes)
+	# The directory the service will use: the init script's default, an empty option
+	# included, since config_get reads an empty value as unset.
+	data_dir=$(uci -q get hermes.main.data_dir)
+	[ -n "$data_dir" ] || data_dir=/srv/hermes
 	# Free space where the data actually lives. Sessions and memory only grow, and a
-	# router that fills its overlay stops being a router.
-	free_kb=$(df -k "$data_dir" 2>/dev/null | awk 'NR==2{print $4}')
+	# router that fills its overlay stops being a router. The service creates the
+	# directory at its first start, so before that the answer is the nearest directory
+	# that exists, where it will be created: df on the missing path failed, and the 0 it
+	# left behind put a low-space warning in front of every new owner. Asking never
+	# creates anything.
+	probe=$data_dir
+	while [ ! -d "$probe" ]; do
+		case "$probe" in /|.|'') break ;; esac
+		probe=$(dirname "$probe")
+	done
+	free_kb=$(df -k "$probe" 2>/dev/null | awk 'NR==2{print $4}')
 	case "$free_kb" in ''|*[!0-9]*) free_kb=0 ;; esac
 
 	json_init
