@@ -1,0 +1,45 @@
+#!/bin/sh
+# hermes-login chatgpt -- sign this router's Hermes in to a ChatGPT subscription.
+#
+# Upstream's own device-code login, run in the service's data directory so the gateway
+# finds the result: it prints a URL and a code, the owner enters the code in a browser
+# where they are signed in to ChatGPT, and the tokens land in <data_dir>/auth.json,
+# readable by root only. No password or key passes through this router. ChatGPT then
+# shows up in /model beside the providers UCI configures.
+#
+# The account has to allow it first: ChatGPT -> Settings -> Security -> device code
+# sign-in. Without that, the browser page refuses the code.
+#
+# The login also points upstream's default model at the subscription. The service puts
+# UCI's own model back at every start, so a running service is restarted here and every
+# chat keeps starting on the model UCI names.
+#
+#   hermes-login chatgpt             sign in
+#   hermes-login chatgpt --print-home   print the directory it would use, and stop
+# -e only: OpenWrt's /lib/functions.sh reads variables it never sets.
+set -e
+
+case "${1:-}" in
+	chatgpt) ;;
+	*) echo "usage: hermes-login chatgpt" >&2; exit 2 ;;
+esac
+
+. /lib/functions.sh
+config_load hermes
+config_get data_dir main data_dir '/srv/hermes'
+[ -n "$data_dir" ] || data_dir=/srv/hermes
+if [ "${2:-}" = "--print-home" ]; then
+	echo "$data_dir"
+	exit 0
+fi
+
+mkdir -p "$data_dir"
+chmod 0700 "$data_dir"
+HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
+	HERMES_DISABLE_LAZY_INSTALLS=1 PYTHONDONTWRITEBYTECODE=1 \
+	/usr/bin/python3 -u -c 'from hermes_cli.auth import _login_openai_codex; _login_openai_codex(None, None, force_new_login=True)'
+
+if /etc/init.d/hermes-agent running >/dev/null 2>&1; then
+	/etc/init.d/hermes-agent restart
+fi
+echo "hermes-login: ChatGPT is signed in; /model in a chat now offers it."

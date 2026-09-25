@@ -51,6 +51,8 @@ cp /etc/init.d/hermes-agent /tmp/product/hermes-agent.init
 cp /usr/libexec/hermes-set-toolsets /tmp/product/set-toolsets.py
 cp /usr/libexec/hermes-memory /tmp/product/memory-limit.py
 cp /usr/libexec/hermes-runtime-check /tmp/product/runtime-check.py
+# Only from r9 on; a missing helper fails its own test rather than the whole gate.
+[ -e /usr/sbin/hermes-login ] && cp /usr/sbin/hermes-login /tmp/product/hermes-login || true
 export PRODUCT_FILES=/tmp/product
 if [ -n "${RUNTIME_TESTS:-}" ]; then
     python3 /src/scripts/test-runtime.py $RUNTIME_TESTS

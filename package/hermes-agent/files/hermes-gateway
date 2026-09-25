@@ -41,6 +41,33 @@ if [ -n "${HERMES_OPENWRT_MCP_URL:-}" ]; then
 	fi
 fi
 
+# Further providers, from the UCI `provider` sections: procd holds their key FILES, the
+# keys are read here into HERMES_PROVIDER_<NAME>_KEY, which the bridge names as each
+# entry's key_env. A key that is missing drops that provider alone, with a line in the
+# log, the same way the MCP connection above is dropped: the main model still answers.
+for stale in $(env | sed -n 's/^\(HERMES_PROVIDER_[A-Z0-9_]*_KEY\)=.*/\1/p'); do
+	unset "$stale"
+done
+providers_ready=""
+if [ -n "${HERMES_OPENWRT_PROVIDERS:-}" ]; then
+	set -f
+	old_ifs=$IFS
+	IFS=';'
+	for entry in $HERMES_OPENWRT_PROVIDERS; do
+		IFS='|' read -r p_name p_label p_url p_key_file p_model <<EOF
+$entry
+EOF
+		if value=$(read_required "$p_key_file" "provider $p_name key file" 2>/dev/null); then
+			export "HERMES_PROVIDER_$(printf '%s' "$p_name" | tr 'a-z-' 'A-Z_')_KEY=$value"
+			providers_ready="$providers_ready;$entry"
+		else
+			echo "hermes-gateway: provider $p_name: key file $p_key_file is missing or empty; starting without it" >&2
+		fi
+	done
+	IFS=$old_ifs
+	set +f
+fi
+
 # UCI wins over whatever upstream's own runtime state persisted (a chat /model switch,
 # for one), so the bridge is re-applied on every exec here, not only at the init's own
 # first start. Requiredness is checked explicitly, ahead of time, rather than left to a
@@ -51,9 +78,9 @@ fi
 : "${HERMES_OPENWRT_TOOLSETS?hermes-gateway: HERMES_OPENWRT_TOOLSETS is required}"
 # Unset, same as a router upgraded from before profiles existed, means admin:
 # the init's own default applies here too, not only at its first start.
-PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL" "${HERMES_OPENWRT_PROFILE:-admin}"
+HERMES_OPENWRT_PROVIDERS="${providers_ready#;}" PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL" "${HERMES_OPENWRT_PROFILE:-admin}"
 
 PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 	/usr/bin/python3 /usr/libexec/hermes-runtime-check
-unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS
+unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS providers_ready entry p_name p_label p_url p_key_file p_model
 exec /usr/bin/hermes gateway run --external-supervisor

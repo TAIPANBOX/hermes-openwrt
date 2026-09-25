@@ -563,7 +563,10 @@ class RuntimeTests(unittest.TestCase):
         gateway = subprocess.run(["python3", "-c", command], env=env, check=False, capture_output=True, text=True)
         self.assertEqual(gateway.returncode, 0, gateway.stderr)
 
-    def _service_instance_json(self):
+    def _service_instance_json(self, provider=False):
+        extra = ("printf '%s' 'claude-canary-runtime' > /etc/hermes-agent/claude.key; "
+                 "uci set hermes.claude=provider; uci set hermes.claude.base_url=https://api.anthropic.com/v1; "
+                 "uci set hermes.claude.model=claude-haiku-4-5") if provider else ""
         # Real OpenWrt config and procd serializers, only the ubus submission is replaced.
         # Shared by every test that needs to know exactly what procd would be handed,
         # rather than each building its own copy of the same script.
@@ -579,6 +582,7 @@ uci set hermes.main.router_mcp_url=http://127.0.0.1:8730/mcp
 uci set hermes.telegram.enabled=1
 uci -q delete hermes.telegram.allow_user_id
 uci add_list hermes.telegram.allow_user_id=123456789
+{extra}
 uci commit hermes
 . /lib/functions.sh
 . /lib/functions/procd.sh
@@ -589,6 +593,8 @@ procd_open_service hermes-agent /etc/init.d/hermes-agent
 start_service || exit 1
 procd_close_service
 '''
+        if provider:
+            self.addCleanup(subprocess.run, ["sh", "-c", "uci -q delete hermes.claude; uci commit hermes"])
         result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout), result.stdout
@@ -720,6 +726,8 @@ procd_close_service
                 self.assertEqual((self.home / "config.yaml").read_text(), content)
 
     def test_profile_defaults_to_admin_and_refuses_unknown(self):
+        # It sets profile=root below; leave UCI as the next test expects it.
+        self.addCleanup(subprocess.run, ["sh", "-c", "uci -q delete hermes.main.profile; uci commit hermes"])
         # No `profile` option at all (e.g. a router upgraded from before this
         # feature existed) must default to admin, the same as the shipped config's
         # own default value, independent of it. The default was assistant for a few
@@ -882,6 +890,227 @@ exit $?
                 self.assertEqual((self.home / "config.yaml").read_text(), before)
         parsed, _raw = self._service_instance_json()
         self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_MAX_TURNS"], "20")
+
+
+    # ---- Further providers: UCI sections, offered by /model per chat ----
+
+    PROVIDERS = ("claude|Anthropic|https://api.anthropic.com/v1|/etc/hermes-agent/claude.key|claude-haiku-4-5;"
+                 "local|Local model|http://127.0.0.1:8/v1|/etc/hermes-agent/local.key|local-model")
+
+    def configure_providers(self, raw, endpoint="http://127.0.0.1:9/v1"):
+        env = dict(self.env, HERMES_OPENWRT_PROVIDERS=raw)
+        args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", "", endpoint, "runtime-model"]
+        return subprocess.run(args, env=env, text=True, check=False, capture_output=True)
+
+    def upstream(self, code, **extra):
+        # Upstream's own resolvers, run the way the gateway runs them, in a subprocess
+        # with the keys the wrapper would have exported.
+        env = dict(self.env, OPENAI_API_KEY="main-key-canary", **extra)
+        return subprocess.run(["python3", "-c", code], env=env, check=False, capture_output=True, text=True)
+
+    def test_extra_providers_reach_upstream(self):
+        # 2026-09-25: three agents at once on three providers, asked for on the router.
+        # Each UCI provider has to be one upstream resolves, lists in /model and
+        # switches a chat to, with the key the wrapper read from its file.
+        result = self.configure_providers(self.PROVIDERS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        providers = self.config()["providers"]
+        self.assertEqual(providers["claude"]["key_env"], "HERMES_PROVIDER_CLAUDE_KEY")
+        self.assertEqual(providers["local"]["api"], "http://127.0.0.1:8/v1")
+        self.assertNotIn("sk-", yaml.safe_dump(self.config()))
+        code = (
+            "from hermes_cli.config import load_config, get_compatible_custom_providers\n"
+            "from hermes_cli.runtime_provider import resolve_runtime_provider\n"
+            "from hermes_cli.model_switch import list_picker_providers, switch_model\n"
+            "cfg = load_config()\n"
+            "r = resolve_runtime_provider(requested='claude')\n"
+            "assert r['base_url'] == 'https://api.anthropic.com/v1', r\n"
+            "assert r['api_key'] == 'claude-key-canary'\n"
+            "slugs = [p.get('slug') for p in list_picker_providers(current_provider='custom', "
+            "current_base_url='http://127.0.0.1:9/v1', current_model='runtime-model', "
+            "user_providers=cfg.get('providers'), custom_providers=get_compatible_custom_providers(cfg), max_models=5)]\n"
+            "assert 'claude' in slugs and 'local' in slugs, slugs\n"
+            "s = switch_model(raw_input='local-model', explicit_provider='local', current_provider='custom', "
+            "current_model='runtime-model', current_base_url='http://127.0.0.1:9/v1', current_api_key='main-key-canary', "
+            "user_providers=cfg.get('providers'), custom_providers=get_compatible_custom_providers(cfg))\n"
+            "assert s.success and s.base_url == 'http://127.0.0.1:8/v1' and s.api_key == 'local-key-canary', s\n"
+        )
+        check = self.upstream(code, HERMES_PROVIDER_CLAUDE_KEY="claude-key-canary",
+                              HERMES_PROVIDER_LOCAL_KEY="local-key-canary")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        # And the main provider still passes the preflight beside them.
+        env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="main-key-canary", HERMES_PROVIDER_CLAUDE_KEY="claude-key-canary")
+        pre = subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,
+                             capture_output=True, text=True)
+        self.assertEqual(pre.returncode, 0, pre.stderr)
+
+    def test_provider_names_upstream_owns_are_refused(self):
+        # Upstream resolves its built-in providers before `providers`, so a section
+        # called anthropic would send the chat to the native provider, not this one.
+        for raw in ("anthropic|A|https://api.anthropic.com/v1|/k|m",
+                    "openrouter|O|https://openrouter.ai/api/v1|/k|m",
+                    "custom|C|http://127.0.0.1:9/v1|/k|m",
+                    "Bad Name|B|http://127.0.0.1:9/v1|/k|m",
+                    "ftp|F|ftp://127.0.0.1/v1|/k|m",
+                    "nomodel|N|http://127.0.0.1:9/v1|/k|",
+                    "twice|T|http://127.0.0.1:9/v1|/k|m;twice|T|http://127.0.0.1:9/v1|/k|m",
+                    "short|S|http://127.0.0.1:9/v1"):
+            with self.subTest(raw=raw):
+                content = "model_catalog: {}\n"
+                (self.home / "config.yaml").write_text(content)
+                result = self.configure_providers(raw)
+                self.assertNotEqual(result.returncode, 0, raw)
+                self.assertEqual((self.home / "config.yaml").read_text(), content)
+
+    def test_operator_provider_entries_survive(self):
+        mine = {"api": "http://127.0.0.1:7/v1", "api_key": "operator-owned"}
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"providers": {"mine": mine}}))
+        self.assertEqual(self.configure_providers(self.PROVIDERS).returncode, 0)
+        self.assertEqual(self.config()["providers"]["mine"], mine)
+        # A UCI provider dropped from UCI leaves; the operator's stays.
+        self.assertEqual(self.configure_providers(self.PROVIDERS.split(";")[0]).returncode, 0)
+        self.assertEqual(sorted(self.config()["providers"]), ["claude", "mine"])
+        self.assertEqual(self.configure_providers("").returncode, 0)
+        self.assertEqual(self.config()["providers"], {"mine": mine})
+        # An operator entry with a UCI provider's name is refused, not overwritten.
+        before = (self.home / "config.yaml").read_text()
+        result = self.configure_providers("mine|Mine|http://127.0.0.1:9/v1|/k|m")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_text(), before)
+        # Unset means untouched: callers that predate providers change nothing here.
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        self.assertEqual(self.config()["providers"], {"mine": mine})
+
+    def test_wrapper_exports_provider_keys_and_drops_missing_ones(self):
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        endpoint = "http://127.0.0.1:9/v1"
+        key = self.home / "key"
+        key.write_text("main-key-canary")
+        claude_key = self.home / "claude.key"
+        claude_key.write_text("  claude-key-canary\n")
+        missing = self.home / "local.key"
+        raw = (f"claude|Anthropic|https://api.anthropic.com/v1|{claude_key}|claude-haiku-4-5;"
+               f"local|Local|http://127.0.0.1:9/v1|{missing}|local-model")
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="",
+                   HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   HERMES_OPENWRT_PROVIDERS=raw, HERMES_PROVIDER_STALE_KEY="stale-canary")
+        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        child = json.loads(result.stdout)
+        self.assertEqual(child["HERMES_PROVIDER_CLAUDE_KEY"], "claude-key-canary")
+        self.assertNotIn("HERMES_PROVIDER_LOCAL_KEY", child)
+        self.assertNotIn("HERMES_PROVIDER_STALE_KEY", child)
+        self.assertNotIn("HERMES_OPENWRT_PROVIDERS", child)
+        self.assertEqual(sorted(self.config()["providers"]), ["claude"])
+        self.assertIn(str(missing), result.stderr)
+
+    def test_provider_keys_absent_from_procd(self):
+        _parsed, raw = self._service_instance_json(provider=True)
+        self.assertNotIn("claude-canary-runtime", raw)
+        parsed = json.loads(raw)
+        self.assertIn("/etc/hermes-agent/claude.key", parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_PROVIDERS"])
+
+    def test_bad_provider_section_refuses_the_start(self):
+        # A bad section anywhere, not only the last one: OpenWrt's config_foreach
+        # carries on past a failing callback and reports only the last status.
+        script = f'''
+mkdir -p /etc/hermes-agent /var/lock /var/run /var/state
+printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
+uci set hermes.main.enabled=1
+uci set hermes.main.mem_max_mb=0
+uci set hermes.main.data_dir={shlex.quote(str(self.home))}
+uci set hermes.telegram.enabled=0
+uci set hermes.broken=provider
+uci set hermes.broken.base_url=http://127.0.0.1:9/v1
+uci set hermes.fine=provider
+uci set hermes.fine.base_url=http://127.0.0.1:9/v1
+uci set hermes.fine.model=m
+uci commit hermes
+. /lib/functions.sh
+. /lib/functions/procd.sh
+initscript=/etc/init.d/hermes-agent
+. {shlex.quote(str(FILES / "hermes-agent.init"))}
+_procd_ubus_call() {{ json_dump; }}
+procd_open_service hermes-agent /etc/init.d/hermes-agent
+start_service; echo "start=$?"
+'''
+        self.addCleanup(subprocess.run, ["sh", "-c", "uci -q delete hermes.broken; uci -q delete hermes.fine; uci commit hermes"])
+        result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
+        self.assertIn("start=1", result.stdout, result.stdout + result.stderr)
+        self.assertIn("provider 'broken' needs base_url and model", result.stderr)
+
+    def test_preflight_protects_provider_keys(self):
+        self.assertEqual(self.configure_providers(self.PROVIDERS.split(";")[0]).returncode, 0)
+        env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="main-key-canary", HERMES_PROVIDER_CLAUDE_KEY="claude-key-canary")
+        (self.home / ".env").write_text("HERMES_PROVIDER_CLAUDE_KEY=conflict-canary\n")
+        result = subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("conflict-canary", result.stdout + result.stderr)
+        self.assertIn("HERMES_PROVIDER_CLAUDE_KEY", result.stderr)
+
+    def test_openai_api_is_hidden_from_the_picker(self):
+        # OPENAI_API_KEY carries the main key for whatever endpoint UCI names; upstream
+        # read it as a signed-in OpenAI API and offered "openai-api" in /model, which
+        # would send that key to api.openai.com.
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"model_catalog": {"excluded_providers": ["nous"]}}))
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        excluded = self.config()["model_catalog"]["excluded_providers"]
+        self.assertEqual(excluded, ["nous", "openai-api"])
+        code = (
+            "from hermes_cli.config import load_config, get_compatible_custom_providers\n"
+            "from hermes_cli.model_switch import list_picker_providers\n"
+            "cfg = load_config()\n"
+            "slugs = [p.get('slug') for p in list_picker_providers(current_provider='custom', "
+            "current_base_url='http://127.0.0.1:9/v1', current_model='runtime-model', "
+            "user_providers=cfg.get('providers'), custom_providers=get_compatible_custom_providers(cfg), "
+            "max_models=5, excluded_providers=cfg['model_catalog']['excluded_providers'])]\n"
+            "assert 'openai-api' not in slugs, slugs\n"
+        )
+        check = self.upstream(code)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_native_anthropic_provider_is_installed(self):
+        # /model picks upstream's native Anthropic transport for api.anthropic.com
+        # whatever a provider entry says, and that transport needs the SDK.
+        check = self.upstream("import anthropic; from agent.anthropic_adapter import build_anthropic_client; "
+                              "print(anthropic.__version__)")
+        self.assertEqual(check.returncode, 0, check.stderr)
+
+    def test_login_helper_uses_the_service_home(self):
+        helper = FILES / "hermes-login"
+        self.assertTrue(helper.exists(), "hermes-login is not installed")
+        self.addCleanup(subprocess.run, ["sh", "-c", "uci set hermes.main.data_dir=/srv/hermes; uci commit hermes"])
+        subprocess.run(["sh", "-c", f"uci set hermes.main.data_dir={shlex.quote(str(self.home))}; uci commit hermes"], check=True)
+        shown = subprocess.run(["sh", str(helper), "chatgpt", "--print-home"], check=False, capture_output=True, text=True)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertEqual(shown.stdout.strip(), str(self.home))
+        bad = subprocess.run(["sh", str(helper), "other"], check=False, capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2)
+
+    def test_chatgpt_login_does_not_trip_the_preflight(self):
+        # hermes-login stores the subscription's tokens with upstream's own saver and
+        # points model.provider at it; the next start puts UCI's model back and the
+        # preflight, which guards the main key only, still passes.
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        code = ("from hermes_cli.auth import _save_codex_tokens, _update_config_for_provider\n"
+                "_save_codex_tokens({'access_token': 'codex-access-canary', 'refresh_token': 'codex-refresh-canary'}, None)\n"
+                "_update_config_for_provider('openai-codex', 'https://chatgpt.com/backend-api/codex')\n")
+        saved = self.upstream(code)
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        self.assertEqual(self.config()["model"]["provider"], "custom")
+        env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="main-key-canary")
+        pre = subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,
+                             capture_output=True, text=True)
+        self.assertEqual(pre.returncode, 0, pre.stderr)
 
 
 if __name__ == "__main__":

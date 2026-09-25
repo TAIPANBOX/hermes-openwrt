@@ -87,6 +87,18 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     record the router's state first, then restore it (gate:
     `scripts/gate-named-routers.sh`, teeth: `scripts/teeth-named-routers.sh`, both in
     CI's `scenarios` job; the restore is not enforced).
+16. `@decided 2026-09-25`: more than one provider on one router, working at the same time.
+    Each UCI `provider` section (base_url, key_file, model, label) becomes an entry in
+    upstream's `providers` map whose key_env is `HERMES_PROVIDER_<NAME>_KEY`; the wrapper
+    reads the key file at every exec, a missing key drops only that provider, procd holds
+    paths only, and the preflight guards those keys like the main one. A name upstream
+    already gives a built-in provider is refused, and so is a bad section anywhere in the
+    list; the operator's own entries are never touched. Every chat starts on the main
+    model and /model switches that chat only. `openai-api` is kept out of /model, because
+    OPENAI_API_KEY holds the main key for whatever endpoint UCI names. The `anthropic`
+    extra ships, since /model picks upstream's native transport for api.anthropic.com. A
+    ChatGPT subscription signs in with `hermes-login chatgpt`, into the service's data
+    directory (gate: `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

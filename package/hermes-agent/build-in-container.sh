@@ -59,7 +59,10 @@ HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 # r8: admin became the default profile; assistant tells the agent it has no shell;
 # max_turns caps the model calls with tools in one turn at 20 (UCI); upstream adds one
 # call without tools to sum up when a turn reaches it.
-PKGREL=${PKGREL:-8}
+#
+# r9: further providers from UCI `provider` sections, offered by /model per chat;
+# the anthropic extra for upstream's native Anthropic provider; hermes-login chatgpt.
+PKGREL=${PKGREL:-9}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -113,7 +116,7 @@ else
 	opkg update >/dev/null
 	opkg install python3 python3-pip >/dev/null
 fi
-HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp}" \\
+HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp,anthropic}" \\
 	/src/build.sh "$ARCH" /work/tree
 CONTAINER
 

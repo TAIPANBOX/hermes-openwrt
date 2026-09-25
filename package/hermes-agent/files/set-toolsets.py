@@ -28,11 +28,23 @@ How: the note is a delimited block in agent.system_prompt, which the gateway loa
 its ephemeral system prompt; the operator's own text around it is kept, and admin
 removes only the block. The cap comes from UCI through HERMES_OPENWRT_MAX_TURNS into
 agent.max_turns, which the gateway turns into its per-turn iteration budget.
+
+@decided 2026-09-25: more than one provider on one router. Every chat starts on the
+UCI main model; the others are offered by /model and switch that chat only.
+
+How: HERMES_OPENWRT_PROVIDERS carries the UCI `provider` sections, paths and names only,
+as name|label|base_url|key_file|model separated by ';'. Each becomes an entry in upstream's
+`providers` map whose key_env names HERMES_PROVIDER_<NAME>_KEY, the variable the exec
+wrapper fills from key_file; that key_env shape is what marks an entry as this package's.
+Names upstream already gives a built-in provider are refused, because upstream resolves
+the built-in first and the chat would silently land somewhere else. The variable unset
+leaves `providers` untouched; set and empty removes the entries this package wrote.
 """
 from __future__ import annotations
 
 import copy
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -84,6 +96,48 @@ def _validate_endpoint(value: str, label: str) -> None:
         raise ValueError(f"{label} must be HTTP(S), without embedded credentials")
     # Also validate the port rather than persisting an unusable endpoint.
     _ = parsed.port
+
+
+# What marks a `providers` entry as written by this package rather than the operator.
+KEY_ENV = re.compile(r"^HERMES_PROVIDER_[A-Z0-9_]+_KEY$")
+PROVIDER_NAME = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+
+
+def _key_env(name: str) -> str:
+    return "HERMES_PROVIDER_" + name.upper().replace("-", "_") + "_KEY"
+
+
+def _builtin_provider(name: str) -> bool:
+    """Whether upstream has a provider of its own by exactly this name: it resolves that
+    before any entry in `providers`, so a UCI section called that would never be reached.
+    An alias (claude for anthropic, say) is not one: measured on a Brume 2 on 2026-09-25,
+    an entry called claude resolved to itself, one called anthropic to the built-in."""
+    from hermes_cli.auth import PROVIDER_REGISTRY
+    from hermes_cli.models import _PROVIDER_MODELS
+    return (name in ("custom", "auto", "openai", "openai-api", "openrouter")
+            or name in PROVIDER_REGISTRY or name in _PROVIDER_MODELS)
+
+
+def _uci_providers(raw: str) -> dict:
+    wanted = {}
+    for item in (part for part in raw.split(";") if part):
+        fields = item.split("|")
+        if len(fields) != 5:
+            raise ValueError("a provider entry must read name|label|base_url|key_file|model")
+        name, label, url, _key_file, model = fields
+        if not PROVIDER_NAME.match(name):
+            raise ValueError(f"provider name {name!r}: lower-case letters, digits and '-', starting with a letter")
+        if name in wanted:
+            raise ValueError(f"provider {name} is configured twice")
+        if _builtin_provider(name):
+            raise ValueError(f"provider name {name!r} is one upstream already uses; choose another")
+        _validate_endpoint(url, f"provider {name} base_url")
+        for value, what in ((model, "model"), (label, "label")):
+            if not value.strip() or any(ord(c) < 32 or ord(c) == 127 for c in value):
+                raise ValueError(f"provider {name} {what} is empty or contains control characters")
+        wanted[name] = {"name": label, "api": url, "key_env": _key_env(name),
+                        "default_model": model, "models": [model]}
+    return wanted
 
 
 def main() -> int:
@@ -174,6 +228,48 @@ def main() -> int:
             model_config.update(default=model, provider="custom", base_url=endpoint,
                                 api_mode="chat_completions", api_key="${OPENAI_API_KEY}")
             config["model"] = model_config
+            # OPENAI_API_KEY holds the main key for whatever endpoint UCI names, and
+            # upstream takes its mere presence to mean the OpenAI API itself is signed
+            # in: /model would offer "openai-api" and send this key to api.openai.com.
+            catalog = config.get("model_catalog")
+            if catalog is None:
+                catalog = config["model_catalog"] = {}
+            if not isinstance(catalog, dict):
+                raise TypeError("model_catalog must be a mapping")
+            excluded = catalog.get("excluded_providers")
+            if excluded is None:
+                excluded = []
+            if not isinstance(excluded, list):
+                raise TypeError("model_catalog.excluded_providers must be a list")
+            if "openai-api" not in excluded:
+                catalog["excluded_providers"] = list(excluded) + ["openai-api"]
+
+        # Further providers, from the UCI `provider` sections: each chat starts on the
+        # main model above and /model offers these beside it.
+        raw_providers = os.environ.get("HERMES_OPENWRT_PROVIDERS")
+        if raw_providers is not None:
+            wanted = _uci_providers(raw_providers)
+            providers = config.get("providers")
+            if providers is None:
+                providers = {}
+            if not isinstance(providers, dict):
+                raise TypeError("providers must be a mapping")
+            providers = dict(providers)
+
+            def ours(entry):
+                return isinstance(entry, dict) and bool(KEY_ENV.match(str(entry.get("key_env") or "")))
+
+            for name in list(providers):
+                if ours(providers[name]) and name not in wanted:
+                    del providers[name]
+            for name, entry in wanted.items():
+                if name in providers and not ours(providers[name]) and providers[name] != entry:
+                    raise ValueError(f"providers.{name} is operator-owned; rename it or the UCI provider section")
+                providers[name] = entry
+            if providers:
+                config["providers"] = providers
+            else:
+                config.pop("providers", None)
 
         # Profiles govern agent.disabled_toolsets, never platform_toolsets above:
         # see the module docstring for why (upstream subtracts it as a final,
