@@ -40,12 +40,13 @@ usage() {
 ARCH=${1:?$(usage)}
 OUT=${2:?$(usage)}
 
-# The upstream release this package carries. CalVer, matching their tags.
-HERMES_VERSION=${HERMES_VERSION:-0.19.0}
-
-# OpenWrt 25.12 ships CPython 3.13; 24.10 ships 3.11. The wheel set differs between
-# them, so the caller picks, and the default follows the current release.
-PYVER=${PYVER:-3.13}
+# The upstream release this package carries, the commit it is built from and what it
+# leaves out: one file, read by the build and by the gates. See package/upstream/.
+UPSTREAM_SRC=${UPSTREAM_SRC:-/upstream-src}
+. "$UPSTREAM_SRC/upstream.env"
+# The verified archive of that commit, fetched on the host by package/upstream/fetch.sh.
+UPSTREAM_ARCHIVE=${UPSTREAM_ARCHIVE:?build.sh: UPSTREAM_ARCHIVE (the verified upstream archive) is required}
+export HERMES_VERSION HERMES_EXCLUDE
 
 # Refuse to produce a package against the wrong libc. Silent success here would mean a
 # tree that only fails on the router, at import time, in front of a user.
@@ -80,13 +81,47 @@ rm -rf "$OUT"
 mkdir -p "$SITE" "$OUT/usr/bin" "$OUT/usr/sbin" "$OUT/etc/init.d" "$OUT/etc/config" \
          "$OUT/etc/hermes-agent" "$OUT/lib/upgrade/keep.d"
 
+# Upstream publishes no wheel after 0.19.0 and refuses to build one outside its Nix
+# derivation, so resolve.py builds it the way that derivation does, from the pinned
+# archive, and works out the exact dependency set: upstream's uv.lock versions, minus
+# HERMES_EXCLUDE and whatever only those needed. See resolve.py's own header.
+UP=/tmp/hermes-upstream
+rm -rf "$UP"
+WHEEL=$(python3 "$UPSTREAM_SRC/resolve.py" build "$UPSTREAM_ARCHIVE" "$UP")
+python3 "$UPSTREAM_SRC/resolve.py" closure "$UP" "$EXTRAS" > "$UP/closure.txt"
+
 # --only-binary=:all: turns "no wheel for this target" into a build failure rather than
-# a source build that would need a compiler the router image does not have.
+# a source build that would need a compiler the router image does not have. --no-deps
+# because closure.txt IS the dependency set; letting pip resolve again would bring the
+# excluded packages straight back, since Hermes declares them.
 python3 -m pip install \
 	--quiet --no-cache-dir --disable-pip-version-check --root-user-action=ignore \
 	--target "$SITE" \
-	--only-binary=:all: \
-	"hermes-agent[$EXTRAS]==$HERMES_VERSION"
+	--only-binary=:all: --no-deps \
+	-r "$UP/closure.txt" "$WHEEL"
+
+# What upstream ships beside the wheel, laid out as its Nix derivation lays it out and
+# found through the same variables (files/hermes-env). Without them the agent finds no
+# bundled skills and prints raw i18n keys instead of messages. web_dist and the TUI are
+# Node builds for the dashboard and the terminal UI, neither of which a router runs.
+SHARE="$OUT/usr/share/hermes-agent"
+mkdir -p "$SHARE"
+for d in skills optional-skills locales optional-mcps; do
+	[ -d "$UP/src/$d" ] || { echo "build.sh: upstream archive has no $d/" >&2; exit 1; }
+	cp -R "$UP/src/$d" "$SHARE/$d"
+done
+find "$SHARE" -type d \( -name __pycache__ -o -name index-cache \) -exec rm -rf {} + 2>/dev/null || true
+cp "$SRC/files/hermes-env" "$OUT/usr/lib/hermes-agent/hermes-env" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-env"
+
+# Which upstream this package carries, for anyone on the router and for gate-upstream.
+cat > "$OUT/usr/lib/hermes-agent/upstream" <<UPSTREAM
+version=$HERMES_VERSION
+tag=$HERMES_TAG
+commit=$HERMES_COMMIT
+archive_sha256=$HERMES_TARBALL_SHA256
+excluded=$HERMES_EXCLUDE
+UPSTREAM
+chmod 0644 "$OUT/usr/lib/hermes-agent/upstream"
 
 # cp and chmod rather than install(1): the OpenWrt rootfs is busybox without the
 # install applet, and this script runs inside it.
@@ -114,6 +149,8 @@ cat > "$OUT/usr/bin/hermes" <<'LAUNCHER'
 # it is not on the system python path, so nothing else on the router can be broken by
 # what Hermes depends on, and Hermes cannot be broken by what the router installs.
 SITE=/usr/lib/hermes-agent/site-packages
+# Where upstream's skills, locales and MCP catalogue live; see the file itself.
+. /usr/lib/hermes-agent/hermes-env
 # Bytecode is shipped with the package, so writing more of it at runtime can only put
 # unowned files inside the package directory and leave litter behind on removal.
 PYTHONPATH="$SITE${PYTHONPATH:+:$PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 \
@@ -141,7 +178,9 @@ chmod 0644 "$OUT/lib/upgrade/keep.d/hermes-agent"
 # is real library code, not packaging slack.
 find "$SITE" -type d \( -name tests -o -name test -o -name docs -o -name examples \) \
 	-exec rm -rf {} + 2>/dev/null || true
-find "$SITE" -name '*.pyi' -delete 2>/dev/null || true
+# -exec rm, not -delete: the rootfs busybox find has no -delete, and until 0.21.5 this
+# line failed there quietly behind 2>/dev/null and removed nothing.
+find "$SITE" -name '*.pyi' -exec rm -f {} + 2>/dev/null || true
 
 # Precompile. Upstream's container sets PYTHONDONTWRITEBYTECODE=1, which is right for a
 # container that is rebuilt constantly and wrong for a router that boots the same tree
@@ -149,4 +188,4 @@ find "$SITE" -name '*.pyi' -delete 2>/dev/null || true
 python3 -m compileall -q -j 0 "$SITE" >/dev/null 2>&1 || true
 
 echo "build.sh: tree assembled at $OUT ($(du -sh "$OUT" | cut -f1))"
-echo "build.sh: $(find "$SITE" -maxdepth 1 -name '*.dist-info' | wc -l | tr -d ' ') python packages"
+echo "build.sh: $(find "$SITE" -maxdepth 1 -name '*.dist-info' | wc -l | tr -d ' ') python packages, hermes-agent $HERMES_VERSION from $HERMES_COMMIT"

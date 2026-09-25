@@ -112,7 +112,7 @@ return view.extend({
 			 * do, and the fix is a package rather than a setting. */
 			hint = E('div', { 'class': 'alert-message warning' }, [
 				E('p', {}, _('Telegram is switched on but its client library is not installed, so the service will refuse to start.')),
-				E('p', {}, _('Install it: apk add hermes-agent-telegram, or on 24.10 opkg install hermes-agent-telegram'))
+				E('p', {}, _('Install it: apk add hermes-agent-telegram'))
 			]);
 		} else if (lowSpace) {
 			hint = E('div', { 'class': 'alert-message warning' },

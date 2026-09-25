@@ -154,8 +154,14 @@ echo "PASS [3/8] check_no_file_collision ($na add-on files against $nb base file
 # somebody's device.
 v=$(PYTHONPATH=$SITE python3 -c 'import telegram, telegram.ext, tornado; print(telegram.__version__)' 2>&1) \
 	|| { echo "$v"; fail "[4/8] check_library_imports" "the library does not import"; }
-[ "$v" = "22.6" ] || fail "[4/8] check_library_imports" "expected 22.6, got '$v'"
-grep -q 'python-telegram-bot==22.6' /usr/lib/hermes-agent/telegram.manifest \
+# The version upstream itself pins under its messaging extra, read from hermes-agent's
+# own metadata: an independent source, where the add-on's manifest is our own output.
+# Hard-coded as 22.6 until 0.21.5, which pins 22.8.
+want=$(sed -n 's/^Requires-Dist: python-telegram-bot\[webhooks\]==\([0-9.]*\); extra == "messaging"$/\1/p' \
+	"$SITE"/hermes_agent-*.dist-info/METADATA | head -1)
+[ -n "$want" ] || fail "[4/8] check_library_imports" "hermes-agent's metadata pins no python-telegram-bot under messaging"
+[ "$v" = "$want" ] || fail "[4/8] check_library_imports" "expected $want, got '$v'"
+grep -qx "python-telegram-bot==$want" /usr/lib/hermes-agent/telegram.manifest \
 	|| fail "[4/8] check_library_imports" "the shipped manifest does not describe what installed"
 echo "PASS [4/8] check_library_imports (python-telegram-bot $v)"
 

@@ -1,0 +1,13 @@
+# Sourced by /usr/bin/hermes and /usr/sbin/hermes-login. Not executable on its own.
+#
+# Where upstream's non-Python parts live. From 0.21 upstream ships skills, optional
+# skills, locales and the MCP catalogue beside its wheel, not inside it, and finds them
+# through these variables, which its Nix wrapper sets. Unset, the agent looks for them
+# relative to site-packages, where they are not: it then has no bundled skills and prints
+# raw i18n keys instead of messages. An operator's own value wins.
+HERMES_SHARE=/usr/share/hermes-agent
+export HERMES_BUNDLED_SKILLS="${HERMES_BUNDLED_SKILLS:-$HERMES_SHARE/skills}"
+export HERMES_OPTIONAL_SKILLS="${HERMES_OPTIONAL_SKILLS:-$HERMES_SHARE/optional-skills}"
+export HERMES_BUNDLED_LOCALES="${HERMES_BUNDLED_LOCALES:-$HERMES_SHARE/locales}"
+export HERMES_OPTIONAL_MCPS="${HERMES_OPTIONAL_MCPS:-$HERMES_SHARE/optional-mcps}"
+unset HERMES_SHARE

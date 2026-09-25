@@ -40,7 +40,10 @@ ARCH=${1:?$(usage)}
 OUT=${2:?$(usage)}
 BASE_TREE=${3:-}
 
-HERMES_VERSION=${HERMES_VERSION:-0.19.0}
+UPSTREAM_SRC=${UPSTREAM_SRC:-/upstream-src}
+. "$UPSTREAM_SRC/upstream.env"
+UPSTREAM_ARCHIVE=${UPSTREAM_ARCHIVE:?build.sh: UPSTREAM_ARCHIVE (the verified upstream archive) is required}
+export HERMES_VERSION HERMES_EXCLUDE UPSTREAM_SRC
 # Must match what the base package was built with, or the resolution below describes a
 # base tree that is not the one on the router.
 EXTRAS=${EXTRAS:-cron,mcp,anthropic}
@@ -58,7 +61,11 @@ mkdir -p "$SITE" "$OUT/usr/lib/hermes-agent"
 
 # ---- 1. what must this package carry ----
 DELTA="$OUT/usr/lib/hermes-agent/telegram.manifest"
-python3 "$SRC/files/delta.py" "$HERMES_VERSION" "$EXTRAS" > "$DELTA"
+# The same wheel and the same resolution the base package was built with; see delta.py.
+UP=/tmp/hermes-upstream
+rm -rf "$UP"
+python3 "$UPSTREAM_SRC/resolve.py" build "$UPSTREAM_ARCHIVE" "$UP" >/dev/null
+python3 "$SRC/files/delta.py" "$UP" "$EXTRAS" > "$DELTA"
 chmod 0644 "$DELTA"
 sed 's/^/build.sh:   ships /' "$DELTA"
 
@@ -76,7 +83,8 @@ python3 -m pip install \
 # ---- 3. the same trimming and precompiling the base package does ----
 find "$SITE" -type d \( -name tests -o -name test -o -name docs -o -name examples \) \
 	-exec rm -rf {} + 2>/dev/null || true
-find "$SITE" -name '*.pyi' -delete 2>/dev/null || true
+# -exec rm, not -delete: the rootfs busybox find has no -delete.
+find "$SITE" -name '*.pyi' -exec rm -f {} + 2>/dev/null || true
 # Ship the bytecode. Not merely a speed matter: with PYTHONDONTWRITEBYTECODE=1 in the
 # init script, a module that arrives without its .pyc is re-parsed on every start, and
 # with that variable unset it writes into a directory the package manager does not own,

@@ -27,6 +27,10 @@ jobs:
   # targets, which is what this does.
   package:
     runs-on: ubuntu-latest
+    # package/upstream/fetch.sh: the upstream archive is public; the token only lifts
+    # api.github.com's anonymous rate limit, which shared runner addresses hit.
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     strategy:
       fail-fast: false
       matrix:
@@ -65,6 +69,14 @@ jobs:
       - name: it installs, runs, and keeps the key out of sight
         run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh
 
+      # The pinned upstream commit, uv.lock's versions, the two parts left out, and what
+      # upstream ships beside the wheel found where the package put it.
+      - name: it carries the pinned upstream, as upstream locks it
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-upstream.sh
+
+      - name: and that gate has teeth
+        run: ARCH=${{ matrix.arch }} ./scripts/teeth-upstream.sh
+
       - name: the add-on installs beside the base and neither claims the other's files
         run: ARCH=${{ matrix.arch }} ./scripts/gate-telegram.sh
 
@@ -98,59 +110,6 @@ jobs:
             hermes-agent-*.apk
             hermes-agent-telegram-*.apk
             luci-app-hermes-*.apk
-          # 56 MB per architecture; a fortnight is long enough to try one on a router
+          # About 71 MB per architecture since 0.21.5; a fortnight is long enough to try one on a router
           # and short enough not to hoard.
           retention-days: 14
-
-  # 24.10 is the other maintained line and its failure mode is not apk's.
-  #
-  # apk REFUSES an install in which two packages claim one file. opkg accepts it, updates
-  # its own manifest, and leaves the first package's file list describing bytes it did not
-  # write; the damage appears later, when removing the SECOND package takes a file the
-  # FIRST still needs. So the add-on's central risk is only really exercised here, and a
-  # green apk run says nothing about it.
-  #
-  # aarch64 only. The point of this job is opkg and CPython 3.11, neither of which differs
-  # between architectures, and a second emulated build would double a slow job to re-prove
-  # what the 25.12 matrix already covers.
-  packages-24-10:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-
-      - name: build the base package inside OpenWrt 24.10
-        run: RELEASE=24.10.8 ./package/hermes-agent/build-in-container.sh aarch64_generic
-
-      - name: build the Telegram add-on
-        run: RELEASE=24.10.8 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
-
-      - name: it installs under opkg and runs on the 3.11 this release ships
-        run: ARCH=aarch64_generic RELEASE=24.10.8 ./scripts/gate-ipk.sh
-
-      - name: the add-on installs beside it without either overwriting the other
-        run: ARCH=aarch64_generic RELEASE=24.10.8 ./scripts/gate-telegram-opkg.sh
-
-      - name: gateway controls on Python 3.11 and opkg
-        run: ARCH=aarch64_generic RELEASE=24.10.8 ./scripts/gate-runtime.sh
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hermes-agent-24.10-aarch64
-          path: |
-            hermes-agent_*.ipk
-            hermes-agent-telegram_*.ipk
-          retention-days: 14
-
-  # There is deliberately no publishing job here.
-  #
-  # The feed's signing keys are not available to CI and are not stored in this
-  # repository's secrets. A key held as a secret is readable by anyone who can push a
-  # workflow to the default branch, and this one cannot be revoked: a router that has
-  # trusted the public half keeps trusting anything signed with the private half until
-  # a person logs in and deletes the file.
-  #
-  # So CI does what CI is good at, which is building every architecture and running
-  # every gate, and the signature is applied by a person on the machine where the key
-  # lives. See scripts/publish-feed.sh; GitHub Pages serves the gh-pages branch that
-  # script pushes.

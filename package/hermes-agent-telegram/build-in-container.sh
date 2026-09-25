@@ -17,11 +17,14 @@ set -eu
 
 ARCH=${1:-aarch64_generic}
 RELEASE=${RELEASE:-25.12.4}
+# 25.12 only (2026-09-25). The 24.10 line, its opkg packages and its feed were dropped;
+# the last build that could make them is in git history before that date.
 case "$RELEASE" in
-	24.10*) FORMAT=ipk ;;
-	*)      FORMAT=apk ;;
+	25.*) ;;
+	*) echo "$0: RELEASE=$RELEASE is not built any more; this package is for OpenWrt 25.12" >&2; exit 1 ;;
 esac
-HERMES_VERSION=${HERMES_VERSION:-0.19.0}
+# The upstream version, commit and exclusions come from one file; see package/upstream/.
+. "$(cd "$(dirname "$0")/../upstream" && pwd)/upstream.env"
 PKGREL=${PKGREL:-1}
 # Must match the base package's own PKGREL when the two are published together, because
 # the dependency below is expressed against the upstream version rather than this.
@@ -61,20 +64,18 @@ fi
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
+ARCHIVE=$("$ROOT/package/upstream/fetch.sh")
+
 echo "==> assembling the telegram tree inside $IMAGE"
 docker run --rm -i --platform "linux/$ARCH" \
 	-v "$SRC:/src:ro" -v "$WORK:/work" -v "$BASE_TREE:/base:ro" \
+	-v "$ROOT/package/upstream:/upstream-src:ro" -v "$ARCHIVE:/upstream/archive.tar.gz:ro" \
 	"$IMAGE" /bin/sh -s <<CONTAINER
 set -eu
 mkdir -p /var/lock /var/run /var/state
-if command -v apk >/dev/null 2>&1; then
-	apk update -q
-	apk add -q python3 python3-pip
-else
-	opkg update >/dev/null
-	opkg install python3 python3-pip >/dev/null
-fi
-HERMES_VERSION=$HERMES_VERSION EXTRAS="${EXTRAS:-cron,mcp,anthropic}" \\
+apk update -q
+apk add -q python3 python3-pip
+UPSTREAM_ARCHIVE=/upstream/archive.tar.gz EXTRAS="${EXTRAS:-cron,mcp,anthropic}" \\
 	/src/build.sh "$ARCH" /work/tree /base
 CONTAINER
 
@@ -83,27 +84,13 @@ CONTAINER
 docker run --rm -i --platform "linux/$ARCH" -v "$WORK:/work" "$IMAGE" \
 	chown -R "$(id -u):$(id -g)" /work 2>/dev/null || true
 
-if [ "$FORMAT" = ipk ]; then
-	echo "==> packaging with mkipk.sh (opkg, $RELEASE)"
-	docker run --rm -i -v "$SRC:/src:ro" -v "$WORK:/work" -v "$ROOT:/out" \
-		-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEST=/out \
-		"$ALPINE" sh -c "apk add -q --no-cache tar >/dev/null 2>&1; /src/mkipk.sh /work/tree '$ARCH' '$HERMES_VERSION'"
-	cp "$ROOT"/${PKG}_*_"$ARCH".ipk "$WORK/" 2>/dev/null || true
-	for extra in ${EXTRA_ARCHES:-}; do
-		docker run --rm -i -v "$SRC:/src:ro" -v "$WORK:/work" -v "$ROOT:/out" \
-			-e HERMES_VERSION="$HERMES_VERSION" -e PKGREL="$PKGREL" -e DEST=/out \
-			"$ALPINE" sh -c "apk add -q --no-cache tar >/dev/null 2>&1; /src/mkipk.sh /work/tree '$extra' '$HERMES_VERSION'"
-		echo "==> also $extra"
-	done
-	exit 0
-fi
 
 echo "==> packaging with apk mkpkg"
 
 # The dependency is expressed as a RANGE on the upstream version, not an exact pin.
 #
-# What this package ships was computed by subtracting hermes-agent 0.19.0's dependency
-# closure from that same closure plus Telegram. Any 0.19.0-rN base has that closure, so
+# What this package ships was computed by subtracting hermes-agent's dependency closure
+# from that same closure plus Telegram. Any $HERMES_VERSION-rN base has that closure, so
 # pinning the packaging revision too would break the add-on on every base rebuild for no
 # gain. A different upstream version is a different closure and genuinely must not be
 # mixed, which is what the upper bound says.

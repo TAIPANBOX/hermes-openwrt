@@ -36,6 +36,8 @@ fi
 
 mkdir -p "$data_dir"
 chmod 0700 "$data_dir"
+# Upstream's locales and the rest; see the file. The sign-in prints translated text.
+. /usr/lib/hermes-agent/hermes-env
 restart_if_running() {
 	if /etc/init.d/hermes-agent running >/dev/null 2>&1; then
 		/etc/init.d/hermes-agent restart

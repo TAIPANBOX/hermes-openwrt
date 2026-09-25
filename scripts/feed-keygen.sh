@@ -29,28 +29,8 @@ ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f2480
 
 mkdir -p "$OUT"
 
-# 24.10 signs with usign, which is Ed25519 and a different mechanism entirely from the
-# EC key apk uses. Neither key works for the other line, so a repository serving both
-# releases needs both, and both are generated here so nobody discovers the second one
-# missing halfway through a release.
-if [ ! -f "$OUT/$NAME.usign.pub" ]; then
-	docker run --rm -i -v "$OUT:/out" "$ALPINE" /bin/sh -s <<'USIGN'
-set -eu
-apk add -q --no-cache build-base git >/dev/null 2>&1
-# usign is not packaged for Alpine, and it is 400 lines around libsodium's Ed25519.
-apk add -q --no-cache libsodium-dev cmake >/dev/null 2>&1
-git clone -q --depth 1 https://git.openwrt.org/project/usign.git /tmp/usign 2>/dev/null \
-  || git clone -q --depth 1 https://github.com/openwrt/usign.git /tmp/usign
-cd /tmp/usign && cmake -DCMAKE_BUILD_TYPE=Release . >/dev/null 2>&1 && make >/dev/null 2>&1
-umask 077
-./usign -G -s /out/usign.sec -p /out/usign.pub -c "hermes-openwrt feed"
-chmod 600 /out/usign.sec; chmod 644 /out/usign.pub
-USIGN
-	mv "$OUT/usign.pub" "$OUT/$NAME.usign.pub"
-	mv "$OUT/usign.sec" "$OUT/$NAME.usign.sec"
-	chmod 600 "$OUT/$NAME.usign.sec"
-	echo "usign pair created for the 24.10 (opkg) line"
-fi
+# The 24.10 line and its usign (Ed25519) key were dropped on 2026-09-25; a usign pair
+# made before that stays wherever it was, unused. Only the EC key apk verifies is made.
 
 if [ -f "$OUT/$NAME.pem" ]; then
 	echo "feed-keygen.sh: $OUT/$NAME.pem already exists." >&2
@@ -80,7 +60,7 @@ cat <<EOF
 Public key   $OUT/$NAME.pem          commit this, it is published with the feed
 Private key  $OUT/$NAME.private.pem  NEVER commit this
 
-.gitignore excludes *.private.pem and *.usign.sec. Both private keys stay in keys/ on
+.gitignore excludes *.private.pem. The private key stays in keys/ on
 this signing workstation and are never uploaded anywhere, including CI: see
 publish-feed.sh's header for why signing happens here and not in a workflow.
 

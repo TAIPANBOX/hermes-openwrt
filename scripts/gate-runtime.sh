@@ -31,13 +31,8 @@ docker run --rm -i --platform "linux/$ARCH" --privileged --cgroupns private --me
     -v "$ROOT:/src:ro" -v "$BUILD:/build:ro" -v "$BUILD-telegram:/addon:ro" "$IMAGE" sh -s <<'CONTAINER'
 set -eu
 mkdir -p /var/lock /var/run /var/state /etc/hermes-agent
-if command -v apk >/dev/null; then
-    apk update -q
-    apk add --allow-untrusted /build/hermes-agent-[0-9]*.apk /addon/hermes-agent-telegram-*.apk >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; }
-else
-    opkg update >/dev/null
-    opkg install /build/hermes-agent_[0-9]*.ipk /addon/hermes-agent-telegram_*.ipk >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; }
-fi
+apk update -q
+apk add --allow-untrusted /build/hermes-agent-[0-9]*.apk /addon/hermes-agent-telegram-*.apk >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; }
 # Package installation is complete; runtime proofs may reach loopback only.
 ip link set eth0 down
 # Move the harness out of the parent before enabling a domain controller.

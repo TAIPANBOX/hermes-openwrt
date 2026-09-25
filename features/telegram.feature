@@ -41,7 +41,7 @@ Feature: Telegram reaches the agent on the router
     Given hermes-agent-telegram is installed
     When the packaged interpreter imports telegram and telegram.ext
     Then both import
-    And the version is 22.6
+    And the version is the one hermes-agent's own metadata pins under its messaging extra
     # -> check_library_imports
 
   # The three refusals. A router logs to a screen nobody reads, so each one names the

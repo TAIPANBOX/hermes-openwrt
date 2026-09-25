@@ -2,7 +2,8 @@
 
 `@claude` 2026-09-24: first written by Codex on 2026-09-19, amended on 2026-09-24. Each
 invariant names what holds it. The upstream Python payload is installed unpatched; the
-package adds one shim (`webbrowser.py`) and its own helpers under `/usr/libexec`.
+package adds one shim (`webbrowser.py`) and its own helpers under `/usr/libexec`, and
+leaves out the two dependencies invariant 17 names.
 
 `@decided 2026-09-24`: the router's own configuration (UCI) is the authority for the
 primary model, its endpoint and the tool selection at every start, including restarts
@@ -11,13 +12,14 @@ procd makes on its own. A model switched from a chat lasts until the next start.
 `@decided 2026-09-24`: the package is for ARM routers. x86_64 is no longer built in CI,
 gated or published; the build scripts still take `ARCH=x86_64` by hand.
 
-1. Packages install, run, preserve configuration and remove cleanly on each supported
-   release/architecture (gate: `scripts/gate-package.sh`, `scripts/gate-ipk.sh`). On
-   24.10 `ripgrep` is not declared: `@measured` 2026-09-24 by curl of downloads.openwrt.org,
-   the 24.10.8 index lacks it for aarch64_generic and x86_64, and Hermes falls back to
-   `grep` (gate: `scripts/gate-ipk.sh`, `check_deps_resolve`).
+`@decided 2026-09-25`: the package is for OpenWrt 25.12 only. The 24.10 line, its opkg
+packages, its usign-signed feed, their gates and its CI job are gone; the builds refuse
+any other `RELEASE`, and the next publish drops `24.10/` from the feed.
+
+1. Packages install, run, preserve configuration and remove cleanly on OpenWrt 25.12
+   (gate: `scripts/gate-package.sh`).
 2. Telegram is optional, disjoint from the base payload, and refuses unusable setup
-   (gate: `scripts/gate-telegram.sh`, `scripts/gate-telegram-opkg.sh`).
+   (gate: `scripts/gate-telegram.sh`).
 3. All provider, Telegram and MCP credentials are read by the exec wrapper on every
    launch and respawn; procd stores paths only. A router MCP token missing at exec drops
    the MCP connection, not the service (gate: `scripts/gate-runtime.sh`).
@@ -113,6 +115,24 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     ChatGPT subscription signs in with `hermes-login chatgpt`, into the service's data
     directory, and out with `--logout`; the Providers page manages all of it (gate:
     `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`, `scripts/gate-luci.sh`).
+17. `@decided 2026-09-25`: the package carries upstream Hermes 0.21.5, from a pinned tag of
+    the upstream repository, since PyPI stops at 0.19.0; and the router package leaves out
+    NVIDIA's Relay runtime (nemo-relay, upstream falls back to a no-op host) and the
+    HEIC/AVIF decoder (pillow-heif). `@measured` 2026-09-25 by the aarch64 25.12 build:
+    together 49 MB of an unpacked 278 MB; the package left at 71 MB, against 57 for 0.19.0.
+    `package/upstream/upstream.env` pins the version, tag, commit and the checksum of the
+    commit's archive, and names what is left out; `fetch.sh` refuses an archive with
+    another checksum. Upstream refuses to build a wheel outside its Nix derivation, so
+    `resolve.py` builds it as that derivation does (`HERMES_NIX_BUILD=1`), constrains every
+    library to upstream's `uv.lock` at that commit, and walks the dependency graph without
+    entering an excluded name; an exclusion upstream no longer resolves stops the build.
+    The Telegram delta is computed through the same resolution. Skills, optional skills,
+    locales and the MCP catalogue ship under `/usr/share/hermes-agent` and are found
+    through upstream's `HERMES_BUNDLED_*` variables, set in `/usr/lib/hermes-agent/hermes-env`
+    for the launcher and `hermes-login`; `HERMES_MANAGED` is deliberately not set, since
+    upstream then blocks its own config writes. The package records its upstream in
+    `/usr/lib/hermes-agent/upstream` (gate: `scripts/gate-upstream.sh`, teeth:
+    `scripts/teeth-upstream.sh`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
