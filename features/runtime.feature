@@ -398,6 +398,12 @@ Feature: What is set on the router is what the gateway runs with
     Then it signs in there and nowhere else, and refuses anything but chatgpt
     # -> check_login_helper_uses_the_service_home
 
+  Scenario: signing out of ChatGPT clears the subscription from the router
+    Given a ChatGPT subscription signed in in the service's data directory
+    When the owner signs out, from the command line or the Providers page
+    Then the stored tokens are gone and none of them is printed
+    # -> check_login_helper_signs_out
+
   Scenario: signing in to ChatGPT leaves the main model in charge
     Given a ChatGPT subscription signed in and set as upstream's default by the sign-in
     When the service starts

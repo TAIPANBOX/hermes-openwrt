@@ -56,8 +56,13 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     `/etc/hermes-agent`, refuses when UCI points the service at another file, and reports
     a failed write; no method returns a key. `status` reports the free space where the
     data directory lives or, before the first start, where it will be created, for the
-    directory the service uses (an empty option included), and never creates it
-    (gate: `scripts/gate-luci.sh`, `scripts/teeth-luci.sh`).
+    directory the service uses (an empty option included), and never creates it. A
+    further provider's slot is `provider:<name>`, a name the service accepts and never
+    `provider` (the main key's file), confined to `/etc/hermes-agent/<name>.key`, refused
+    when UCI points that provider elsewhere. ChatGPT sign-in, its status and sign-out are
+    write-permission calls; the sign-in runs detached so the call returns at once, and
+    `chatgpt_signed_in` comes from the name upstream files the tokens under, never from
+    the tokens (gate: `scripts/gate-luci.sh`, `scripts/teeth-luci.sh`).
 12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
     tools the agent may use. assistant disables terminal, code execution and file tools
     regardless of what the `toolsets` list selects; admin leaves every selected tool
@@ -98,7 +103,8 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     OPENAI_API_KEY holds the main key for whatever endpoint UCI names. The `anthropic`
     extra ships, since /model picks upstream's native transport for api.anthropic.com. A
     ChatGPT subscription signs in with `hermes-login chatgpt`, into the service's data
-    directory (gate: `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
+    directory, and out with `--logout`; the Providers page manages all of it (gate:
+    `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`, `scripts/gate-luci.sh`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

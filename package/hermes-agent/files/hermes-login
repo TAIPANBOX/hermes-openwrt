@@ -15,6 +15,7 @@
 # chat keeps starting on the model UCI names.
 #
 #   hermes-login chatgpt             sign in
+#   hermes-login chatgpt --logout    sign out: upstream clears the stored tokens
 #   hermes-login chatgpt --print-home   print the directory it would use, and stop
 # -e only: OpenWrt's /lib/functions.sh reads variables it never sets.
 set -e
@@ -35,11 +36,22 @@ fi
 
 mkdir -p "$data_dir"
 chmod 0700 "$data_dir"
+restart_if_running() {
+	if /etc/init.d/hermes-agent running >/dev/null 2>&1; then
+		/etc/init.d/hermes-agent restart
+	fi
+}
+if [ "${2:-}" = "--logout" ]; then
+	HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
+		HERMES_DISABLE_LAZY_INSTALLS=1 PYTHONDONTWRITEBYTECODE=1 \
+		/usr/bin/python3 -u -c 'from types import SimpleNamespace; from hermes_cli.auth import logout_command; logout_command(SimpleNamespace(provider="openai-codex"))'
+	restart_if_running
+	echo "hermes-login: ChatGPT is signed out."
+	exit 0
+fi
 HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 	HERMES_DISABLE_LAZY_INSTALLS=1 PYTHONDONTWRITEBYTECODE=1 \
 	/usr/bin/python3 -u -c 'from hermes_cli.auth import _login_openai_codex; _login_openai_codex(None, None, force_new_login=True)'
 
-if /etc/init.d/hermes-agent running >/dev/null 2>&1; then
-	/etc/init.d/hermes-agent restart
-fi
+restart_if_running
 echo "hermes-login: ChatGPT is signed in; /model in a chat now offers it."

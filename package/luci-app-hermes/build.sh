@@ -22,7 +22,9 @@ set -eu
 # r5: admin is the default profile, and the page sets max_turns.
 # r6: before the first start, status reports the free space where the data directory
 # will be created, instead of 0 and a low-space warning.
-PKGREL=${PKGREL:-6}
+# r7: a Providers page: further providers with write-only keys, and ChatGPT sign-in
+# and sign-out from the page.
+PKGREL=${PKGREL:-7}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
@@ -52,6 +54,8 @@ cp "$SRC/root/usr/libexec/rpcd/hermes"                      "$WORK/tree/usr/libe
 chmod 0755 "$WORK/tree/usr/libexec/rpcd/hermes"
 find "$WORK/tree" -name '*.js' -o -name '*.json' | xargs chmod 0644
 
+# The same script runs as post-upgrade too: apk runs post-install on a new install only,
+# and an upgrade that adds a method must restart rpcd as much as a first install does.
 # rpcd caches its plugin list, and acl.d is read at start too, so a freshly installed
 # backend is invisible until rpcd is restarted. Without this the page installs and then
 # reports "Object not found" for every call, which looks like a broken app rather than a
@@ -117,6 +121,7 @@ docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "description:LuCI interface for the Hermes Agent service. Status, service control, log tail, and write-only key fields." \
 	--info "depends:luci-base hermes-agent" \
 	--script "post-install:/work/post-install" \
+	--script "post-upgrade:/work/post-install" \
 	--script "pre-deinstall:/work/pre-deinstall" \
 	--files /work/tree \
 	--output "/work/$OUT"

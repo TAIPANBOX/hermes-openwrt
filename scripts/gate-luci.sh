@@ -19,7 +19,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -101,6 +101,7 @@ echo "PASS check_installs"
 # file.
 for f in /www/luci-static/resources/view/hermes/overview.js \
          /www/luci-static/resources/view/hermes/settings.js \
+         /www/luci-static/resources/view/hermes/providers.js \
          /usr/share/luci/menu.d/luci-app-hermes.json \
          /usr/share/rpcd/acl.d/luci-app-hermes.json \
          /usr/libexec/rpcd/hermes; do
@@ -288,6 +289,105 @@ rm -f /tmp/elsewhere.key
 uci -q delete hermes.main.key_file
 uci commit hermes
 echo "PASS check_secret_path_mismatch_refused"
+
+# ---- 12. a further provider's key lands 0600 in its own slot ----
+# provider:<section> is the slot, /etc/hermes-agent/<section>.key the file, and the
+# page writes it while it saves the section, so a section not committed yet is fine.
+PCANARY=sk-luci-gate-provider-canary
+uci set hermes.claude=provider; uci set hermes.claude.base_url=https://api.anthropic.com/v1
+uci set hermes.claude.model=claude-haiku-4-5; uci commit hermes
+out=$(ubus call hermes set_secret "{\"name\":\"provider:claude\",\"value\":\"  $PCANARY  \"}" 2>&1)
+echo "$out" | grep -q '"ok": true' || { echo "$out"; fail check_provider_key_written_0600 "set_secret refused a provider slot"; }
+mode=$(ls -l /etc/hermes-agent/claude.key | awk '{print $1}')
+[ "$mode" = "-rw-------" ] || fail check_provider_key_written_0600 "mode is $mode, want -rw------- (0600)"
+[ "$(cat /etc/hermes-agent/claude.key)" = "$PCANARY" ] || fail check_provider_key_written_0600 "the value was not trimmed"
+st=$(ubus call hermes status 2>/dev/null)
+[ "$(echo "$st" | jsonfilter -e '@.provider_keys.claude.set')" = true ] || fail check_provider_key_written_0600 "status does not report the stored key"
+[ "$(echo "$st" | jsonfilter -e '@.provider_keys.claude.managed')" = true ] || fail check_provider_key_written_0600 "status does not report the slot as managed"
+for m in status logs; do
+	ubus call hermes "$m" 2>/dev/null | grep -q "$PCANARY" && fail check_provider_key_written_0600 "the $m method returned a provider key"
+done
+out=$(ubus call hermes set_secret '{"name":"provider:fresh","value":"sk-fresh"}' 2>&1)
+echo "$out" | grep -q '"ok": true' || { echo "$out"; fail check_provider_key_written_0600 "a key for a section being saved in the same pass was refused"; }
+rm -f /etc/hermes-agent/fresh.key
+echo "PASS check_provider_key_written_0600"
+
+# ---- 13. a crafted provider slot is refused and writes nothing ----
+before=$(ls -A /etc/hermes-agent | sort | tr '\n' ' ')
+for name in 'provider:../escape' 'provider:Bad' 'provider:provider' 'provider:' 'provider:a/b' 'provider:-x'; do
+	out=$(ubus call hermes set_secret "{\"name\":\"$name\",\"value\":\"sk-crafted\"}" 2>&1) || true
+	echo "$out" | grep -q '"ok": false' || { echo "$out"; fail check_provider_key_name_refused "$name was accepted"; }
+done
+[ -e /etc/escape.key ] && fail check_provider_key_name_refused "a key was written outside /etc/hermes-agent"
+[ "$(ls -A /etc/hermes-agent | sort | tr '\n' ' ')" = "$before" ] || fail check_provider_key_name_refused "a refused name still wrote a file"
+echo "PASS check_provider_key_name_refused"
+
+# ---- 14. a provider whose key_file points elsewhere is refused, like the main key ----
+uci set hermes.claude.key_file=/tmp/elsewhere-claude.key; uci commit hermes
+out=$(ubus call hermes set_secret '{"name":"provider:claude","value":"should-not-land"}' 2>&1) || true
+echo "$out" | grep -q '"ok": false' || { echo "$out"; fail check_provider_key_path_mismatch_refused "set_secret did not refuse"; }
+[ -e /tmp/elsewhere-claude.key ] && fail check_provider_key_path_mismatch_refused "a value was written to the mismatched path"
+[ "$(ubus call hermes status | jsonfilter -e '@.provider_keys.claude.managed')" = false ] \
+	|| fail check_provider_key_path_mismatch_refused "status still reports the slot as managed"
+uci -q delete hermes.claude; uci commit hermes; rm -f /etc/hermes-agent/claude.key
+echo "PASS check_provider_key_path_mismatch_refused"
+
+# ---- 15. ChatGPT sign-in from the page ----
+# hermes-login is replaced by a stand-in that prints what upstream's device-code flow
+# prints and waits for a marker instead of a browser. The call has to return at once,
+# the status has to carry the address and the code, and the result has to follow the
+# data directory's auth.json, which is all the page ever reads of it.
+cp /usr/sbin/hermes-login /tmp/hermes-login.real
+cat > /usr/sbin/hermes-login <<'STUB'
+#!/bin/sh
+if [ "${2:-}" = "--logout" ]; then rm -f /srv/hermes/auth.json; echo "hermes-login: ChatGPT is signed out."; exit 0; fi
+echo "To continue, follow these steps:"
+echo "  1. Open this URL in your browser:"
+printf '     \033[94mhttps://auth.openai.com/codex/device\033[0m\n'
+echo "  2. Enter this code:"
+printf '     \033[94mGATE-TEST1\033[0m\n'
+echo "Waiting for sign-in..."
+while [ ! -e /tmp/gate-approve ]; do sleep 1; done
+mkdir -p /srv/hermes
+echo '{"providers": {"openai-codex": {"tokens": {}}}}' > /srv/hermes/auth.json
+echo "hermes-login: ChatGPT is signed in; /model in a chat now offers it."
+STUB
+chmod 0755 /usr/sbin/hermes-login
+gpt_fail() { fail check_chatgpt_sign_in_from_the_page "$1"; }
+[ "$(ubus call hermes status | jsonfilter -e '@.chatgpt_signed_in')" = false ] || gpt_fail "signed in before any sign-in"
+out=$(ubus -t 10 call hermes chatgpt_login 2>&1) || gpt_fail "the call did not return; the sign-in is not detached ($out)"
+echo "$out" | grep -q '"ok": true' || { echo "$out"; gpt_fail "the sign-in did not start"; }
+i=0; while [ "$i" -lt 15 ]; do
+	st=$(ubus call hermes chatgpt_login_status 2>/dev/null)
+	[ "$(echo "$st" | jsonfilter -e '@.state')" = waiting ] && break
+	sleep 1; i=$((i + 1))
+done
+[ "$(echo "$st" | jsonfilter -e '@.code')" = GATE-TEST1 ] || { echo "$st"; gpt_fail "status does not carry the code"; }
+[ "$(echo "$st" | jsonfilter -e '@.url')" = https://auth.openai.com/codex/device ] || { echo "$st"; gpt_fail "status does not carry the address"; }
+touch /tmp/gate-approve
+i=0; while [ "$i" -lt 15 ]; do
+	[ "$(ubus call hermes chatgpt_login_status | jsonfilter -e '@.state')" = done ] && break
+	sleep 1; i=$((i + 1))
+done
+[ "$i" -lt 15 ] || gpt_fail "the finished sign-in was never reported as done"
+[ "$(ubus call hermes status | jsonfilter -e '@.chatgpt_signed_in')" = true ] || gpt_fail "status does not follow the signed-in auth.json"
+out=$(ubus call hermes chatgpt_logout 2>&1)
+echo "$out" | grep -q '"ok": true' || { echo "$out"; gpt_fail "signing out failed"; }
+[ "$(ubus call hermes status | jsonfilter -e '@.chatgpt_signed_in')" = false ] || gpt_fail "still signed in after signing out"
+cp /tmp/hermes-login.real /usr/sbin/hermes-login; rm -f /tmp/gate-approve /tmp/hermes-login.log /tmp/hermes-login.pid
+echo "PASS check_chatgpt_sign_in_from_the_page"
+
+# ---- 16. an upgrade restarts rpcd, like an install does ----
+# rpcd reads each plugin's method list once, at start. apk runs post-install on a new
+# install only and post-upgrade on an upgrade, so a package with post-install alone
+# left every router that upgraded with the previous method list: on the Brume 2 and the
+# Flint 2 on 2026-09-25, r6 to r7 left the Providers page's ChatGPT calls answering
+# "Method not found" until rpcd was restarted by hand. opkg's postinst runs on both.
+if command -v apk >/dev/null; then
+	apk adbdump /luci.apk 2>/dev/null | awk '/^  post-upgrade:/ {f = 1; next} /^  [a-z-]+:/ {f = 0} f' > /tmp/post-upgrade
+	grep -q 'rpcd restart' /tmp/post-upgrade || fail check_upgrade_restarts_rpcd "the package has no post-upgrade script that restarts rpcd"
+fi
+echo "PASS check_upgrade_restarts_rpcd"
 
 # ---- 8. clean removal ----
 apk del luci-app-hermes >/dev/null 2>&1 || fail check_clean_removal "apk del failed"

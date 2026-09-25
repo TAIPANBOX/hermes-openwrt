@@ -20,12 +20,18 @@
 #                        is created at the first start and df on the missing path failed.
 #   @claude 2026-09-25   From overview.js: with 0 the page shows 0 B and the warning that
 #                        less than 256 MB is free, while both routers had 6.5 GB.
+#   @decided 2026-09-25  A Providers page: further providers with write-only keys, and
+#                        ChatGPT sign-in and sign-out from the page.
+#   @measured 2026-09-25 on a Flint 2 and a Brume 2, r6 upgraded to r7 by apk: ubus listed
+#                        only the old methods until rpcd was restarted by hand, because apk
+#                        runs post-install on an install and post-upgrade on an upgrade.
 #
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
 # both ways, and scripts/teeth-luci.sh plants a fault for each of the three checks added
 # on 2026-09-24, a second one for the read permission (a file grant beside the page's
-# calls), and one for the free space before the first start.
+# calls), one for the free space before the first start, and three for the Providers
+# page: a crafted provider name, the sign-in status, and a sign-in that is not detached.
 
 Feature: The web page manages the agent and never hands a key back
 
@@ -108,6 +114,38 @@ Feature: The web page manages the agent and never hands a key back
     And the page's own slot is not written
     And the status reports whether the file the service reads holds a key
     # -> check_secret_path_mismatch_refused
+
+  Scenario: a further provider's key goes in and does not come out
+    Given a provider section on the Providers page
+    When a key is typed for it, even while the section itself is being saved
+    Then it lands in that provider's own root-only file, trimmed
+    And the page learns only that a key is stored, and no method returns it
+    # -> check_provider_key_written_0600
+
+  Scenario: a crafted provider name writes nothing
+    Given a provider name with a path in it, capitals, the name of the main key's file, or nothing at all
+    When the page tries to store a key under it
+    Then it is refused and no file is written anywhere
+    # -> check_provider_key_name_refused
+
+  Scenario: a provider whose key file is set elsewhere is not written from the page
+    Given a provider section that points its key at another file
+    When a key is typed for it
+    Then the page refuses and says the page does not manage that file
+    # -> check_provider_key_path_mismatch_refused
+
+  Scenario: ChatGPT is signed in and out from the page
+    Given the Providers page and a ChatGPT account that allows device code sign-in
+    When the owner asks to sign in
+    Then the page shows the address and the code at once, and notices when the sign-in is done
+    And signing out from the page leaves the router signed out
+    # -> check_chatgpt_sign_in_from_the_page
+
+  Scenario: an upgraded page answers with its new calls at once
+    Given a router with an earlier version of the web app
+    When it is upgraded
+    Then rpcd is restarted, as on a first install, so the page's new calls are there without a reboot
+    # -> check_upgrade_restarts_rpcd
 
   Scenario: removing the web app leaves the agent and its key alone
     When luci-app-hermes is removed
