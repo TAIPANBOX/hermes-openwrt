@@ -24,7 +24,7 @@ set -eu
 # will be created, instead of 0 and a low-space warning.
 # r7: a Providers page: further providers with write-only keys, and ChatGPT sign-in
 # and sign-out from the page.
-PKGREL=${PKGREL:-7}
+PKGREL=${PKGREL:-8}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

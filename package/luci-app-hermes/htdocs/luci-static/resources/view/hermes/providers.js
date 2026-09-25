@@ -5,6 +5,7 @@
 'require ui';
 'require uci';
 'require poll';
+'require hermes.flash as flash';
 
 /* Providers.
  *
@@ -32,16 +33,23 @@ var TAKEN = ['anthropic', 'openrouter', 'openai', 'openai-api', 'openai-codex', 
 	'auto', 'nous', 'gemini', 'deepseek', 'xai', 'provider'];
 var NAME = /^[a-z][a-z0-9-]{0,30}$/;
 
+/* Failures reported during a save, kept for the page that Save & Apply reloads into:
+ * shown only before the reload, a failure is shown for a few seconds under LuCI's own
+ * "applying" status and then gone. See hermes/flash.js. */
+var failures = [];
+
+function fail(text) {
+	failures.push(text);
+	ui.addNotification(null, E('p', {}, text), 'danger');
+}
+
 function reportSecretWrite(label, promise) {
 	return promise.then(function (reply) {
-		if (!reply || reply.ok === false) {
-			ui.addNotification(null, E('p', {}, _('The %s was not saved: %s').format(
-				label, (reply && reply.error) || _('unknown error'))), 'danger');
-		}
+		if (!reply || reply.ok === false)
+			fail(_('The %s was not saved: %s').format(label, (reply && reply.error) || _('unknown error')));
 		return reply;
 	}, function () {
-		ui.addNotification(null, E('p', {}, _('The %s was not saved: %s').format(
-			label, _('unknown error'))), 'danger');
+		fail(_('The %s was not saved: %s').format(label, _('unknown error')));
 	});
 }
 
@@ -78,14 +86,16 @@ return view.extend({
 				body.push(E('button', { 'class': 'cbi-button cbi-button-remove', 'click': ui.createHandlerFn(self, function () {
 					return callLogout().then(function (r) {
 						if (!r || r.ok === false)
-							ui.addNotification(null, E('p', {}, (r && r.error) || _('Signing out failed.')), 'danger');
+							flash.keep((r && r.error) || _('Signing out failed.'), 'danger');
+						else
+							flash.keep(_('Signed out of ChatGPT.'), 'info');
 						window.location.reload();
 					});
 				}) }, _('Sign out')));
 			} else {
 				if (state && state.state === 'failed')
 					body.push(E('p', { 'class': 'alert-message warning' }, _('The last sign-in did not finish: %s').format(state.message || _('unknown error'))));
-				body.push(E('p', {}, _('Not signed in. ChatGPT has to allow it first: Settings, Security, device code sign-in. Signing in restarts the service.')));
+				body.push(E('p', {}, _('Not signed in. ChatGPT has to allow it first: Settings, Security, device code sign-in. Signing in restarts the service if it is running.')));
 				body.push(E('button', { 'class': 'cbi-button cbi-button-action', 'click': ui.createHandlerFn(self, function () {
 					return callLogin().then(function (r) {
 						if (!r || r.ok === false) {
@@ -110,7 +120,7 @@ return view.extend({
 			return callLoginStatus().then(function (state) {
 				if (state.state === 'done') {
 					poll.remove(fn);
-					ui.addNotification(null, E('p', {}, _('Signed in to ChatGPT. The service was restarted.')), 'info');
+					flash.keep(_('Signed in to ChatGPT. The service was restarted if it was running.'), 'info');
 					window.location.reload();
 					return;
 				}
@@ -131,7 +141,7 @@ return view.extend({
 			_('Every chat starts on the model from the Settings tab. The providers here are offered beside it: in a chat, /model lists them and switches that chat only. Anyone allowed to talk to the bot can switch to any of them, keys that cost money per call included.'));
 
 		s = m.section(form.TypedSection, 'provider', _('Further providers'),
-			_('The section name is the provider\'s name in /model: lower-case letters, digits and "-". Names upstream already uses for a provider of its own, such as anthropic or openrouter, are refused; pick your own, such as claude.'));
+			_('The section name is the provider\'s name in /model: lower-case letters, digits and "-". Names upstream already uses for a provider of its own, such as anthropic or openrouter, are refused; pick your own, such as claude. Deleting a provider deletes its key as well.'));
 		s.addremove = true;
 		s.anonymous = false;
 		s.handleAdd = function (ev, name) {
@@ -144,6 +154,25 @@ return view.extend({
 				return;
 			}
 			return form.TypedSection.prototype.handleAdd.apply(this, [ev, name]);
+		};
+		/* The key goes with the provider. Left behind, it was invisible here and came back
+		 * as "stored" the moment a provider of the same name was added, with a key nobody
+		 * had typed into it (found on a Brume 2, 2026-09-25). Removed at the delete rather
+		 * than at the apply: a delete that is then reverted brings the provider back
+		 * without a key and says so, which is the safe way round. A key file UCI points
+		 * elsewhere is the operator's and stays where it is. */
+		s.handleRemove = function (section_id, ev) {
+			var self = this, k = keys[section_id];
+			var gone = (k && k.managed === false) ? Promise.resolve() :
+				callSetSecret('provider:' + section_id, '').then(function (reply) {
+					if (!reply || reply.ok === false)
+						fail(_('The key for %s was not removed: %s').format(section_id, (reply && reply.error) || _('unknown error')));
+				}, function () {
+					fail(_('The key for %s was not removed: %s').format(section_id, _('unknown error')));
+				});
+			return gone.then(function () {
+				return form.TypedSection.prototype.handleRemove.apply(self, [section_id, ev]);
+			});
 		};
 
 		o = s.option(form.Flag, 'enabled', _('Offer it'));
@@ -193,16 +222,20 @@ return view.extend({
 		o.remove = function () { return; };
 
 		return m.render().then(L.bind(function (node) {
+			flash.show();
 			return E('div', {}, [node, this.renderChatGPT(st, login)]);
 		}, this));
 	},
 
+	/* LuCI reloads the page a few seconds after the apply, so what this has to say is
+	 * kept for the page it reloads into rather than shown here. */
 	handleSaveApply: function (ev, mode) {
+		failures = [];
 		return this.super('handleSaveApply', [ev, mode]).then(function () {
 			return restartService();
 		}).then(function () {
-			ui.addNotification(null, E('p', {},
-				_('Saved. The service was restarted; the Overview tab shows whether it stayed up and which providers it left out.')), 'info');
+			failures.forEach(function (text) { flash.keepOnApply(text, 'danger'); });
+			flash.keepOnApply(_('Saved. The service was restarted; the Overview tab shows whether it stayed up and which providers it left out.'), 'info');
 		});
 	}
 });
