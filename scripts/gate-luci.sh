@@ -19,7 +19,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -376,6 +376,18 @@ echo "$out" | grep -q '"ok": true' || { echo "$out"; gpt_fail "signing out faile
 [ "$(ubus call hermes status | jsonfilter -e '@.chatgpt_signed_in')" = false ] || gpt_fail "still signed in after signing out"
 cp /tmp/hermes-login.real /usr/sbin/hermes-login; rm -f /tmp/gate-approve /tmp/hermes-login.log /tmp/hermes-login.pid
 echo "PASS check_chatgpt_sign_in_from_the_page"
+
+# ---- 16. an upgrade restarts rpcd, like an install does ----
+# rpcd reads each plugin's method list once, at start. apk runs post-install on a new
+# install only and post-upgrade on an upgrade, so a package with post-install alone
+# left every router that upgraded with the previous method list: on the Brume 2 and the
+# Flint 2 on 2026-09-25, r6 to r7 left the Providers page's ChatGPT calls answering
+# "Method not found" until rpcd was restarted by hand. opkg's postinst runs on both.
+if command -v apk >/dev/null; then
+	apk adbdump /luci.apk 2>/dev/null | awk '/^  post-upgrade:/ {f = 1; next} /^  [a-z-]+:/ {f = 0} f' > /tmp/post-upgrade
+	grep -q 'rpcd restart' /tmp/post-upgrade || fail check_upgrade_restarts_rpcd "the package has no post-upgrade script that restarts rpcd"
+fi
+echo "PASS check_upgrade_restarts_rpcd"
 
 # ---- 8. clean removal ----
 apk del luci-app-hermes >/dev/null 2>&1 || fail check_clean_removal "apk del failed"

@@ -54,6 +54,8 @@ cp "$SRC/root/usr/libexec/rpcd/hermes"                      "$WORK/tree/usr/libe
 chmod 0755 "$WORK/tree/usr/libexec/rpcd/hermes"
 find "$WORK/tree" -name '*.js' -o -name '*.json' | xargs chmod 0644
 
+# The same script runs as post-upgrade too: apk runs post-install on a new install only,
+# and an upgrade that adds a method must restart rpcd as much as a first install does.
 # rpcd caches its plugin list, and acl.d is read at start too, so a freshly installed
 # backend is invisible until rpcd is restarted. Without this the page installs and then
 # reports "Object not found" for every call, which looks like a broken app rather than a
@@ -119,6 +121,7 @@ docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "description:LuCI interface for the Hermes Agent service. Status, service control, log tail, and write-only key fields." \
 	--info "depends:luci-base hermes-agent" \
 	--script "post-install:/work/post-install" \
+	--script "post-upgrade:/work/post-install" \
 	--script "pre-deinstall:/work/pre-deinstall" \
 	--files /work/tree \
 	--output "/work/$OUT"
