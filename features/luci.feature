@@ -177,6 +177,14 @@ Feature: The web page manages the agent and never hands a key back
     And after Save & Apply only once LuCI reports the apply went through, so a rolled-back apply leaves no "Saved"
     # -> check_messages_survive_the_reload
 
+  Scenario: a Save & Apply that changes only a key still says it saved, once
+    Given a page where only a key was typed, which goes past UCI, so LuCI has nothing to apply
+    When Save & Apply is pressed
+    Then the page says "Saved" at once, since LuCI then neither announces an apply nor reloads
+    And a key that did not save is shown once, with no "Saved" beside it
+    And the next Save & Apply that does change something shows "Saved" once after its reload, as does one after an apply that was rolled back
+    # -> check_saved_when_only_a_key_changed
+
   Scenario: a message from long ago is not shown as news
     Given a kept message older than ten minutes
     When the page opens

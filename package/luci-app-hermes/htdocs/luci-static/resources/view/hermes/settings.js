@@ -253,15 +253,13 @@ return view.extend({
 	 * what is running disagree. */
 	handleSaveApply: function (ev, mode) {
 		failures = [];
-		return this.super('handleSaveApply', [ev, mode]).then(function () {
+		/* LuCI reloads the page a few seconds after the apply, or not at all when there is
+		 * nothing to apply (a key alone); see hermes/flash.js. */
+		return flash.applyAndSay(this, ev, mode, function () {
 			return rpc.declare({
 				object: 'luci', method: 'setInitAction',
 				params: ['name', 'action'], expect: { result: false }
 			})('hermes-agent', 'restart').catch(function () {});
-		}).then(function () {
-			/* LuCI reloads the page a few seconds after the apply; see hermes/flash.js. */
-			failures.forEach(function (text) { flash.keepOnApply(text, 'danger'); });
-			flash.keepOnApply(_('Saved. The service was restarted; check the Overview tab for whether it stayed up.'), 'info');
-		});
+		}, failures, _('Saved. The service was restarted; check the Overview tab for whether it stayed up.'));
 	}
 });
