@@ -109,7 +109,11 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     paths only, and the preflight guards those keys like the main one. A name upstream
     already gives a built-in provider is refused, and so is a bad section anywhere in the
     list; the operator's own entries are never touched. Every chat starts on the main
-    model and /model switches that chat only. `openai-api` is kept out of /model, because
+    model and /model switches that chat only. The main model itself is the `uci` entry
+    of `providers` (key_env OPENAI_API_KEY), not upstream's bare `custom`, so a model
+    picked with /model's buttons or typed keeps the main key on every endpoint,
+    openrouter.ai included; `uci` is refused as a section name, and an operator entry
+    by that name refuses the start. `openai-api` is kept out of /model, because
     OPENAI_API_KEY holds the main key for whatever endpoint UCI names. The `anthropic`
     extra ships, since /model picks upstream's native transport for api.anthropic.com. A
     ChatGPT subscription signs in with `hermes-login chatgpt`, into the service's data

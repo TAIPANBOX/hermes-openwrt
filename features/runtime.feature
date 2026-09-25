@@ -387,6 +387,22 @@ Feature: What is set on the router is what the gateway runs with
     Then /model does not offer the OpenAI API as a provider
     # -> check_openai_api_is_hidden_from_the_picker
 
+  # @measured 2026-09-25 on a Brume 2 with a Telegram bot: a model picked with /model's
+  # buttons worked for that message, and the next turn failed "No LLM provider configured".
+  Scenario: a model picked with /model keeps the main key
+    Given the main model on OpenRouter or on a machine on the LAN
+    When a chat picks another model with /model, with the buttons or typed
+    Then the next turn reaches the same endpoint with the main key
+    # -> check_model_switch_keeps_the_main_key
+
+  # @measured 2026-09-25 on a Brume 2: a provider on the main model's OpenRouter address
+  # refused the start, and a chat switched to it went out with the main key.
+  Scenario: a second account on the main model's own service uses its own key
+    Given a provider section on the same address as the main model, with a key of its own
+    When the service starts and a chat switches to that provider
+    Then the start goes ahead and the chat's requests carry that provider's key
+    # -> check_provider_on_the_main_endpoint_uses_its_own_key
+
   Scenario: a chat switched to Anthropic's own endpoint works
     Given the package installed
     Then the library upstream uses for Anthropic's own endpoint is there

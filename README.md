@@ -304,9 +304,9 @@ uci commit hermes && /etc/init.d/hermes-agent restart
 provider of its own (`anthropic`, `openrouter`, `openai` and the like) refuses the start,
 because upstream would resolve its own first and the chat would land somewhere else. A
 key that goes missing drops that provider alone, with a line in the log. A provider on
-the same address as the main model is switched to with the main key, which is what
-upstream does for an endpoint it is already using, so a second account on the main
-model's own service does not work as a further provider.
+the same address as the main model keeps its own key, so a second account on the main
+model's own service works as a further provider. In `/model` the main model is listed as
+`Main (<host>)`; `uci` is its entry, so no section can take that name.
 
 A ChatGPT subscription needs no section. Allow device code sign-in once in ChatGPT's
 security settings, then:
@@ -549,8 +549,8 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-upstream.sh` | 7 checks: built from the pinned upstream commit and archive, reports that version, every library at its `uv.lock` version, `nemo-relay` and `pillow-heif` absent with nothing else missing, the Relay host falls back to upstream's no-op, skills, translations and the MCP catalogue found under `/usr/share/hermes-agent`, the platform plugins shipped |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
-| `gate-runtime.sh` | 49 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
-| `teeth-runtime.py` | 44 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
+| `gate-runtime.sh` | 51 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
+| `teeth-runtime.py` | 47 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |

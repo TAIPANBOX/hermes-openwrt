@@ -150,8 +150,24 @@ mutants = [
      'pass',
      'test_login_helper_signs_out'),
     ('the preflight checks the subscription instead of the main key', 'runtime-check.py',
-     '        runtime = resolve_runtime_provider()', '        runtime = resolve_runtime_provider(requested="openai-codex")',
+     '        for runtime in (resolve_runtime_provider(), ',
+     '        for runtime in (resolve_runtime_provider(requested="openai-codex"), ',
      'test_chatgpt_login_does_not_trip_the_preflight'),
+    # Not provider="custom" alone: with the uci entry still written, the picker ticks that
+    # entry (same address) and the fix holds, so that mutant is equivalent. The entry is
+    # what carries the key.
+    ('the main model written without its uci entry', 'set-toolsets.py',
+     '            config["providers"] = dict(providers, **{MAIN_PROVIDER: main_entry})',
+     '            config["providers"] = providers',
+     'test_model_switch_keeps_the_main_key'),
+    ('the preflight checks the uci route only', 'runtime-check.py',
+     '        for runtime in (resolve_runtime_provider(), resolve_runtime_provider(requested="custom")):',
+     '        for runtime in (resolve_runtime_provider(),):',
+     'test_runtime_override_conflicts_are_refused'),
+    ("an operator's uci entry taken for the main model's", 'set-toolsets.py',
+     '    return isinstance(entry, dict) and entry.get("key_env") == "OPENAI_API_KEY"',
+     '    return True',
+     'test_operator_provider_entries_survive'),
 ]
 installed = {'set-toolsets.py': Path('/usr/libexec/hermes-set-toolsets'),
              'memory-limit.py': Path('/usr/libexec/hermes-memory'),

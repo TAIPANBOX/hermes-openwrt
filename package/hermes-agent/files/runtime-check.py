@@ -47,17 +47,21 @@ def main() -> int:
         pool_key = get_custom_provider_pool_key(expected["OPENAI_BASE_URL"], provider_name="custom")
         if pool_key and read_credential_pool(pool_key):
             raise RuntimeConflict("primary credential pool conflicts with the UCI key file")
-        runtime = resolve_runtime_provider()
-        if runtime.get("credential_pool") is not None:
-            raise RuntimeConflict("primary credential pool conflicts with the UCI key file")
         endpoint = expected["OPENAI_BASE_URL"] or ""
         key = expected["OPENAI_API_KEY"] or ""
-        if (not endpoint or not key or not isinstance(model, dict)
-                or model.get("default") != expected["HERMES_MODEL"]
-                or runtime.get("base_url", "").rstrip("/") != endpoint.rstrip("/")
-                or runtime.get("api_mode") != "chat_completions"
-                or not hmac.compare_digest(str(runtime.get("api_key") or ""), key)):
-            raise RuntimeConflict("upstream provider, endpoint, model or credential conflicts with UCI")
+        # The main model is the named `uci` entry, and upstream's auxiliary clients (the
+        # session title, for one) still resolve bare `custom` with the same key, so both
+        # routes must land on the UCI endpoint: an override that moves only `custom`
+        # would send the main key somewhere UCI never named.
+        for runtime in (resolve_runtime_provider(), resolve_runtime_provider(requested="custom")):
+            if runtime.get("credential_pool") is not None:
+                raise RuntimeConflict("primary credential pool conflicts with the UCI key file")
+            if (not endpoint or not key or not isinstance(model, dict)
+                    or model.get("default") != expected["HERMES_MODEL"]
+                    or runtime.get("base_url", "").rstrip("/") != endpoint.rstrip("/")
+                    or runtime.get("api_mode") != "chat_completions"
+                    or not hmac.compare_digest(str(runtime.get("api_key") or ""), key)):
+                raise RuntimeConflict("upstream provider, endpoint, model or credential conflicts with UCI")
         headers = dict(model.get("default_headers") or {})
         headers.update(get_custom_provider_extra_headers(endpoint, config=config))
         for name, value in headers.items():

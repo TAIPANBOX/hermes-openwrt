@@ -103,6 +103,15 @@ KEY_ENV = re.compile(r"^HERMES_PROVIDER_[A-Z0-9_]+_KEY$")
 PROVIDER_NAME = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
 
 
+# The main model's own entry in `providers`, written from the UCI endpoint. Its key_env
+# is OPENAI_API_KEY, which is what marks it as this package's.
+MAIN_PROVIDER = "uci"
+
+
+def _main_entry(entry) -> bool:
+    return isinstance(entry, dict) and entry.get("key_env") == "OPENAI_API_KEY"
+
+
 def _key_env(name: str) -> str:
     return "HERMES_PROVIDER_" + name.upper().replace("-", "_") + "_KEY"
 
@@ -133,6 +142,8 @@ def _uci_providers(raw: str) -> dict:
             raise ValueError(f"provider name {name!r} is one upstream already uses; choose another")
         if name == "provider":
             raise ValueError("provider name 'provider' would share the main key's file; choose another")
+        if name == MAIN_PROVIDER:
+            raise ValueError(f"provider name {MAIN_PROVIDER!r} is the main model's own entry; choose another")
         _validate_endpoint(url, f"provider {name} base_url")
         for value, what in ((model, "model"), (label, "label")):
             if not value.strip() or any(ord(c) < 32 or ord(c) == 127 for c in value):
@@ -227,7 +238,23 @@ def main() -> int:
                 raise TypeError("model must be a mapping or model name")
             if model_config.get("api_key") not in (None, "", "${OPENAI_API_KEY}"):
                 raise ValueError("model.api_key is operator-owned; move it before enabling the UCI model")
-            model_config.update(default=model, provider="custom", base_url=endpoint,
+            # The main endpoint is a named entry, not upstream's bare `custom`: /model's
+            # button for `custom` takes its key from the chat's earlier switch, which the
+            # first switch has none of, and the next turn then built its agent keyless
+            # (on openrouter.ai that fails outright). A named entry carries key_env, and
+            # every path through /model reads the key from there.
+            providers = config.get("providers")
+            if providers is None:
+                providers = {}
+            if not isinstance(providers, dict):
+                raise TypeError("providers must be a mapping")
+            main_entry = {"name": f"Main ({urlsplit(endpoint).hostname})", "api": endpoint,
+                          "key_env": "OPENAI_API_KEY", "default_model": model}
+            previous = providers.get(MAIN_PROVIDER)
+            if previous is not None and not _main_entry(previous):
+                raise ValueError(f"providers.{MAIN_PROVIDER} is operator-owned; rename it before enabling the UCI model")
+            config["providers"] = dict(providers, **{MAIN_PROVIDER: main_entry})
+            model_config.update(default=model, provider=MAIN_PROVIDER, base_url=endpoint,
                                 api_mode="chat_completions", api_key="${OPENAI_API_KEY}")
             config["model"] = model_config
             # OPENAI_API_KEY holds the main key for whatever endpoint UCI names, and

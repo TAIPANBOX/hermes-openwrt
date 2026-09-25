@@ -25,7 +25,8 @@ set -eu
 # r7: a Providers page: further providers with write-only keys, and ChatGPT sign-in
 # and sign-out from the page.
 # r10: 25.12 only; the Telegram hints no longer name opkg or 24.10.
-PKGREL=${PKGREL:-10}
+# r11: the Providers page refuses 'uci', the main model's own entry since agent 0.21.5-r2.
+PKGREL=${PKGREL:-11}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
