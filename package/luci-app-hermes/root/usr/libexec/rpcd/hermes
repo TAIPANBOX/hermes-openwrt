@@ -27,6 +27,21 @@
 
 CONF_DIR=/etc/hermes-agent
 INIT=/etc/init.d/hermes-agent
+LOGIN=/usr/sbin/hermes-login
+LOGIN_LOG=/tmp/hermes-login.log
+LOGIN_PID=/tmp/hermes-login.pid
+
+# A further provider's slot is named provider:<section>, with a name the service itself
+# accepts, so a crafted name cannot reach outside CONF_DIR. The section need not exist
+# yet: the page writes the key while it saves the section that names it. "provider" is
+# refused, because its file would be the main key's.
+provider_section() {
+	case "$1" in provider:*) ;; *) return 1 ;; esac
+	local name=${1#provider:}
+	echo "$name" | grep -qE '^[a-z][a-z0-9-]{0,30}$' || return 1
+	[ "$name" != provider ] || return 1
+	echo "$name"
+}
 
 # The fixed, page-managed slot for each secret. A caller cannot name an arbitrary file:
 # an unrecognised name is refused rather than defaulted, so neither a typo in the page
@@ -36,6 +51,7 @@ secret_path() {
 		provider)   echo "$CONF_DIR/provider.key" ;;
 		router_mcp) echo "$CONF_DIR/router-mcp.token" ;;
 		telegram)   echo "$CONF_DIR/telegram.token" ;;
+		provider:*) local name; name=$(provider_section "$1") || return 1; echo "$CONF_DIR/$name.key" ;;
 		*)          return 1 ;;
 	esac
 }
@@ -50,6 +66,8 @@ service_path() {
 		provider)   uci -q get hermes.main.key_file || echo "$CONF_DIR/provider.key" ;;
 		router_mcp) uci -q get hermes.main.router_mcp_token_file || echo "$CONF_DIR/router-mcp.token" ;;
 		telegram)   uci -q get hermes.telegram.token_file || echo "$CONF_DIR/telegram.token" ;;
+		provider:*) local name; name=$(provider_section "$1") || return 1
+		            uci -q get "hermes.$name.key_file" || echo "$CONF_DIR/$name.key" ;;
 		*)          return 1 ;;
 	esac
 }
@@ -128,6 +146,76 @@ method_status() {
 	# in logread after the next restart.
 	tg_lib=0; [ -f "$TELEGRAM_MANIFEST" ] && tg_lib=1
 	json_add_boolean "telegram_lib_installed" "$tg_lib"
+
+	# Further providers: presence of each key and whether this page manages its file,
+	# never a value. And whether a ChatGPT subscription is signed in, read from the
+	# name upstream files the tokens under, never from the tokens.
+	json_add_object "provider_keys"
+	for name in $(uci -q show hermes | sed -n "s/^hermes\.\([a-z][a-z0-9-]*\)=provider$/\1/p"); do
+		json_add_object "$name"
+		json_add_boolean "set"     "$(has_secret "provider:$name" && echo 1 || echo 0)"
+		json_add_boolean "managed" "$(is_managed "provider:$name" && echo 1 || echo 0)"
+		json_close_object
+	done
+	json_close_object
+	json_add_boolean "chatgpt_signed_in" "$(grep -qs '"openai-codex"' "$data_dir/auth.json" && echo 1 || echo 0)"
+	json_dump
+}
+
+# ChatGPT sign-in, from the page. hermes-login does the work (upstream's device-code
+# flow, in the service's data directory); this starts it detached, then reads back the
+# URL and the code it prints so the page can show them. The code only works for the
+# account of whoever enters it in a browser, and still sits behind the write
+# permission. One sign-in at a time.
+login_running() {
+	[ -f "$LOGIN_PID" ] && kill -0 "$(cat "$LOGIN_PID")" 2>/dev/null
+}
+
+method_chatgpt_login() {
+	json_init
+	if [ ! -x "$LOGIN" ]; then
+		json_add_boolean "ok" 0; json_add_string "error" "hermes-login is not installed"; json_dump; return 0
+	fi
+	if ! login_running; then
+		umask 077
+		: > "$LOGIN_LOG"
+		# Detached, every descriptor closed: rpcd waits for this script's output to
+		# end, and must not wait for a sign-in that takes as long as the owner does.
+		( setsid "$LOGIN" chatgpt > "$LOGIN_LOG" 2>&1 < /dev/null & echo $! > "$LOGIN_PID" ) > /dev/null 2>&1
+	fi
+	json_add_boolean "ok" 1
+	json_dump
+}
+
+method_chatgpt_login_status() {
+	local state url code last
+	state=none
+	if [ -s "$LOGIN_LOG" ] || login_running; then
+		url=$(sed 's/\x1b\[[0-9;]*m//g' "$LOGIN_LOG" 2>/dev/null | grep -o 'https://auth\.openai\.com/[A-Za-z0-9/._-]*' | head -n1)
+		code=$(sed 's/\x1b\[[0-9;]*m//g' "$LOGIN_LOG" 2>/dev/null | grep -A1 'Enter this code' | tail -n1 | tr -d ' \t\r')
+		if grep -qs 'hermes-login: ChatGPT is signed in' "$LOGIN_LOG"; then state=done
+		elif login_running; then [ -n "$code" ] && state=waiting || state=starting
+		else state=failed; last=$(sed 's/\x1b\[[0-9;]*m//g' "$LOGIN_LOG" 2>/dev/null | grep -v '^\s*$' | tail -n1 | cut -c1-200)
+		fi
+	fi
+	json_init
+	json_add_string "state" "$state"
+	[ -n "$url" ] && json_add_string "url" "$url"
+	case "$code" in [A-Z0-9]*-[A-Z0-9]*) json_add_string "code" "$code" ;; esac
+	[ -n "$last" ] && json_add_string "message" "$last"
+	json_dump
+}
+
+method_chatgpt_logout() {
+	json_init
+	if [ ! -x "$LOGIN" ]; then
+		json_add_boolean "ok" 0; json_add_string "error" "hermes-login is not installed"; json_dump; return 0
+	fi
+	if "$LOGIN" chatgpt --logout > /dev/null 2>&1; then
+		json_add_boolean "ok" 1
+	else
+		json_add_boolean "ok" 0; json_add_string "error" "signing out failed; see the log"
+	fi
 	json_dump
 }
 
@@ -227,6 +315,9 @@ list)
 		json_add_string "name" ""
 		json_add_string "value" ""
 	json_close_object
+	json_add_object "chatgpt_login";        json_close_object
+	json_add_object "chatgpt_login_status"; json_close_object
+	json_add_object "chatgpt_logout";       json_close_object
 	json_dump
 	;;
 call)
@@ -234,6 +325,9 @@ call)
 		status)     method_status ;;
 		logs)       method_logs ;;
 		set_secret) method_set_secret ;;
+		chatgpt_login)        method_chatgpt_login ;;
+		chatgpt_login_status) method_chatgpt_login_status ;;
+		chatgpt_logout)       method_chatgpt_logout ;;
 		*) json_init; json_add_string "error" "unknown method"; json_dump ;;
 	esac
 	;;

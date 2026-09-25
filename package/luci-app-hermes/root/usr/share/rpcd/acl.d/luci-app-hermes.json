@@ -11,7 +11,7 @@
 		"write": {
 			"comment": "set_secret writes a key into a root-only file; there is no matching read, by design",
 			"ubus": {
-				"hermes": [ "set_secret" ],
+				"hermes": [ "set_secret", "chatgpt_login", "chatgpt_login_status", "chatgpt_logout" ],
 				"luci": [ "setInitAction" ]
 			},
 			"uci": [ "hermes" ]

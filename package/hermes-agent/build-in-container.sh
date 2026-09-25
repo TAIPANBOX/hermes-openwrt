@@ -62,7 +62,9 @@ HERMES_VERSION=${HERMES_VERSION:-0.19.0}
 #
 # r9: further providers from UCI `provider` sections, offered by /model per chat;
 # the anthropic extra for upstream's native Anthropic provider; hermes-login chatgpt.
-PKGREL=${PKGREL:-9}
+#
+# r10: hermes-login chatgpt --logout, for the settings page's sign-out.
+PKGREL=${PKGREL:-10}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

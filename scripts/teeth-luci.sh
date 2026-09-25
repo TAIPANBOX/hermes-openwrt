@@ -1,11 +1,13 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Five faults, each a change somebody could plausibly make to the rpcd backend or its
+# Eight faults, each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
 # page's ubus object rather than inside it; fault 5 measures the free space on the data
-# directory itself again, which a new install does not have yet. The faults are applied to a copy of the
+# directory itself again, which a new install does not have yet.
+# Faults 6 to 8 are the Providers page's: a crafted provider name, the sign-in status,
+# and a sign-in that is not detached. The faults are applied to a copy of the
 # already-built LuCI tree and the result repackaged, the same shape as teeth-telegram.sh,
 # and for the same reason: a rebuild from scratch per fault would quadruple the job and
 # prove nothing extra, none of these is a build error.
@@ -139,6 +141,38 @@ repack_luci
 expect_red "free space measured on the missing data directory" check_free_space_before_first_start
 cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
 
+# ---- fault 6: a provider slot takes any name ----
+sed 's/echo "$name" | grep -qE .\^\[a-z\]\[a-z0-9-\]{0,30}\$. || return 1/true/' "$RPCD" > /tmp/rpcd.new
+grep -q 'provider_section' /tmp/rpcd.new && ! grep -q 'grep -qE .\^\[a-z\]\[a-z0-9-\]{0,30}\$. || return 1' /tmp/rpcd.new || {
+	echo "teeth-luci: fault 6 planted nothing; the provider name check no longer reads as expected" >&2
+	exit 1; }
+cp /tmp/rpcd.new "$RPCD"
+repack_luci
+expect_red "a provider slot takes any name" check_provider_key_name_refused
+cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
+
+# ---- fault 7: the page is told ChatGPT is signed in whatever auth.json says ----
+sed "s/grep -qs '\"openai-codex\"' \"\$data_dir\/auth.json\"/true/" "$RPCD" > /tmp/rpcd.new
+grep -q 'chatgpt_signed_in" "$(true && echo 1' /tmp/rpcd.new || {
+	echo "teeth-luci: fault 7 planted nothing; the signed-in check no longer reads as expected" >&2
+	exit 1; }
+cp /tmp/rpcd.new "$RPCD"
+repack_luci
+expect_red "ChatGPT reported as signed in regardless" check_chatgpt_sign_in_from_the_page
+cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
+
+# ---- fault 8: the sign-in runs in the foreground ----
+# rpcd waits for the backend's output to end, so a sign-in that is not detached holds
+# the call for as long as the owner takes to enter the code.
+sed 's|( setsid "$LOGIN" chatgpt > "$LOGIN_LOG" 2>&1 < /dev/null & echo $! > "$LOGIN_PID" ) > /dev/null 2>&1|"$LOGIN" chatgpt > "$LOGIN_LOG" 2>\&1 < /dev/null|' "$RPCD" > /tmp/rpcd.new
+grep -q '^		"$LOGIN" chatgpt > "$LOGIN_LOG" 2>&1 < /dev/null$' /tmp/rpcd.new || {
+	echo "teeth-luci: fault 8 planted nothing; the detached sign-in no longer reads as expected" >&2
+	exit 1; }
+cp /tmp/rpcd.new "$RPCD"
+repack_luci
+expect_red "the sign-in runs in the foreground" check_chatgpt_sign_in_from_the_page
+cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -146,4 +180,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 5 faults on 4 checks, green restored"
+echo "teeth-luci: 8 faults on 6 checks, green restored"

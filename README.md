@@ -263,7 +263,8 @@ the internet median stayed at 11 ms.
 
 `luci-app-hermes` adds **Services -> Hermes Agent**: an overview with service state,
 version, free space where the data lives, which keys are set and a live log tail, and a
-settings page for the endpoint, the model, the keys, router access, Telegram and toolsets.
+settings page for the endpoint, the model, the keys, router access, Telegram and toolsets, and a
+Providers page for the further providers and a ChatGPT subscription.
 
 It looks like every other LuCI page, and two things about it are not cosmetic.
 
@@ -334,8 +335,9 @@ password passes through the router. ChatGPT then shows up in `/model`.
 
 **Anyone the bot answers can switch their chat to any provider listed here**, including
 keys that cost money per call. The allowlist is the boundary, as it is for everything
-else the agent can do. The settings page does not manage further providers yet; UCI and
-the command line do.
+else the agent can do. **Services -> Hermes Agent -> Providers** does all of this from the
+browser: it adds and removes providers, takes each key write-only like the main one, and
+signs ChatGPT in and out, showing the address and the code to enter.
 
 ## Reaching it from a phone
 
@@ -574,18 +576,18 @@ OpenWrt's own published rootfs and then asks the running system.
 |---|---|
 | `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean |
 | `gate-ipk.sh` | 6 checks on 24.10: opkg installs it, it runs on Python 3.11, `/etc/config/hermes` is a registered conffile, removal leaves nothing |
-| `gate-luci.sh` | 14 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus and, before the first start, reports the free space where the data will go, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission is exactly the page's two calls and its UCI config, a failed write is reported, and the page will not write a slot the service does not read |
+| `gate-luci.sh` | 18 checks: files land where luci-base looks, both views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus and, before the first start, reports the free space where the data will go, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission is exactly the page's two calls and its UCI config, a failed write is reported, and the page will not write a slot the service does not read; on the Providers page a provider's key lands 0600 in its own slot, a crafted name writes nothing, a key file set elsewhere is refused, and ChatGPT signs in and out with the call returning at once |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-feed-opkg.sh` | 3 checks: `Signature check failed` without the key, `passed` with it, and installs |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
 | `gate-telegram-opkg.sh` | 5 checks on 24.10, where opkg does not refuse a collision but overwrites: the file lists are compared directly, and removing the add-on must leave every file owned by the base package |
-| `gate-runtime.sh` | 48 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
-| `teeth-runtime.py` | 43 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
+| `gate-runtime.sh` | 49 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
+| `teeth-runtime.py` | 44 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
-| `teeth-luci.sh` | five for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, the refusal to write a slot the service does not read removed, and the free space measured on the missing data directory again |
+| `teeth-luci.sh` | eight for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, the refusal to write a slot the service does not read removed, the free space measured on the missing data directory again, a provider slot that takes any name, ChatGPT reported as signed in regardless, and a sign-in run in the foreground |
 | `teeth-named-routers.sh` | a box named by name and one named by model number must fail, the two test routers must pass, and nothing to read must refuse |
 
 `teeth.sh` earns its place. Its first run found a real defect in this repository rather
@@ -622,6 +624,7 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] A per-turn limit on model calls, set on the router
 - [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included
 - [x] Upstream's native Anthropic provider
+- [x] A Providers page: further providers with write-only keys, ChatGPT sign-in and sign-out
 - [ ] Track upstream releases automatically, which arrive every two to four days
 
 ## Prior art, and what is not ours

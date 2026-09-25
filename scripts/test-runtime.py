@@ -1094,6 +1094,23 @@ start_service; echo "start=$?"
         bad = subprocess.run(["sh", str(helper), "other"], check=False, capture_output=True, text=True)
         self.assertEqual(bad.returncode, 2)
 
+    def test_login_helper_signs_out(self):
+        # The Providers page signs out with hermes-login chatgpt --logout; upstream's own
+        # logout has to clear the tokens it filed under openai-codex, in the service's
+        # data directory.
+        helper = FILES / "hermes-login"
+        self.assertTrue(helper.exists(), "hermes-login is not installed")
+        self.addCleanup(subprocess.run, ["sh", "-c", "uci set hermes.main.data_dir=/srv/hermes; uci commit hermes"])
+        subprocess.run(["sh", "-c", f"uci set hermes.main.data_dir={shlex.quote(str(self.home))}; uci commit hermes"], check=True)
+        saved = self.upstream("from hermes_cli.auth import _save_codex_tokens\n"
+                              "_save_codex_tokens({'access_token': 'codex-access-canary', 'refresh_token': 'codex-refresh-canary'}, None)\n")
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        self.assertIn("codex-access-canary", (self.home / "auth.json").read_text())
+        out = subprocess.run(["sh", str(helper), "chatgpt", "--logout"], check=False, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertNotIn("codex-access-canary", (self.home / "auth.json").read_text())
+        self.assertNotIn("codex-access-canary", out.stdout + out.stderr)
+
     def test_chatgpt_login_does_not_trip_the_preflight(self):
         # hermes-login stores the subscription's tokens with upstream's own saver and
         # points model.provider at it; the next start puts UCI's model back and the

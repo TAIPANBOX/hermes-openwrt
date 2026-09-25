@@ -73,6 +73,14 @@ return view.extend({
 			 * to leak into a screenshot of this page. */
 			[_('Model API key'), pill(st.provider_key_set, _('set'), _('missing'))],
 			[_('Router access token'), pill(st.router_mcp_key_set, _('set'), _('optional, not set'))],
+			/* Further providers and the ChatGPT subscription, by name and presence
+			 * only; the Providers tab edits them. */
+			[_('Further providers'), E('span', {}, Object.keys(st.provider_keys || {}).length
+				? Object.keys(st.provider_keys).map(function (n) {
+					return n + ' (' + (st.provider_keys[n].set ? _('key set') : _('no key')) + ')';
+				}).join(', ')
+				: _('none'))],
+			[_('ChatGPT subscription'), pill(st.chatgpt_signed_in, _('signed in'), _('not signed in'))],
 			/* Two facts rather than one, because they fail differently and are fixed
 			 * differently: a missing library is a package to install, a missing token is
 			 * something to paste into Settings. Collapsing them into "Telegram: off"

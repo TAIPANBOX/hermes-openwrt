@@ -131,6 +131,8 @@ def _uci_providers(raw: str) -> dict:
             raise ValueError(f"provider {name} is configured twice")
         if _builtin_provider(name):
             raise ValueError(f"provider name {name!r} is one upstream already uses; choose another")
+        if name == "provider":
+            raise ValueError("provider name 'provider' would share the main key's file; choose another")
         _validate_endpoint(url, f"provider {name} base_url")
         for value, what in ((model, "model"), (label, "label")):
             if not value.strip() or any(ord(c) < 32 or ord(c) == 127 for c in value):
