@@ -20,7 +20,9 @@ set -eu
 # off whatever the toolsets list says.
 #
 # r5: admin is the default profile, and the page sets max_turns.
-PKGREL=${PKGREL:-5}
+# r6: before the first start, status reports the free space where the data directory
+# will be created, instead of 0 and a low-space warning.
+PKGREL=${PKGREL:-6}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

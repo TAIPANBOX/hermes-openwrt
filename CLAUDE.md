@@ -54,8 +54,10 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     config, with no other ubus object or method (procd's service list included), no file
     access and no other scope; `set_secret` writes only its fixed slot under
     `/etc/hermes-agent`, refuses when UCI points the service at another file, and reports
-    a failed write; no method returns a key (gate: `scripts/gate-luci.sh`,
-    `scripts/teeth-luci.sh`).
+    a failed write; no method returns a key. `status` reports the free space where the
+    data directory lives or, before the first start, where it will be created, for the
+    directory the service uses (an empty option included), and never creates it
+    (gate: `scripts/gate-luci.sh`, `scripts/teeth-luci.sh`).
 12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
     tools the agent may use. assistant disables terminal, code execution and file tools
     regardless of what the `toolsets` list selects; admin leaves every selected tool
