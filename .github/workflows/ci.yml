@@ -26,7 +26,11 @@ jobs:
   # honest test is to build the package and install it on the operating system it
   # targets, which is what this does.
   package:
-    runs-on: ubuntu-latest
+    # A native arm64 runner (2026-09-25): the routers are aarch64, and under QEMU on an
+    # x86 runner this job took 1 h 41 min. GitHub's arm64 runners are free for public
+    # repositories and not offered to private ones, so making this repository private
+    # would take this job away rather than bill for it.
+    runs-on: ubuntu-24.04-arm
     # package/upstream/fetch.sh: the upstream archive is public; the token only lifts
     # api.github.com's anonymous rate limit, which shared runner addresses hit.
     env:
@@ -36,15 +40,17 @@ jobs:
       matrix:
         include:
           # ARM only (2026-09-24): routers are what this package is for.
-          # aarch64 is what a router actually is. It needs QEMU here, and it is the
-          # architecture the wheel bet is really about, so it is not optional.
+          # aarch64 is what a router actually is, and the architecture the wheel bet is
+          # really about, so it is not optional.
           - arch: aarch64_generic
     steps:
       - uses: actions/checkout@v4
 
-      # Without this the aarch64 rootfs dies with "exec /bin/sh: exec format error"
-      # before a single byte is assembled.
-      - uses: docker/setup-qemu-action@v3
+      # No QEMU any more: the runner is aarch64 itself. Say so, and stop if it is not, so a
+      # changed runner label cannot quietly bring back an x86 host that would then need
+      # emulation this job no longer sets up.
+      - name: the runner is aarch64
+        run: test "$(uname -m)" = aarch64 && uname -m
 
       # The aarch64 leg also emits the aarch64_cortex-a53 relabel, the label every
       # GL.iNet MediaTek router installs, so that gate-relabel.sh runs where it counts:
