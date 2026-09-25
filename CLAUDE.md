@@ -65,7 +65,8 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     the tokens. `status` reads the agent's version from its installed metadata and never
     runs `hermes`. The Providers page deletes a provider's key with the provider, unless
     UCI points it at a file the page does not manage, and what the pages say just before
-    a reload is shown after it, once, if under a minute old (gate: `scripts/gate-luci.sh`,
+    a reload is shown after it, once: for Save & Apply only once LuCI reports the apply
+    went through, and never when older than ten minutes (gate: `scripts/gate-luci.sh`,
     `scripts/teeth-luci.sh`, `scripts/test-luci-views.mjs`).
 12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
     tools the agent may use. assistant disables terminal, code execution and file tools

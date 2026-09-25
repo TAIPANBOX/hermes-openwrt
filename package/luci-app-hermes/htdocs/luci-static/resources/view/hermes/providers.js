@@ -234,8 +234,8 @@ return view.extend({
 		return this.super('handleSaveApply', [ev, mode]).then(function () {
 			return restartService();
 		}).then(function () {
-			failures.forEach(function (text) { flash.keep(text, 'danger'); });
-			flash.keep(_('Saved. The service was restarted; the Overview tab shows whether it stayed up and which providers it left out.'), 'info');
+			failures.forEach(function (text) { flash.keepOnApply(text, 'danger'); });
+			flash.keepOnApply(_('Saved. The service was restarted; the Overview tab shows whether it stayed up and which providers it left out.'), 'info');
 		});
 	}
 });

@@ -11,15 +11,20 @@
  * not save, a sign-out that did not happen. Seen on a Brume 2 on 2026-09-25, where
  * "Saved" and "Signed in to ChatGPT" never reached the screen.
  *
- * keep() puts a message in the tab's sessionStorage just before a reload, show() puts
- * it on the page after, once. A message older than a minute is dropped instead: it
- * belongs to an apply that never reloaded, and shown on a later visit it would describe
- * something that is no longer true. Storage can be absent or refuse (a private window,
- * blocked site data); the message is then lost, as it was before, and nothing breaks.
+ * keep() puts a message in the tab's sessionStorage just before a reload the page does
+ * itself, show() puts it on the page after, once. keepOnApply() is for Save & Apply: it
+ * holds the message until LuCI announces the apply went through ('uci-applied', just
+ * before LuCI's own reload), so an apply that was rolled back leaves nothing behind to
+ * claim it saved. The age limit is only a backstop against a leftover: ten minutes,
+ * because a tab in the background can take minutes to load (a hidden browser pane on
+ * 2026-09-25 took over 90 s), and the page is worth reading when somebody comes back to
+ * it. Storage can be absent or refuse (a private window, blocked site data); the message
+ * is then lost, as it was before, and nothing breaks.
  */
 
 var KEY = 'luci-app-hermes.flash';
-var FRESH_MS = 60000;
+var FRESH_MS = 600000;
+var onApply = [];
 
 function read() {
 	try {
@@ -37,6 +42,16 @@ return baseclass.extend({
 			list.push({ text: String(text), kind: kind || 'info', at: Date.now() });
 			window.sessionStorage.setItem(KEY, JSON.stringify(list));
 		} catch (e) {}
+	},
+
+	keepOnApply: function (text, kind) {
+		var self = this;
+		if (!onApply.length)
+			document.addEventListener('uci-applied', function flush() {
+				document.removeEventListener('uci-applied', flush);
+				onApply.splice(0).forEach(function (m) { self.keep(m.text, m.kind); });
+			});
+		onApply.push({ text: text, kind: kind });
 	},
 
 	show: function () {

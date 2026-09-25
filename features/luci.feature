@@ -38,9 +38,10 @@
 # on 2026-09-24, a second one for the read permission (a file grant beside the page's
 # calls), one for the free space before the first start, and three for the Providers
 # page: a crafted provider name, the sign-in status, and a sign-in that is not detached,
-# one for the post-upgrade script, and four for LuCI r8: the version read by running
-# Hermes, a provider deleted without its key, a message not kept across the reload, and
-# an old message shown anyway. The last three checks run the installed pages' own
+# one for the post-upgrade script, and five for LuCI r8: the version read by running
+# Hermes, a provider deleted without its key, a message not kept across the reload, an
+# old message shown anyway, and a Save & Apply message kept before the apply went
+# through. The last three checks run the installed pages' own
 # JavaScript (scripts/test-luci-views.mjs) against a stand-in for LuCI.
 
 Feature: The web page manages the agent and never hands a key back
@@ -173,12 +174,13 @@ Feature: The web page manages the agent and never hands a key back
   Scenario: what the page says just before it reloads is there after the reload
     When Save & Apply, ChatGPT sign-in or sign-out ends in a reload
     Then the reloaded page shows the message, a failure included, once
+    And after Save & Apply only once LuCI reports the apply went through, so a rolled-back apply leaves no "Saved"
     # -> check_messages_survive_the_reload
 
   Scenario: a message from long ago is not shown as news
-    Given a kept message older than a minute
+    Given a kept message older than ten minutes
     When the page opens
-    Then it is dropped, and a fresh one is shown
+    Then it is dropped, while one five minutes old, from a tab that loaded slowly in the background, is shown
     # -> check_stale_message_not_shown
 
   Scenario: removing the web app leaves the agent and its key alone

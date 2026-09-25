@@ -45,6 +45,13 @@ function world(replies) {
 		removeItem: k => { w.storage.delete(k); },
 	};
 	w.window = { sessionStorage, location: { reload: () => { w.reloads++; } }, setTimeout: (f) => f() };
+	// Listeners belong to one page: a reload starts with none, as a browser does.
+	w.document = {
+		listeners: {},
+		addEventListener(t, f) { (this.listeners[t] ||= []).push(f); },
+		removeEventListener(t, f) { this.listeners[t] = (this.listeners[t] || []).filter(g => g !== f); },
+		dispatchEvent(ev) { for (const f of [...(this.listeners[ev.type] || [])]) f(ev); },
+	};
 	w.ui = {
 		addNotification: (_t, node, kind) => { w.notes.push({ text: textOf(node), kind }); },
 		createHandlerFn: (ctx, fn) => (ev) => (typeof fn === 'string' ? ctx[fn] : fn).call(ctx, ev),
@@ -98,8 +105,8 @@ function load(w, file) {
 		else
 			values.push(w[mod] ?? (() => { throw new Error(`the stand-in has no ${mod}`); })());
 	}
-	return new Function(...names, 'E', '_', 'L', 'window', 'sessionStorage', src)(
-		...values, E, (s) => s, w.L, w.window, w.window.sessionStorage);
+	return new Function(...names, 'E', '_', 'L', 'window', 'sessionStorage', 'document', src)(
+		...values, E, (s) => s, w.L, w.window, w.window.sessionStorage, w.document);
 }
 
 const views = path.join(root, 'luci-static/resources/view/hermes');
@@ -108,6 +115,7 @@ const views = path.join(root, 'luci-static/resources/view/hermes');
 // with the same w, which keeps its sessionStorage and nothing else.
 async function open(w, name) {
 	w.notes = [];
+	w.document.listeners = {};
 	const v = load(w, path.join(views, `${name}.js`));
 	const data = await v.load();
 	await v.render(data);
@@ -184,7 +192,8 @@ check('check_messages_survive_the_reload', async () => {
 	assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('auth.json is read-only')), 'after the reload, a failed sign-out is not reported');
 
 	// Save & Apply on both pages: a key that did not save, and the "Saved" line, both on
-	// the page LuCI reloads into.
+	// the page LuCI reloads into once it announces the apply ('uci-applied'). An apply
+	// that is rolled back never announces it, and must leave no "Saved" behind.
 	for (const [page, field] of [['providers', '_key'], ['settings', '_provider_key']]) {
 		w = world({ 'hermes.status': { provider_keys: {} }, 'hermes.set_secret': { ok: false, error: 'the canary refusal' } });
 		v = await open(w, page);
@@ -192,22 +201,29 @@ check('check_messages_survive_the_reload', async () => {
 		assert(opt && typeof opt.write === 'function', `${page}: no write-only key field ${field}`);
 		w.duringSuper = () => opt.write(page === 'providers' ? 'claude' : 'main', 'sk-test');
 		await v.handleSaveApply({}, '0');
+		w.document.dispatchEvent({ type: 'uci-applied' });
 		await open(w, page);
 		assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('the canary refusal')),
 			`${page}: after Save & Apply's reload, the key that did not save is not reported`);
 		assert(w.notes.some(n => /^Saved\./.test(n.text)), `${page}: after Save & Apply's reload, nothing says it saved`);
+
+		v = await open(w, page);
+		w.duringSuper = null;
+		await v.handleSaveApply({}, '0');
+		await open(w, page);
+		assert(!w.notes.some(n => /^Saved\./.test(n.text)), `${page}: an apply that never went through left "Saved" for the next visit`);
 	}
 });
 
 check('check_stale_message_not_shown', async () => {
 	const w = world({ 'hermes.status': {} });
 	w.storage.set('luci-app-hermes.flash', JSON.stringify([
-		{ text: 'from an apply that never reloaded', kind: 'info', at: Date.now() - 120000 },
-		{ text: 'from just now', kind: 'info', at: Date.now() - 1000 },
+		{ text: 'from an apply that never reloaded', kind: 'info', at: Date.now() - 11 * 60000 },
+		{ text: 'from a tab that took minutes to load', kind: 'info', at: Date.now() - 5 * 60000 },
 	]));
 	await open(w, 'providers');
-	assert(!w.notes.some(n => n.text.includes('never reloaded')), 'a message two minutes old was shown');
-	assert(w.notes.some(n => n.text.includes('from just now')), 'a fresh message was not shown');
+	assert(!w.notes.some(n => n.text.includes('never reloaded')), 'a message eleven minutes old was shown');
+	assert(w.notes.some(n => n.text.includes('took minutes')), 'a message five minutes old was dropped, so a page loaded slowly in the background loses it');
 	w.storage.set('luci-app-hermes.flash', 'not json');
 	await open(w, 'providers');
 	assert(!w.storage.has('luci-app-hermes.flash'), 'unreadable storage was left for every later visit');

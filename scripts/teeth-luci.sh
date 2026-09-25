@@ -8,9 +8,9 @@
 # directory itself again, which a new install does not have yet.
 # Faults 6 to 8 are the Providers page's: a crafted provider name, the sign-in status,
 # and a sign-in that is not detached. Fault 9 leaves out the post-upgrade script.
-# Faults 10 to 13 are LuCI r8's: the version read by running Hermes again, a provider
-# deleted without its key, a message not kept across the reload, and an old message
-# shown anyway; the last three are in the page's own JavaScript, which gate-luci.sh runs
+# Faults 10 to 14 are LuCI r8's: the version read by running Hermes again, a provider
+# deleted without its key, a message not kept across the reload, an old message shown
+# anyway, and a Save & Apply message kept before the apply went through; the last four are in the page's own JavaScript, which gate-luci.sh runs
 # from the installed package. The faults are applied to a copy of the
 # already-built LuCI tree and the result repackaged, the same shape as teeth-telegram.sh,
 # and for the same reason: a rebuild from scratch per fault would quadruple the job and
@@ -236,6 +236,14 @@ repack_luci
 expect_red "an old message shown anyway" check_stale_message_not_shown
 cp "$SRC_FLASH" "$FLASH"
 
+# ---- fault 14: a Save & Apply message kept before the apply went through ----
+# Kept at once instead of on 'uci-applied', an apply that was rolled back leaves "Saved"
+# for the next visit.
+plant "$FLASH" "onApply.push({ text: text, kind: kind });" "self.keep(text, kind);" "fault 14"
+repack_luci
+expect_red "a Save & Apply message kept before the apply went through" check_messages_survive_the_reload
+cp "$SRC_FLASH" "$FLASH"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -243,4 +251,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 13 faults on 11 checks, green restored"
+echo "teeth-luci: 14 faults on 11 checks, green restored"

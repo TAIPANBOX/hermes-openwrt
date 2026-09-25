@@ -260,8 +260,8 @@ return view.extend({
 			})('hermes-agent', 'restart').catch(function () {});
 		}).then(function () {
 			/* LuCI reloads the page a few seconds after the apply; see hermes/flash.js. */
-			failures.forEach(function (text) { flash.keep(text, 'danger'); });
-			flash.keep(_('Saved. The service was restarted; check the Overview tab for whether it stayed up.'), 'info');
+			failures.forEach(function (text) { flash.keepOnApply(text, 'danger'); });
+			flash.keepOnApply(_('Saved. The service was restarted; check the Overview tab for whether it stayed up.'), 'info');
 		});
 	}
 });
