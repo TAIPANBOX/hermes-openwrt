@@ -4,6 +4,7 @@
 'require rpc';
 'require ui';
 'require uci';
+'require hermes.flash as flash';
 
 /* Settings.
  *
@@ -29,16 +30,23 @@ var callSetSecret = rpc.declare({
  * itself can fail. Either way the operator must be told which field and why, and the
  * save flow must be allowed to continue rather than abort: a rejected promise here
  * would stop form.Map from reporting anything else it saved in the same pass. */
+/* Failures reported during a save, kept for the page that Save & Apply reloads into:
+ * shown only before the reload, a failure is shown for a few seconds under LuCI's own
+ * "applying" status and then gone. See hermes/flash.js. */
+var failures = [];
+
+function fail(text) {
+	failures.push(text);
+	ui.addNotification(null, E('p', {}, text), 'danger');
+}
+
 function reportSecretWrite(label, promise) {
 	return promise.then(function (reply) {
-		if (!reply || reply.ok === false) {
-			ui.addNotification(null, E('p', {}, _('The %s was not saved: %s').format(
-				label, (reply && reply.error) || _('unknown error'))), 'danger');
-		}
+		if (!reply || reply.ok === false)
+			fail(_('The %s was not saved: %s').format(label, (reply && reply.error) || _('unknown error')));
 		return reply;
 	}, function () {
-		ui.addNotification(null, E('p', {}, _('The %s was not saved: %s').format(
-			label, _('unknown error'))), 'danger');
+		fail(_('The %s was not saved: %s').format(label, _('unknown error')));
 	});
 }
 
@@ -232,7 +240,10 @@ return view.extend({
 		o.value('session_search', 'session_search');
 		o.value('todo', 'todo');
 
-		return m.render();
+		return m.render().then(function (node) {
+			flash.show();
+			return node;
+		});
 	},
 
 	/* After the map is written, the service has to be restarted: every setting is read
@@ -241,15 +252,16 @@ return view.extend({
 	 * reader to do it means the page cannot be left in a state where what it shows and
 	 * what is running disagree. */
 	handleSaveApply: function (ev, mode) {
-		var self = this;
+		failures = [];
 		return this.super('handleSaveApply', [ev, mode]).then(function () {
 			return rpc.declare({
 				object: 'luci', method: 'setInitAction',
 				params: ['name', 'action'], expect: { result: false }
 			})('hermes-agent', 'restart').catch(function () {});
 		}).then(function () {
-			ui.addNotification(null, E('p', {},
-				_('Saved. The service was restarted; check the Overview tab for whether it stayed up.')), 'info');
+			/* LuCI reloads the page a few seconds after the apply; see hermes/flash.js. */
+			failures.forEach(function (text) { flash.keep(text, 'danger'); });
+			flash.keep(_('Saved. The service was restarted; check the Overview tab for whether it stayed up.'), 'info');
 		});
 	}
 });

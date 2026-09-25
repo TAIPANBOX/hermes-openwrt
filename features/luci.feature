@@ -25,13 +25,23 @@
 #   @measured 2026-09-25 on a Flint 2 and a Brume 2, r6 upgraded to r7 by apk: ubus listed
 #                        only the old methods until rpcd was restarted by hand, because apk
 #                        runs post-install on an install and post-upgrade on an upgrade.
+#   @measured 2026-09-25 on a Brume 2, the Providers page in a browser: every page took
+#                        5 to 7 s to load, because status ran `hermes --version` (4 s);
+#                        a deleted provider left its key file, and a provider added later
+#                        under the same name showed it as stored; "Saved" and "Signed in
+#                        to ChatGPT" were shown just before the page reloaded and never seen.
+#   @decided 2026-09-25  All three are fixed.
 #
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
 # both ways, and scripts/teeth-luci.sh plants a fault for each of the three checks added
 # on 2026-09-24, a second one for the read permission (a file grant beside the page's
 # calls), one for the free space before the first start, and three for the Providers
-# page: a crafted provider name, the sign-in status, and a sign-in that is not detached.
+# page: a crafted provider name, the sign-in status, and a sign-in that is not detached,
+# one for the post-upgrade script, and four for LuCI r8: the version read by running
+# Hermes, a provider deleted without its key, a message not kept across the reload, and
+# an old message shown anyway. The last three checks run the installed pages' own
+# JavaScript (scripts/test-luci-views.mjs) against a stand-in for LuCI.
 
 Feature: The web page manages the agent and never hands a key back
 
@@ -65,6 +75,12 @@ Feature: The web page manages the agent and never hands a key back
     When the page asks for status
     Then the reply has running, enabled, version, data directory, free space and whether a key is set
     # -> check_status_answers
+
+  Scenario: the page's status does not start the agent to learn its version
+    When a page asks for the status
+    Then the version is the one recorded on disk for the installed agent
+    And /usr/bin/hermes is not run, so the answer comes at once and nothing asks the network
+    # -> check_status_reads_version_from_disk
 
   Scenario: before the first start the page shows the free space where the data will go
     Given the agent is installed and its data directory is not created yet
@@ -146,6 +162,24 @@ Feature: The web page manages the agent and never hands a key back
     When it is upgraded
     Then rpcd is restarted, as on a first install, so the page's new calls are there without a reboot
     # -> check_upgrade_restarts_rpcd
+
+  Scenario: deleting a provider deletes its key
+    Given a provider on the Providers page with a key stored
+    When it is deleted
+    Then its key file is cleared before the provider goes
+    And a key file set elsewhere in UCI is left to the operator
+    # -> check_removed_provider_takes_its_key
+
+  Scenario: what the page says just before it reloads is there after the reload
+    When Save & Apply, ChatGPT sign-in or sign-out ends in a reload
+    Then the reloaded page shows the message, a failure included, once
+    # -> check_messages_survive_the_reload
+
+  Scenario: a message from long ago is not shown as news
+    Given a kept message older than a minute
+    When the page opens
+    Then it is dropped, and a fresh one is shown
+    # -> check_stale_message_not_shown
 
   Scenario: removing the web app leaves the agent and its key alone
     When luci-app-hermes is removed

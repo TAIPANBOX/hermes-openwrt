@@ -19,7 +19,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_stale_message_not_shown check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -69,17 +69,23 @@ LUCI=${LUCI:-$(ls -t "$ROOT"/build/luci-app-hermes-apk/luci-app-hermes-*.apk "$R
 # syntax error would otherwise reach a browser as a blank page with a console message
 # nobody is looking at.
 echo "-- parsing the views --"
-for f in "$ROOT"/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/*.js; do
+for f in "$ROOT"/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/*.js \
+         "$ROOT"/package/luci-app-hermes/htdocs/luci-static/resources/hermes/*.js; do
 	docker run --rm -v "$f:/x.js:ro" node:22-alpine node --check /x.js \
 		|| { echo "FAIL check_js_parses: $(basename "$f") does not parse"; exit 1; }
 done
-echo "PASS check_js_parses ($(ls "$ROOT"/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/*.js | wc -l | tr -d ' ') views)"
+echo "PASS check_js_parses ($(ls "$ROOT"/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/*.js | wc -l | tr -d ' ') views, $(ls "$ROOT"/package/luci-app-hermes/htdocs/luci-static/resources/hermes/*.js | wc -l | tr -d ' ') module)"
+
+# The installed web root comes back out of the container here, for the view checks
+# after it: what they load is what the package put on the router.
+WWW=$(mktemp -d "${TMPDIR:-/tmp}/gate-luci-www.XXXXXX")
+trap 'rm -rf "$WWW"' EXIT
 
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 # -i is load-bearing: without it docker hands `sh -s` an empty stdin, nothing runs, the
 # container exits 0, and this gate passes having measured nothing.
 docker run --rm -i --platform "$PLATFORM" \
-	-v "$AGENT:/agent.apk:ro" -v "$LUCI:/luci.apk:ro" \
+	-v "$AGENT:/agent.apk:ro" -v "$LUCI:/luci.apk:ro" -v "$WWW:/out" \
 	"$IMAGE" /bin/sh -s <<'CONTAINER'
 set -eu
 fail() { echo "FAIL $1: $2"; exit 1; }
@@ -102,6 +108,7 @@ echo "PASS check_installs"
 for f in /www/luci-static/resources/view/hermes/overview.js \
          /www/luci-static/resources/view/hermes/settings.js \
          /www/luci-static/resources/view/hermes/providers.js \
+         /www/luci-static/resources/hermes/flash.js \
          /usr/share/luci/menu.d/luci-app-hermes.json \
          /usr/share/rpcd/acl.d/luci-app-hermes.json \
          /usr/libexec/rpcd/hermes; do
@@ -109,6 +116,10 @@ for f in /www/luci-static/resources/view/hermes/overview.js \
 done
 [ -x /usr/libexec/rpcd/hermes ] || fail check_files_land "the rpcd backend is not executable"
 echo "PASS check_files_land"
+# Readable by the host user that removes it again, which on a Linux runner is not root.
+mkdir -p /out/luci-static/resources
+cp -a /www/luci-static/resources/view /www/luci-static/resources/hermes /out/luci-static/resources/
+chmod -R a+rwX /out
 
 # ---- 3. the menu and ACL are valid JSON ----
 # rpcd and luci-base both fail quietly on malformed JSON: the entry simply never appears,
@@ -130,6 +141,30 @@ for k in running enabled version data_dir free_kb provider_key_set; do
 	echo "$out" | grep -q "\"$k\"" || { echo "$out"; fail check_status_answers "no $k in the reply"; }
 done
 echo "PASS check_status_answers"
+
+# ---- 5a. the version comes from the disk, and asking starts nothing ----
+# Until LuCI r8 status ran `hermes --version`: Python, all of Hermes imported, and a
+# network check for a newer upstream release, 4 s on a Brume 2 (2026-09-25) for every
+# page load. /usr/bin/hermes is replaced by a stand-in that leaves a mark and sleeps;
+# the answer has to be the version pip recorded, with no mark and no wait.
+ver_fail() { fail check_status_reads_version_from_disk "$1"; }
+META=$(ls /usr/lib/hermes-agent/site-packages/hermes_agent-*.dist-info/METADATA 2>/dev/null | head -n1)
+[ -f "$META" ] || ver_fail "the agent package carries no hermes_agent METADATA to read; measured nothing"
+want="Hermes Agent v$(sed -n 's/^Version: *//p' "$META" | head -n1)"
+cp /usr/bin/hermes /tmp/hermes.real
+printf '#!/bin/sh\ntouch /tmp/hermes-was-run\nsleep 5\necho "Hermes Agent v9.9.9"\n' > /usr/bin/hermes
+t0=$(date +%s)
+got=$(ubus -t 30 call hermes status | jsonfilter -e '@.version')
+took=$(( $(date +%s) - t0 ))
+[ "$got" = "$want" ] || ver_fail "status reports '$got', the installed METADATA says '$want'"
+[ -e /tmp/hermes-was-run ] && ver_fail "status ran /usr/bin/hermes"
+[ "$took" -le 2 ] || ver_fail "status took $took s"
+mv "$META" "$META.aside"
+got=$(ubus call hermes status | jsonfilter -e '@.version')
+mv "$META.aside" "$META"
+[ "$got" = "not installed" ] || ver_fail "with no METADATA, status reports '$got'"
+cp /tmp/hermes.real /usr/bin/hermes; rm -f /tmp/hermes.real /tmp/hermes-was-run
+echo "PASS check_status_reads_version_from_disk"
 
 # ---- 5b. free space before the first start, where the data will live ----
 # The service creates its data directory at its first start, so a new install has none
@@ -399,6 +434,14 @@ apk del luci-app-hermes >/dev/null 2>&1 || fail check_clean_removal "apk del fai
 [ -e /etc/hermes-agent/provider.key ] || fail check_clean_removal "removing the web app deleted the agent's key"
 echo "PASS check_clean_removal"
 CONTAINER
+
+# ---- the views, as the browser runs them ----
+# scripts/test-luci-views.mjs loads the installed pages with a stand-in for LuCI and
+# checks what they decide: a deleted provider takes its key, a message said just before
+# a reload is there after it, and an old one is not.
+echo "-- the views, on the installed files --"
+docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_stale_message_not_shown
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

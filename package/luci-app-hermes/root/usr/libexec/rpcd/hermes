@@ -30,6 +30,8 @@ INIT=/etc/init.d/hermes-agent
 LOGIN=/usr/sbin/hermes-login
 LOGIN_LOG=/tmp/hermes-login.log
 LOGIN_PID=/tmp/hermes-login.pid
+# The agent package's private site-packages, where pip left its metadata.
+SITE=/usr/lib/hermes-agent/site-packages
 
 # A further provider's slot is named provider:<section>, with a name the service itself
 # accepts, so a crafted name cannot reach outside CONF_DIR. The section need not exist
@@ -97,14 +99,22 @@ has_secret() {
 TELEGRAM_MANIFEST=/usr/lib/hermes-agent/telegram.manifest
 
 method_status() {
-	local running enabled version data_dir probe free_kb tg_lib
+	local running enabled version meta data_dir probe free_kb tg_lib
 	running=0; "$INIT" running >/dev/null 2>&1 && running=1
 	enabled=0; "$INIT" enabled >/dev/null 2>&1 && enabled=1
 
-	# From the binary rather than from the package database, so a half-finished upgrade
-	# shows what is actually on disk.
-	version=$(/usr/bin/hermes --version 2>/dev/null | head -n1)
-	[ -n "$version" ] || version="not installed"
+	# From what is on disk rather than from the package database, so a half-finished
+	# upgrade shows what is actually installed: the metadata pip wrote beside the code.
+	# Not `hermes --version`, which is what this read until LuCI r8: that starts Python,
+	# imports all of Hermes and checks upstream for a newer release over the network,
+	# 4 s on a Brume 2 for every page that asks for the status (measured 2026-09-25).
+	version=
+	for meta in "$SITE"/hermes_agent-*.dist-info/METADATA; do
+		[ -f "$meta" ] || continue
+		version=$(sed -n 's/^Version: *//p' "$meta" | head -n1)
+		[ -n "$version" ] && break
+	done
+	[ -n "$version" ] && version="Hermes Agent v$version" || version="not installed"
 
 	# The directory the service will use: the init script's default, an empty option
 	# included, since config_get reads an empty value as unset.

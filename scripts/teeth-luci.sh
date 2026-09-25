@@ -7,7 +7,11 @@
 # page's ubus object rather than inside it; fault 5 measures the free space on the data
 # directory itself again, which a new install does not have yet.
 # Faults 6 to 8 are the Providers page's: a crafted provider name, the sign-in status,
-# and a sign-in that is not detached. Fault 9 leaves out the post-upgrade script. The faults are applied to a copy of the
+# and a sign-in that is not detached. Fault 9 leaves out the post-upgrade script.
+# Faults 10 to 13 are LuCI r8's: the version read by running Hermes again, a provider
+# deleted without its key, a message not kept across the reload, and an old message
+# shown anyway; the last three are in the page's own JavaScript, which gate-luci.sh runs
+# from the installed package. The faults are applied to a copy of the
 # already-built LuCI tree and the result repackaged, the same shape as teeth-telegram.sh,
 # and for the same reason: a rebuild from scratch per fault would quadruple the job and
 # prove nothing extra, none of these is a build error.
@@ -19,6 +23,10 @@ WORK="$ROOT/build/luci-app-hermes-apk"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 ACL="$WORK/tree/usr/share/rpcd/acl.d/luci-app-hermes.json"
 RPCD="$WORK/tree/usr/libexec/rpcd/hermes"
+PROVIDERS="$WORK/tree/www/luci-static/resources/view/hermes/providers.js"
+FLASH="$WORK/tree/www/luci-static/resources/hermes/flash.js"
+SRC_PROVIDERS="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/providers.js"
+SRC_FLASH="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/hermes/flash.js"
 
 [ -d "$WORK/tree" ] || { echo "teeth-luci: no tree at $WORK/tree; build the LuCI package first:"
 	echo "  ./package/luci-app-hermes/build.sh"
@@ -30,7 +38,8 @@ RPCD="$WORK/tree/usr/libexec/rpcd/hermes"
 # build tree, and a run that went red partway would otherwise leave its last fault
 # behind for the next run to mistake for the original.
 for pair in "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json:$ACL" \
-            "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes:$RPCD"; do
+            "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes:$RPCD" \
+            "$SRC_PROVIDERS:$PROVIDERS" "$SRC_FLASH:$FLASH"; do
 	src=${pair%%:*}; tree=${pair##*:}
 	cmp -s "$src" "$tree" || {
 		echo "teeth-luci: the build tree's $(basename "$tree") differs from the repository's." >&2
@@ -44,7 +53,9 @@ cleanup() {
 	# Unconditional, on every exit path, including a fault that never got restored.
 	cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL" 2>/dev/null || true
 	cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD" 2>/dev/null || true
-	chmod 0644 "$ACL" 2>/dev/null || true
+	cp "$SRC_PROVIDERS" "$PROVIDERS" 2>/dev/null || true
+	cp "$SRC_FLASH" "$FLASH" 2>/dev/null || true
+	chmod 0644 "$ACL" "$PROVIDERS" "$FLASH" 2>/dev/null || true
 	chmod 0755 "$RPCD" 2>/dev/null || true
 	# The mutant is a package a feed builder would otherwise collect from this
 	# directory and sign. It does not outlive this script.
@@ -81,7 +92,9 @@ expect_red() {
 	if run_gate; then
 		echo "TEETH FAIL: $name left the gate green"; cat /tmp/teeth-luci.out; exit 1
 	fi
-	if ! grep -q "$want" /tmp/teeth-luci.out; then
+	# FAIL and the name, not the name alone: the view checks all run and print PASS for
+	# the ones a fault did not reach, so the bare name would match a check that passed.
+	if ! grep -q "^FAIL $want:" /tmp/teeth-luci.out; then
 		echo "TEETH FAIL: $name went red, but not at $want"
 		grep FAIL /tmp/teeth-luci.out | head -3; exit 1
 	fi
@@ -186,6 +199,43 @@ unset UPGRADE_SCRIPT
 expect_red "the package without a post-upgrade script" check_upgrade_restarts_rpcd
 rm -f "$WORK/noop"
 
+# plant FILE FROM TO WHAT: replace one exact line fragment, and refuse if it is not
+# there exactly once, so a fault that planted nothing cannot pass as caught.
+plant() {
+	n=$(grep -cF -- "$2" "$1" || true)
+	[ "$n" = 1 ] || { echo "teeth-luci: $4 planted nothing; '$2' occurs $n times in $(basename "$1")" >&2; exit 1; }
+	FROM=$2 TO=$3 awk 'BEGIN { f = ENVIRON["FROM"]; t = ENVIRON["TO"] }
+		{ i = index($0, f); if (i) $0 = substr($0, 1, i - 1) t substr($0, i + length(f)); print }' "$1" > /tmp/planted
+	cp /tmp/planted "$1"
+}
+
+# ---- fault 10: the version read by running Hermes again ----
+# The line status had until r8: Python started, Hermes imported, upstream asked for a
+# newer release, 4 s on every page load.
+plant "$RPCD" 'version=$(sed -n '"'"'s/^Version: *//p'"'"' "$meta" | head -n1)' \
+	'version=$(/usr/bin/hermes --version 2>/dev/null | head -n1 | sed '"'"'s/^Hermes Agent v//; s/ .*//'"'"')' "fault 10"
+repack_luci
+expect_red "the version read by running Hermes" check_status_reads_version_from_disk
+cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
+
+# ---- fault 11: a provider deleted without its key ----
+plant "$PROVIDERS" "callSetSecret('provider:' + section_id, '')" "Promise.resolve({ ok: true })" "fault 11"
+repack_luci
+expect_red "a provider deleted without its key" check_removed_provider_takes_its_key
+cp "$SRC_PROVIDERS" "$PROVIDERS"
+
+# ---- fault 12: a message not kept across the reload ----
+plant "$FLASH" "window.sessionStorage.setItem(KEY, JSON.stringify(list));" "void list;" "fault 12"
+repack_luci
+expect_red "a message not kept across the reload" check_messages_survive_the_reload
+cp "$SRC_FLASH" "$FLASH"
+
+# ---- fault 13: an old message shown anyway ----
+plant "$FLASH" "now - m.at < FRESH_MS" "true" "fault 13"
+repack_luci
+expect_red "an old message shown anyway" check_stale_message_not_shown
+cp "$SRC_FLASH" "$FLASH"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -193,4 +243,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 9 faults on 7 checks, green restored"
+echo "teeth-luci: 13 faults on 11 checks, green restored"

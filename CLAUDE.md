@@ -62,7 +62,11 @@ gated or published; the build scripts still take `ARCH=x86_64` by hand.
     when UCI points that provider elsewhere. ChatGPT sign-in, its status and sign-out are
     write-permission calls; the sign-in runs detached so the call returns at once, and
     `chatgpt_signed_in` comes from the name upstream files the tokens under, never from
-    the tokens (gate: `scripts/gate-luci.sh`, `scripts/teeth-luci.sh`).
+    the tokens. `status` reads the agent's version from its installed metadata and never
+    runs `hermes`. The Providers page deletes a provider's key with the provider, unless
+    UCI points it at a file the page does not manage, and what the pages say just before
+    a reload is shown after it, once, if under a minute old (gate: `scripts/gate-luci.sh`,
+    `scripts/teeth-luci.sh`, `scripts/test-luci-views.mjs`).
 12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
     tools the agent may use. assistant disables terminal, code execution and file tools
     regardless of what the `toolsets` list selects; admin leaves every selected tool
