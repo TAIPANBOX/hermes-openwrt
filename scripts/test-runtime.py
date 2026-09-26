@@ -225,8 +225,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         model = self.config()["model"]
         self.assertEqual(model["default"], "runtime-model")
-        self.assertEqual(model["provider"], "custom")
+        self.assertEqual(model["provider"], "uci")
         self.assertEqual(model["base_url"], endpoint)
+        self.assertEqual(self.config()["providers"]["uci"]["key_env"], "OPENAI_API_KEY")
 
     def test_wrapper_drops_mcp_when_token_missing(self):
         cli = Path("/usr/bin/hermes")
@@ -959,6 +960,7 @@ exit $?
         for raw in ("anthropic|A|https://api.anthropic.com/v1|/k|m",
                     "openrouter|O|https://openrouter.ai/api/v1|/k|m",
                     "custom|C|http://127.0.0.1:9/v1|/k|m",
+                    "uci|U|http://127.0.0.1:9/v1|/k|m",
                     "Bad Name|B|http://127.0.0.1:9/v1|/k|m",
                     "ftp|F|ftp://127.0.0.1/v1|/k|m",
                     "nomodel|N|http://127.0.0.1:9/v1|/k|",
@@ -978,9 +980,11 @@ exit $?
         self.assertEqual(self.config()["providers"]["mine"], mine)
         # A UCI provider dropped from UCI leaves; the operator's stays.
         self.assertEqual(self.configure_providers(self.PROVIDERS.split(";")[0]).returncode, 0)
-        self.assertEqual(sorted(self.config()["providers"]), ["claude", "mine"])
+        # uci is the main model's own entry, written with the endpoint.
+        self.assertEqual(sorted(self.config()["providers"]), ["claude", "mine", "uci"])
         self.assertEqual(self.configure_providers("").returncode, 0)
-        self.assertEqual(self.config()["providers"], {"mine": mine})
+        self.assertEqual(sorted(self.config()["providers"]), ["mine", "uci"])
+        self.assertEqual(self.config()["providers"]["mine"], mine)
         # An operator entry with a UCI provider's name is refused, not overwritten.
         before = (self.home / "config.yaml").read_text()
         result = self.configure_providers("mine|Mine|http://127.0.0.1:9/v1|/k|m")
@@ -988,7 +992,15 @@ exit $?
         self.assertEqual((self.home / "config.yaml").read_text(), before)
         # Unset means untouched: callers that predate providers change nothing here.
         self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
-        self.assertEqual(self.config()["providers"], {"mine": mine})
+        self.assertEqual(self.config()["providers"]["mine"], mine)
+        # So is an operator entry that took the main model's name.
+        config = self.config()
+        config["providers"]["uci"] = mine
+        (self.home / "config.yaml").write_text(yaml.safe_dump(config))
+        before = (self.home / "config.yaml").read_text()
+        result = self.configure(endpoint="http://127.0.0.1:9/v1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_text(), before)
 
     def test_wrapper_exports_provider_keys_and_drops_missing_ones(self):
         cli = Path("/usr/bin/hermes")
@@ -1014,7 +1026,8 @@ exit $?
         self.assertNotIn("HERMES_PROVIDER_LOCAL_KEY", child)
         self.assertNotIn("HERMES_PROVIDER_STALE_KEY", child)
         self.assertNotIn("HERMES_OPENWRT_PROVIDERS", child)
-        self.assertEqual(sorted(self.config()["providers"]), ["claude"])
+        # uci is the main model's own entry; local, whose key is missing, is left out.
+        self.assertEqual(sorted(self.config()["providers"]), ["claude", "uci"])
         self.assertIn(str(missing), result.stderr)
 
     def test_provider_keys_absent_from_procd(self):
@@ -1084,6 +1097,94 @@ start_service; echo "start=$?"
         check = self.upstream(code)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
+    SWITCH_CHECK = (
+        # What the gateway does on /model, step by step, with upstream's own pieces: the
+        # current route comes from _ModelSwitchContext.read_config, which never reads a
+        # key (only a session override carries one), the picker's button is the slug of
+        # the current entry, and the next turn rebuilds the agent from the override.
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from gateway.run import GatewayRunner, _resolve_runtime_agent_kwargs_for_provider\n"
+        "from gateway.slash_commands_model import _ModelSwitchContext\n"
+        "from hermes_cli.model_switch import switch_model\n"
+        "from hermes_cli.model_switch_providers import list_picker_providers\n"
+        "from run_agent import AIAgent\n"
+        "import os\n"
+        "endpoint, how = sys.argv[1], sys.argv[2]\n"
+        "ctx = _ModelSwitchContext(session_key='s', source=None, config_path=Path(os.environ['HERMES_HOME']) / 'config.yaml',"
+        " persist_global=False)\n"
+        "ctx.read_config()\n"
+        "assert ctx.current_api_key == '', 'the gateway now reads a key here; this check no longer models it'\n"
+        # The button a person presses: the current provider's, the one the picker ticks.
+        "current = [p['slug'] for p in list_picker_providers(current_provider=ctx.current_provider, "
+        "current_base_url=ctx.current_base_url, current_model=ctx.current_model, user_providers=ctx.user_provs, "
+        "custom_providers=ctx.custom_provs, excluded_providers=ctx.excluded_provs, max_models=5, "
+        "non_blocking_catalogs=True, probe_custom_providers=False, probe_current_custom_provider=False) "
+        "if p.get('is_current')]\n"
+        "assert len(current) == 1, current\n"
+        "explicit = current[0] if how == 'button' else ''\n"
+        "s = switch_model(raw_input='vendor/other-model', explicit_provider=explicit, current_provider=ctx.current_provider, "
+        "current_model=ctx.current_model, current_base_url=ctx.current_base_url, current_api_key=ctx.current_api_key, "
+        "user_providers=ctx.user_provs, custom_providers=ctx.custom_provs)\n"
+        "assert s.success, s.error_message\n"
+        "override = {'model': s.new_model, 'provider': s.target_provider, 'api_key': s.api_key, "
+        "'base_url': s.base_url, 'api_mode': s.api_mode}\n"
+        "runner = object.__new__(GatewayRunner)\n"
+        "runner._session_model_override = lambda key: override\n"
+        "model, kwargs = runner._apply_session_model_override('s', ctx.current_model, "
+        "_resolve_runtime_agent_kwargs_for_provider(s.target_provider, target_model=s.new_model))\n"
+        "for name in ('model', 'request_overrides', 'capabilities'):\n"
+        "    kwargs.pop(name, None)\n"
+        "agent = AIAgent(model=model, quiet_mode=True, skip_context_files=True, skip_memory=True, **kwargs)\n"
+        "assert model == 'vendor/other-model', model\n"
+        "assert str(agent.client.base_url).rstrip('/') == endpoint, agent.client.base_url\n"
+        "assert agent.client.api_key == os.environ['OPENAI_API_KEY'], 'the rebuilt agent lost the main key'\n"
+    )
+
+    def test_model_switch_keeps_the_main_key(self):
+        # @measured 2026-09-25 on a Brume 2 with a Telegram bot: after /model picked a
+        # model with the buttons, the next turn failed "No LLM provider configured".
+        # The picker's button for a bare `custom` provider came back with no key, the
+        # next turn laid that empty key over the real one, and upstream sends a custom
+        # route on openrouter.ai to its own OpenRouter provider, which wants a key the
+        # wrapper does not set. OpenRouter is the default endpoint, so it hit everyone.
+        for endpoint in ("https://openrouter.ai/api/v1", "http://127.0.0.1:9/v1"):
+            self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+            for how in ("button", "typed"):
+                with self.subTest(endpoint=endpoint, how=how):
+                    check = subprocess.run(["python3", "-c", self.SWITCH_CHECK, endpoint, how], check=False,
+                                           capture_output=True, text=True,
+                                           env=dict(self.env, OPENAI_API_KEY="main-key-canary",
+                                                    OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model"))
+                    self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
+
+    def test_provider_on_the_main_endpoint_uses_its_own_key(self):
+        # @measured 2026-09-25 on a Brume 2: a UCI provider on the main model's own
+        # OpenRouter address refused the start ("primary credential pool conflicts"), and
+        # a chat switched to it went out with the main key, while the bare `custom` main
+        # model shared its address. A second account on the same service is a real case.
+        endpoint = "https://openrouter.ai/api/v1"
+        raw = "flash|Flash|https://openrouter.ai/api/v1|/etc/hermes-agent/flash.key|vendor/flash-model"
+        self.assertEqual(self.configure_providers(raw, endpoint=endpoint).returncode, 0)
+        env = dict(self.env, OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="main-key-canary", HERMES_PROVIDER_FLASH_KEY="flash-key-canary")
+        pre = subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,
+                             capture_output=True, text=True)
+        self.assertEqual(pre.returncode, 0, pre.stderr)
+        code = (
+            "from hermes_cli.config import load_config, get_compatible_custom_providers\n"
+            "from hermes_cli.model_switch import switch_model\n"
+            "cfg = load_config()\n"
+            "s = switch_model(raw_input='vendor/flash-model', explicit_provider='flash', "
+            "current_provider=cfg['model']['provider'], current_model='runtime-model', "
+            f"current_base_url='{endpoint}', current_api_key='', user_providers=cfg.get('providers'), "
+            "custom_providers=get_compatible_custom_providers(cfg))\n"
+            "assert s.success and s.target_provider == 'flash', s\n"
+            "assert s.api_key == 'flash-key-canary', 'switched with ' + ('the main key' if s.api_key == 'main-key-canary' else 'no key')\n"
+        )
+        check = self.upstream(code, HERMES_PROVIDER_FLASH_KEY="flash-key-canary")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-1500:])
+
     def test_native_anthropic_provider_is_installed(self):
         # /model picks upstream's native Anthropic transport for api.anthropic.com
         # whatever a provider entry says, and that transport needs the SDK.
@@ -1130,7 +1231,7 @@ start_service; echo "start=$?"
         saved = self.upstream(code)
         self.assertEqual(saved.returncode, 0, saved.stderr)
         self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
-        self.assertEqual(self.config()["model"]["provider"], "custom")
+        self.assertEqual(self.config()["model"]["provider"], "uci")
         env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
                    OPENAI_API_KEY="main-key-canary")
         pre = subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,

@@ -68,7 +68,10 @@ esac
 # archive rather than PyPI, which stops at 0.19.0; dependency versions from upstream's
 # uv.lock; nemo-relay and pillow-heif left out; skills, locales and the MCP catalogue
 # under /usr/share/hermes-agent. The revision restarts at 1 with the new version.
-PKGREL=${PKGREL:-1}
+#
+# 0.21.5-r2: the main model is written as a named `uci` entry in `providers`, not as
+# upstream's bare `custom`, so a model picked with /model's buttons keeps the main key.
+PKGREL=${PKGREL:-2}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

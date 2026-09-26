@@ -30,7 +30,7 @@ var callLogout      = rpc.declare({ object: 'hermes', method: 'chatgpt_logout' }
  * the page can say so before a save rather than after a restart. The service checks
  * the full set at every start; this is only the part people reach for. */
 var TAKEN = ['anthropic', 'openrouter', 'openai', 'openai-api', 'openai-codex', 'custom',
-	'auto', 'nous', 'gemini', 'deepseek', 'xai', 'provider'];
+	'auto', 'nous', 'gemini', 'deepseek', 'xai', 'provider', 'uci'];
 var NAME = /^[a-z][a-z0-9-]{0,30}$/;
 
 /* Failures reported during a save, kept for the page that Save & Apply reloads into:
