@@ -510,6 +510,19 @@ writes, which is then adopted. If the token file is missing when the gateway sta
 starts without this connection and says so in the log. Clearing the URL removes only the
 package-managed entry.
 
+This path was exercised on both test routers on 2026-09-27: the openwrt-mcp apk (built
+from its `apk` branch for `aarch64_cortex-a53`) installed with `apk add --allow-untrusted`
+on vanilla OpenWrt 25.12.5, listening on 127.0.0.1:8730 only, and was removed cleanly
+afterward. On the Brume 2, hermes-agent registered the connection's 9 MCP tools through
+this UCI wiring, and a `uci_apply` of the system description sent without confirmation
+rolled back on its own once the 30 second window ran out. On the Flint 2, granted only
+read scopes, board, firmware and interface calls answered and an ungranted `exec` call
+was denied by policy. One scope shape needs care: openwrt-mcp matches a grant's scope
+with Go's `path.Match`, so a scope on an anonymous UCI section reads its own `[0]` as a
+character class rather than a literal index. Grant `system.@system\[0\].description`,
+brackets escaped, not the unescaped form its own denial hint suggests (reported upstream
+as GlassOnTin/openwrt-mcp#3).
+
 UCI also selects the primary model and OpenAI-compatible endpoint through
 `model.default`, `model.base_url` and `model.provider` in Hermes config. They are
 written again before every start, including the restarts procd makes on its own, so a
