@@ -1,8 +1,8 @@
 # The Telegram platform package.
 #
-# Provenance. Yurii asked for this in one line, on 2026-09-08: "Роби пакет для Telegram".
-# That is the whole of his stated requirement, so the scenarios below are NOT quotes from
-# him and must not be read as any. They are derived from two sources that can be checked:
+# Provenance. @decided 2026-09-08: a Telegram platform package, requested in a single line
+# with no further requirements, so the scenarios below are NOT the requester's words and
+# must not be read as any. They are derived from two sources that can be checked:
 #
 #   @measured  pip dry-run inside openwrt/rootfs aarch64_generic on 25.12.4 and 24.10.8,
 #              2026-09-08. Adding python-telegram-bot[webhooks]==22.6 to the router
