@@ -30,9 +30,11 @@
 #   @measured 2026-10-01 Telegram Bot API, deleteMessage: bots can delete incoming
 #                        messages in private chats; in a group only as an administrator.
 #
-# Not bound yet: the gate that runs these (scripts/gate-unlock.sh) does not exist, so
-# this file is not in gate-scenarios-bound.sh's PAIRS. It joins them in the same change
-# that adds the gate, and every check named here must go red before its fix.
+# Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
+# that added that gate. Every check there went red against the unchanged package before its
+# fix. The checks that need the Hermes-side unlock command (the plugin) or the LuCI
+# Security page are listed by the gate as NOT IMPLEMENTED and fail, so the gate stays red
+# until the whole feature is built; a green run can only mean all of it is proven.
 
 Feature: The agent changes the router only when its owner unlocks it
 
