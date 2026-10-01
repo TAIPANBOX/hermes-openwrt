@@ -71,6 +71,10 @@ apk update && apk add hermes-agent luci-app-hermes
 apk add hermes-agent-telegram
 ```
 
+`hermes-agent` pulls in `openwrt-mcp` from the same feed (see "Letting it touch the router"),
+and creates the `hermes` account the agent runs as. Upgrading from a release before
+0.21.5-r3, restart the service afterwards: until then the old gateway keeps running as root.
+
 OpenWrt 24.10 is not served: the package is built and tested for 25.12 only.
 
 No `--allow-untrusted` and no `--force` anywhere. That is the point of signing the feed.
@@ -457,41 +461,146 @@ because voice messages and speech transcoding do work here and are cheap.
 
 ## Letting it touch the router
 
-<!-- @codex 2026-09-19 -->
-**The service runs as root.** Its default file and terminal tools can read and change
-router configuration directly. Give access only to trusted operators on a spare test
-router. Disabling MCP does not remove this local access.
+### Who the agent runs as
 
-Two profiles decide how much of that access the agent actually has. **admin** is the
-default wherever the option is not set, which includes a router whose configuration
-predates it, and leaves every tool the toolsets list selects in place, running as root
-as described above. **assistant** turns the terminal, code execution and file tools off
-regardless of what that list selects, and tells the agent so: it can still chat, keep
-memory and schedule reminders, and it reaches the router only through an MCP server
-such as openwrt-mcp, if one is configured, never directly. Choose it in
-**Services -> Hermes Agent -> Settings -> Profile**, or from the command line:
+From 0.21.5-r3 the gateway, and every command, file and code tool it starts, run as
+`hermes`, an account the package creates with no password and no login shell. They run as
+root only if the profile says `root`, which has to be chosen and prints a warning at every
+start. Before that the whole agent was root, and a model that was talked into a bad
+command, or simply wrong, had the router.
+
+The exec wrapper is still root until its last line, because it applies the memory ceiling
+and reads the root-only key files. It then hands over to `/usr/libexec/hermes-drop`, which
+gives up root for good: supplementary groups, then the group, then the real, effective and
+saved user ids together, and it checks afterwards that all of it took and that
+`setuid(0)` is refused, or the agent does not start. The wrapper's two helpers and the init's
+own check of the configuration run as `hermes` as well, so root never runs upstream's code
+over files the agent can write. `nice 10` and the memory cgroup are inherited across the
+drop; the agent cannot lift its own ceiling.
+
+The data directory belongs to `hermes`. The first start after an upgrade from a release
+that ran as root hands the existing directory over, sessions, memory and jobs kept, and
+says so; later starts do not walk it again. A directory the agent cannot write in, a FAT
+stick or a read-only mount, stops the start with the reason. The `hermes` account stays
+when the package is removed, with the data directory, so that files it owns never fall to
+a user later given the same id, and a reinstall finds it. `apk` runs a package's
+`post-upgrade` script, not its `post-install` one, when it replaces a version, so the
+package has both; the upgrade does not restart a running gateway, it says to, and until
+that restart the old gateway keeps running as root.
+
+`hermes` and `hermes-login` run from a root shell act as `hermes` when the data directory
+they work on belongs to `hermes`, so `HERMES_HOME=/srv/hermes hermes cron create ...` over
+SSH leaves nothing the gateway cannot update. `HERMES_OPENWRT_AS_ROOT=1` turns that off.
+
+One limit is named and not fixed. The gateway's environment holds the keys, and a process
+running as `hermes`, the agent's own terminal included, can read `/proc/<gateway>/environ`.
+The files on disk stay root-only and unreadable to it, and `check_key_files_root_only`
+proves that, but a key the agent is using is a key it can see. Tool defaults, MCP policy
+and the memory ceiling are not an operating system sandbox.
+
+### Profiles
+
+`hermes.main.profile` chooses what the agent may use, and an unset one means `owner`:
+
+| profile | runs as | tools | the router |
+|---|---|---|---|
+| `owner` (default) | `hermes` | every tool the toolsets list selects | read through openwrt-mcp; changed only through it, after an unlock |
+| `assistant` | `hermes` | no terminal, code execution or file tools | only through an MCP server you set up yourself |
+| `root` (`admin` is its old name) | root | every tool the toolsets list selects | directly, and through openwrt-mcp, with no unlock |
 
 ```sh
-uci set hermes.main.profile=assistant && uci commit hermes && /etc/init.d/hermes-agent restart
+uci set hermes.main.profile=root && uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
-A value other than `assistant` or `admin` refuses to start rather than guess which was
-meant. An upgrade leaves the router's own configuration file alone, so a router whose
-file names a profile keeps it; that includes the `assistant` line the previous release
-wrote into a new install. Starting the service prints which profile applies, and in
-assistant the command that switches it.
+**The LuCI settings page has not caught up.** `luci-app-hermes` is unchanged in this
+release: its Profile list still offers only admin and assistant and defaults to admin, so
+saving that page with no profile set writes `admin`, which is root. Until the page is
+updated, set the profile from the command line, and look at `uci show hermes.main.profile`
+after saving anything there.
+
+Any other value refuses to start rather than guess which was meant. A router whose
+`/etc/config/hermes` already names `admin` keeps running as root, and every start says so
+in the log; a router whose file names no profile at all is the one that stops running as
+root. Starting the service prints which profile applies and how to change it.
 
 One turn makes at most 20 model calls with tools (`hermes.main.max_turns`, 1 to 500),
 and a turn that reaches the limit gets one more, without tools, to sum up what it found.
 Upstream allows 90, and on 2026-09-24 a bot in the assistant profile, asked for something
 it had no tool for, spent all 90 before it answered. The same day, with this revision on
-both routers and each asked for its own uptime: in admin it ran `uptime` and answered in
-two model calls; with the limit set to 1 it stopped after the first call, which had
-already run `uptime`, and the summary answered from that; in assistant, told what it
-cannot do, it said so at once, in one call.
+both routers and each asked for its own uptime: in the profile now called root it ran
+`uptime` and answered in two model calls; with the limit set to 1 it stopped after the
+first call, which had already run `uptime`, and the summary answered from that; in
+assistant, told what it cannot do, it said so at once, in one call.
 
-The optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
-policy checks to calls sent through that server. Its policy does not constrain local
+### The owner profile: reading is free, changing needs you
+
+The package depends on [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp), which is
+not in OpenWrt's feed, so this repository's feed carries a build of it from the companion
+branch that has the owner's second factor
+(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`). The
+dependency has no version floor yet, because that branch still says 0.5.0, the number the
+release without the factor carries too.
+
+At every start in the owner profile, as root, the package makes sure openwrt-mcp is
+enabled and running; pairs one client for the agent, `hermes-main`, if
+`/etc/hermes-agent/router-mcp.token` is missing, into a root-only file; and writes that
+client's policies into `/etc/config/openwrt-mcp`, in sections named `hermes_main_*` and in
+no others. The connection's URL defaults to openwrt-mcp's own loopback address. The
+policies are written in the order openwrt-mcp has to see them, because it takes the first
+one of a client that covers a call:
+
+| policy | grants | unlock |
+|---|---|---|
+| `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
+| `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, and `network`'s loopback, globals, lan and wan sections | none |
+| `hermes_main_read_log` | `logread` | none |
+| `hermes_main_change` | `ubus_call`, `uci_apply`, `uci_confirm`, `wg_new_client`, anything | the factor |
+
+`exec` is never granted. Each tool has a policy of its own, so one tool's scope globs
+cannot widen another's, and no read is a glob over a whole ubus object: `system.*` would
+include `system.reboot`. The wireless config is not readable, because its keys would go to
+the model provider, and neither is the whole of `network`, because a router running
+WireGuard keeps its private key in a network section. What the agent reads (addresses,
+hosts, the log, the settings above) is sent to the model provider, which is what reading
+means; read them as that before turning the profile on. A policy of your own for
+`hermes-main` is yours, and if it grants a change without a factor, no unlock applies to it.
+
+`hermes.security` sets what unlocking asks for:
+
+```sh
+uci set hermes.security.factor=pin         # none (the default), pin, totp or pin+totp
+uci set hermes.security.window=15m         # how long one unlock keeps changes open
+uci set hermes.security.max_failures=5     # wrong attempts in a row, then
+uci set hermes.security.lockout=15m        # unlocking is refused this long
+printf '%s\n' 4821 | openwrt-mcp pin set hermes-main
+openwrt-mcp mfa enrol hermes-main --qr
+uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+With the factor `none`, which is what a fresh install has, the change policy is not
+written at all, so nothing can change the router through the agent until you set one, and
+the agent is told so. With one set, a change is refused until the owner unlocks it; the
+refusal names the second factor, and the agent is told to ask its owner to send /unlock
+in the private chat and never to ask for a PIN or a code in a message. The model is not
+offered openwrt-mcp's `mfa_unlock` and `mfa_lock` tools at all (`tools.exclude` on the
+package-written `mcp_servers.openwrt` entry, in every profile). Unlocking is per agent:
+a second agent would be `hermes-<name>`, with its own token, its own policies and its own
+window. An unconfirmed `uci_apply` is undone from a snapshot under `/etc/openwrt-mcp`, not
+in `/tmp`, so it is undone after a reboot as well as after its timeout.
+
+**Not built yet, and the gate says so.** The Hermes-side unlock, the plugin that takes
+`/unlock` in the private chat, deletes the message and keeps it from the model, and the
+LuCI Security page that enrols a phone and sets a PIN, are the next two stages. Until they
+exist nothing in this package can open an unlock window, so with a factor set the agent
+stays read-only, and `scripts/gate-unlock.sh` lists the eighteen scenarios that depend on
+them as NOT IMPLEMENTED and fails. A scheduled job that tries to change the router is one
+of them; do not rely on it until it is checked.
+
+### Pairing openwrt-mcp yourself
+
+In the assistant and root profiles the package neither pairs nor writes policies. The
+optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
+policy checks to calls sent through that server, and its policy does not constrain local
 file, terminal, plugins or delegated tools. Pair once on the router and grant a narrow,
 expiring window. openwrt-mcp refuses every tool it has not been granted, so a connection
 without a grant does nothing:
@@ -506,9 +615,9 @@ Then set its URL in UCI or LuCI. The package writes `mcp_servers.openwrt` into H
 config with an environment placeholder; the token is read at exec time and never stored
 in YAML or procd's table. An `openwrt` entry of the operator's own is preserved and
 startup is refused until it is renamed, unless it is identical to the entry the package
-writes, which is then adopted. If the token file is missing when the gateway starts, it
-starts without this connection and says so in the log. Clearing the URL removes only the
-package-managed entry.
+writes, in this release's shape or the earlier one, which is then adopted. If the token
+file is missing when the gateway starts, it starts without this connection and says so
+in the log. Clearing the URL removes only the package-managed entry.
 
 This path was exercised on both test routers on 2026-09-27: the openwrt-mcp apk (built
 from its `apk` branch for `aarch64_cortex-a53`) installed with `apk add --allow-untrusted`
@@ -521,7 +630,8 @@ was denied by policy. One scope shape needs care: openwrt-mcp matches a grant's 
 with Go's `path.Match`, so a scope on an anonymous UCI section reads its own `[0]` as a
 character class rather than a literal index. Grant `system.@system\[0\].description`,
 brackets escaped, not the unescaped form its own denial hint suggests (reported upstream
-as GlassOnTin/openwrt-mcp#3).
+as GlassOnTin/openwrt-mcp#3). That run predates the owner profile; the owner profile has
+been run only in OpenWrt's own rootfs in a container, not on a router.
 
 UCI also selects the primary model and OpenAI-compatible endpoint through
 `model.default`, `model.base_url` and `model.provider` in Hermes config. They are
@@ -542,7 +652,8 @@ the wrapper verifies its dedicated procd cgroup, applies `memory.max`, disables 
 for that group and enables group OOM termination. Unsupported firmware refuses to
 start with an explanation. Setting `mem_max_mb=0` explicitly accepts an unlimited
 process and lifts a ceiling an earlier start applied. This ceiling protects against
-accidental memory growth; root tools can modify system controls. Verify the controller
+accidental memory growth; the root profile's tools can modify system controls, and in
+the other profiles the agent cannot lift the ceiling it runs under. Verify the controller
 on the target router before testing.
 
 procd retries a gateway that fails at start at most five times within an hour and then
@@ -557,16 +668,18 @@ OpenWrt's own published rootfs and then asks the running system.
 
 | gate | what it proves |
 |---|---|
-| `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean |
+| `gate-package.sh` | 11 checks: apk installs it with every dependency including `bash`, the CLI runs, it ships disabled, it refuses without a key, **the command the init hands procd actually starts and stays up**, the key reaches neither argv nor UCI nor **procd's service table**, config survives reinstall, removal is clean, and clean means the `hermes` account stays and a reinstall finds it |
 | `gate-luci.sh` | 24 checks: files land where luci-base looks, the views parse, menu and ACL are valid JSON, the rpcd backend answers on ubus, reads the agent's version from disk without starting it, and, before the first start, reports the free space where the data will go, a written key lands 0600, the page can tell a missing package from a missing token, **no method returns a key**, the read permission is exactly the page's two calls and its UCI config, a failed write is reported, and the page will not write a slot the service does not read; on the Providers page a provider's key lands 0600 in its own slot, a crafted name writes nothing, a key file set elsewhere is refused, and ChatGPT signs in and out with the call returning at once; an upgrade restarts rpcd, as an install does; and the installed pages' own JavaScript, run against a stand-in for LuCI, deletes a provider's key with the provider and keeps what it says across the reload that follows a sign-in, or Save & Apply once LuCI reports the apply went through, dropping what is older than ten minutes, and says "Saved" at once, once, for a Save & Apply that changed only a key, which LuCI neither announces nor reloads for |
 | `gate-feed.sh` | 3 checks: refused without the key, installs with it, no `--allow-untrusted` needed |
 | `gate-upstream.sh` | 7 checks: built from the pinned upstream commit and archive, reports that version, every library at its `uv.lock` version, `nemo-relay` and `pillow-heif` absent with nothing else missing, the Relay host falls back to upstream's no-op, skills, translations and the MCP catalogue found under `/usr/share/hermes-agent`, the platform plugins shipped |
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
-| `gate-runtime.sh` | 51 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the two profiles and what the assistant is told, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
-| `teeth-runtime.py` | 47 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
+| `gate-runtime.sh` | 61 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the profiles, who each runs the gateway and its helpers as, what the agent is told, `hermes-drop` and the launcher, the owner profile's openwrt-mcp policies and the second factor's settings, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
+| `teeth-runtime.py` | 85 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
+| `gate-unlock.sh` | 29 checks, one per scenario in `features/unlock.feature`, run in OpenWrt's own rootfs with `hermes-agent` and `openwrt-mcp` installed. Eleven are implemented: the gateway and a tool process run as `hermes` with groups dropped and no way back, the key files are root-only and unreadable as `hermes`, the memory ceiling is applied by root before the drop and the agent cannot lift it, an upgrade hands a root-era data directory over with its contents kept, root is opt-in and warned, reads need no unlock (and wireless, the WireGuard section and `exec` are refused), a change while locked is refused for the second factor and the agent is told to ask for /unlock, no factor means no change policy at all, the model is offered neither `mfa_unlock` nor `mfa_lock`, one agent's unlock does not open another's, and an unconfirmed change is undone after a reboot and after its window from a snapshot that is not in `/tmp`. The other eighteen print NOT IMPLEMENTED and fail, so this gate is red until the unlock command and the LuCI page exist |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
+| `teeth-unlock.sh` | eleven faults, one per implemented check of `gate-unlock.sh`: the gateway started without the drop, `/etc/hermes-agent` opened to everyone, the ceiling applied as `hermes`, the data directory never handed over, an unset profile meaning root, the change policy written ahead of the reads, a change policy that asks for no factor, no factor written as a PIN, the unlock tools not excluded, every agent paired as `hermes-main`, and the openwrt-mcp state directory in RAM; and with nothing planted the eleven pass, a name that matches no check is "measured nothing", and an unimplemented check is NOT IMPLEMENTED |
 | `teeth-upstream.sh` | seven faults, one per check: another commit recorded, the agent's metadata saying 0.21.4, a library off its locked version, `nemo-relay` back, the Relay fallback raising, the translations variable forgotten, the Telegram plugin manifest missing |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
 | `teeth-luci.sh` | seventeen for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, the refusal to write a slot the service does not read removed, the free space measured on the missing data directory again, a provider slot that takes any name, ChatGPT reported as signed in regardless, a sign-in run in the foreground, a package without its post-upgrade script, the version read by running Hermes again, a provider deleted without its key, a message not kept across the reload, an old message shown anyway, a Save & Apply message kept before the apply went through, a key-only Save & Apply that never says it saved, a leftover message shown twice, and "Saved" beside a key that did not save |
@@ -603,7 +716,10 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] **Measured under load** on 0.21.5: concurrent conversations, thermals, throughput through the router
 - [x] **The feed installs on hardware** with its signature verified and no `--allow-untrusted`
 - [x] Telegram, as a two-distribution add-on package
-- [x] Two profiles, admin by default and assistant by choice, governing terminal, code execution and file tools
+- [x] Three profiles, owner by default, assistant and root by choice; `admin` accepted as root
+- [x] The agent runs as an unprivileged user, `hermes`, unless the profile says root
+- [x] The owner profile reads the router through openwrt-mcp and changes it only through it, refused until a second factor is set and unlocked (stage 3 of 5: the policies, the factor's settings, the refusals, per-agent unlock and the rollback are built and gated; the Hermes-side unlock command and the LuCI Security page are not)
+- [ ] The unlock from Telegram, and the Security page that sets a PIN or enrols a phone
 - [x] A per-turn limit on model calls, set on the router
 - [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included
 - [x] Upstream's native Anthropic provider

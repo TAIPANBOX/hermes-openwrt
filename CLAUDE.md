@@ -20,8 +20,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    (gate: `scripts/gate-package.sh`).
 2. Telegram is optional, disjoint from the base payload, and refuses unusable setup
    (gate: `scripts/gate-telegram.sh`).
-3. All provider, Telegram and MCP credentials are read by the exec wrapper on every
-   launch and respawn; procd stores paths only. A router MCP token missing at exec drops
+3. All provider, Telegram and MCP credentials are read, as root, by the exec wrapper on
+   every launch and respawn; procd stores paths only. A router MCP token missing at exec drops
    the MCP connection, not the service (gate: `scripts/gate-runtime.sh`).
 4. UCI tool selection writes the upstream Telegram and cron platform defaults,
    including an empty selection. Invalid YAML or tool names refuse startup and
@@ -36,19 +36,37 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    the dedicated procd cgroup. Missing cgroup v2 memory delegation refuses startup.
    Zero lifts any ceiling an earlier start left in that cgroup, because procd on 25.12
    never removes it (gate: `scripts/gate-runtime.sh`, kernel OOM and zero-lift).
-7. The service and its file/terminal tools run as root. This is documented at setup;
-   neither tool defaults nor MCP nor memory controls are an OS security sandbox
-   (partly gated: runtime selection tests; wording reviewed manually).
+7. `@decided 2026-10-01`, superseding "the service runs as root": the gateway and every
+   tool it starts run as the unprivileged user `hermes` in the owner and assistant
+   profiles, and as root only in the root profile (`admin` is its old name). The exec
+   wrapper is root up to its last line, because it applies the memory ceiling and reads
+   the root-only key files, and then goes through `/usr/libexec/hermes-drop`: supplementary
+   groups, gid, then real, effective and saved uid together, verified, with no way back.
+   Its two helpers and the init's own run of the bridge run as the same user, so root never
+   runs upstream's code over files the agent can write. The data directory belongs to the
+   user the agent runs as: the init hands it over when its owner differs (once, not at
+   every start, and never through a symlink) and refuses a directory the agent cannot write
+   in. The `hermes` account stays when the package is removed, so files it owns never fall
+   to another user. `apk` runs `post-upgrade`, not `post-install`, when it replaces a
+   version, so the account is made by both. Neither tool defaults, nor MCP, nor memory
+   controls are an OS security sandbox. `@claude` 2026-10-01, a limit named and not fixed:
+   a process running as hermes, the agent's own terminal included, can read the gateway's
+   environment in `/proc/<gateway>/environ`, which is where the keys are; the files on disk
+   stay root-only (gate: `scripts/gate-unlock.sh` `check_gateway_runs_as_hermes_user`,
+   `check_key_files_root_only`, `check_memory_ceiling_non_root`,
+   `check_upgrade_hands_data_dir_to_hermes`, and `scripts/gate-package.sh`
+   `check_clean_removal`; teeth: `scripts/teeth-unlock.sh`, `scripts/teeth-runtime.py`; the
+   environment limit is not enforced).
 8. UCI selects the primary model, OpenAI-compatible endpoint and file-backed key, and
    the wrapper re-applies them before every exec, so upstream state such as a model saved
    from a chat cannot outlive a restart. The actual upstream resolver must then agree;
    conflicting dotenv/provider/pool/header settings refuse startup and preserve operator
    credentials. Explicit job/channel overrides and fallback chains retain upstream
    semantics (gate: `scripts/gate-runtime.sh`).
-9. Runtime and LuCI scenarios bind both ways to the checks that run them, and product
-   mutations must turn their named test red with green restored and empty discovery
-   refused (gate: `scripts/gate-scenarios-bound.sh`, `scripts/teeth-runtime.py`,
-   `scripts/teeth-luci.sh`).
+9. Runtime, LuCI and unlock scenarios bind both ways to the checks that run them, and
+   product mutations must turn their named test red with green restored and empty
+   discovery refused (gate: `scripts/gate-scenarios-bound.sh`, `scripts/teeth-runtime.py`,
+   `scripts/teeth-luci.sh`, `scripts/teeth-unlock.sh`).
 10. procd respawn is bounded (`3600 5 5`): a gateway that keeps failing at start is
     retried at most five times within an hour, then left stopped, instead of being
     restarted every five seconds (gate: `scripts/gate-runtime.sh`).
@@ -84,6 +102,15 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     applies wherever no profile is set, existing routers included; assistant is chosen,
     and it tells the agent it has no terminal, code execution or file tools (gate:
     `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
+    `@decided 2026-10-01`, superseding both: three profiles, and one old name. owner applies
+    wherever no profile is set, existing routers included, so an upgraded router whose
+    profile was unset stops running its agent as root, and the start says so; it runs as
+    `hermes` with every selected tool and reaches the router only through openwrt-mcp
+    (invariant 18). assistant runs as `hermes` with terminal, code execution and file tools
+    off, as before. root is the old admin: every selected tool, as root, no unlock, an
+    explicit choice that prints a warning at every start; `admin` is accepted as another
+    name for it. An unrecognised value still refuses to start (gate: `scripts/gate-runtime.sh`,
+    `scripts/teeth-runtime.py`, `scripts/gate-unlock.sh` `check_root_profile_is_opt_in_and_warned`).
 13. The service runs at nice 10, so the router's own work keeps the processor: on a
     Brume 2 carrying a WireGuard tunnel on 2026-09-24, a conversation at the default
     priority took a third of the tunnel's throughput while it ran and a quarter at
@@ -137,6 +164,34 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     upstream then blocks its own config writes. The package records its upstream in
     `/usr/lib/hermes-agent/upstream` (gate: `scripts/gate-upstream.sh`, teeth:
     `scripts/teeth-upstream.sh`).
+
+18. `@decided 2026-10-01`: in the owner profile the agent reads the router freely and
+    changes it only through openwrt-mcp, which runs as root and decides. The package pairs
+    one openwrt-mcp client per agent, `hermes-main`, into a root-only token file, and writes
+    that client's policies into `/etc/config/openwrt-mcp`, in sections named
+    `hermes_main_*` and no others, at every start: one read policy per tool, ubus methods
+    by name and never a whole object, `uci_get` on system, dhcp, firewall and the default
+    network sections, `logread`; and last, because openwrt-mcp takes the first policy that
+    covers a call, one change policy (`ubus_call`, `uci_apply`, `uci_confirm`,
+    `wg_new_client`) that asks the factor in `hermes.security` for everything it grants.
+    `exec` is never granted. With factor `none`, the default, no change policy is written,
+    so nothing can change the router until the owner sets a factor, and the agent says so.
+    The model is never offered `mfa_unlock` or `mfa_lock` (`tools.exclude` in the
+    package-written `mcp_servers.openwrt` entry, in every profile), and is told to ask the
+    owner for /unlock in the private chat and never to ask for a PIN or a code in a message.
+    Unlocking is per agent: `hermes-<name>` has its own token and its own window.
+    An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
+    so a reboot does not keep it. `@claude` 2026-10-01: wireless is not readable, and neither
+    is the whole of network, since a router running WireGuard keeps its private key in a
+    network section and a read goes to the model provider; the first design listed network
+    whole, and `MCP_READ_UCI` in the init is the one line that says otherwise. Read answers
+    (state, addresses, hosts, the log) are sent to the model provider; that is what reading
+    means. This stage proves reads, refusals, the factor's configuration, per-agent unlock
+    and the rollback; the Hermes-side unlock command (the plugin that takes /unlock, deletes
+    the message and keeps it from the model) and the LuCI Security page are not built, and
+    `scripts/gate-unlock.sh` lists their eighteen scenarios as NOT IMPLEMENTED and fails
+    until they are (gate: `scripts/gate-unlock.sh`, red by design until then; teeth:
+    `scripts/teeth-unlock.sh`, `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
