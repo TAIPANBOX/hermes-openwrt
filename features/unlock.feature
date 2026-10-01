@@ -20,6 +20,13 @@
 #                        v0.5.0 has TOTP with replay protection, no PIN, no limit on
 #                        wrong codes, no way to lock early, logs the code argument in
 #                        its audit file, and keeps the rollback snapshot in /tmp.
+#   @measured 2026-10-01 by reading, not running: a plugin's /unlock sent while a turn
+#                        runs is neither on the busy-bypass list nor caught by the
+#                        pending-command safety net, since both resolve built-in
+#                        commands only (hermes_cli/commands.py resolve_command;
+#                        gateway/run_turn.py), so it becomes the next turn's input.
+#                        llm_request middleware can rewrite every model request, which
+#                        is the second line here; the first is pre_gateway_dispatch.
 #   @measured 2026-10-01 Telegram Bot API, deleteMessage: bots can delete incoming
 #                        messages in private chats; in a group only as an administrator.
 #
@@ -158,10 +165,11 @@ Feature: The agent changes the router only when its owner unlocks it
     And the bot answers only whether the unlock opened and until when
     # -> check_unlock_message_deleted_and_never_reaches_model
 
-  Scenario: An unlock sent while the agent is busy is handled the same way
+  Scenario: An unlock sent while the agent is busy still never reaches the model
     Given the agent is in the middle of answering
     When the owner sends /unlock with a PIN or code
-    Then the message is still deleted and still never reaches the model
+    Then every request to the model has that text removed before it is sent
+    And nothing unlocks, and the bot asks for /unlock again once it has answered
     # -> check_unlock_while_busy_never_reaches_model
 
   Scenario: A bare code is treated as an unlock attempt
@@ -181,6 +189,12 @@ Feature: The agent changes the router only when its owner unlocks it
     Then nothing unlocks
     And the bot asks for the private chat, where it can delete the message
     # -> check_unlock_refused_in_group
+
+  Scenario: An unlock opens changes for one agent only
+    Given two agents on the router, each with its own name in openwrt-mcp
+    When the owner unlocks from the chat of the first
+    Then the first may change the router and the second is still refused
+    # -> check_unlock_is_per_agent
 
   Scenario: Only a person the bot answers can try
     When someone outside the allowlist sends /unlock
