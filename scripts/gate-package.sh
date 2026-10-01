@@ -69,13 +69,16 @@ APK=${APK:-$(pick_apk 'hermes-agent-[0-9]*.apk')}
 	echo "FAIL: no package found. Build it: ./package/hermes-agent/build-in-container.sh $ARCH"
 	exit 1
 }
-echo "PASS: artefact $APK"
+# From 0.21.5-r3 the package depends on openwrt-mcp, which is not in OpenWrt's feed, so the
+# rootfs is handed that apk the way gate-telegram.sh hands it the add-on.
+MCP=${MCP:-$("$ROOT/scripts/mcp-apk.sh" "$ARCH")} || exit 1
+echo "PASS: artefact $APK (with $(basename "$MCP"))"
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 
 # -i is load-bearing. Without it docker hands `sh -s` an empty stdin, the script never
 # runs, the container exits 0, and this gate reports every check passed having measured
 # nothing at all.
-docker run --rm -i --platform "$PLATFORM" -v "$APK:/pkg.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
+docker run --rm -i --platform "$PLATFORM" -v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
 set -eu
 fail() { echo "FAIL $1: $2"; exit 1; }
 
@@ -85,7 +88,7 @@ mkdir -p /var/lock /var/run /var/state
 apk update -q
 
 # ---- 1. installs ----
-apk add --allow-untrusted /pkg.apk >/tmp/add.log 2>&1 || { cat /tmp/add.log; fail "[1/11] check_installs" "apk add failed"; }
+apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/add.log 2>&1 || { cat /tmp/add.log; fail "[1/11] check_installs" "apk add failed"; }
 apk info -e hermes-agent >/dev/null 2>&1 || fail "[1/11] check_installs" "not registered after install"
 echo "PASS [1/11] check_installs"
 
@@ -93,7 +96,7 @@ echo "PASS [1/11] check_installs"
 # The package declares runtime dependencies it cannot function without; if any of them
 # stopped existing in the feed, apk would have refused above, but an unresolved OPTIONAL
 # name would pass silently, so assert each one landed.
-for d in python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep; do
+for d in python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp; do
 	apk info -e "$d" >/dev/null 2>&1 || fail "[2/11] check_deps_resolve" "$d did not install"
 done
 echo "PASS [2/11] check_deps_resolve"
@@ -265,11 +268,25 @@ grep -qF "$marker" /etc/config/hermes || fail "[10/11] check_config_survives" "t
 echo "PASS [10/11] check_config_survives"
 
 # ---- 9. clean removal ----
+# What "clean" means for the hermes user and group, since 0.21.5-r3 (@decided 2026-10-01):
+# they are NOT removed. Files that account owns (the agent's sessions, in the data directory
+# the package never deletes) stay on disk, and a user later handed the same id would own
+# them. So removal leaves the account, a reinstall finds it and keeps its id, and neither
+# ever leaves it twice.
+HUID=$(grep '^hermes:' /etc/passwd | cut -d: -f3)
+[ -n "$HUID" ] || fail "[11/11] check_clean_removal" "the install created no hermes user, so there is nothing to leave behind"
 apk del hermes-agent >/dev/null 2>&1 || fail "[11/11] check_clean_removal" "apk del failed"
 [ -e /usr/bin/hermes ] && fail "[11/11] check_clean_removal" "the launcher is still there"
+[ -e /usr/libexec/hermes-drop ] && fail "[11/11] check_clean_removal" "hermes-drop is still there"
 [ -e /etc/rc.d/S95hermes-agent ] && fail "[11/11] check_clean_removal" "the rc.d link is still there"
 [ -d /usr/lib/hermes-agent/site-packages ] && fail "[11/11] check_clean_removal" "site-packages was left behind"
-echo "PASS [11/11] check_clean_removal"
+[ "$(grep '^hermes:' /etc/passwd | cut -d: -f3)" = "$HUID" ] || fail "[11/11] check_clean_removal" "removal took the hermes user, or changed its id"
+grep -q '^hermes:' /etc/group || fail "[11/11] check_clean_removal" "removal took the hermes group"
+apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/readd.log 2>&1 || { cat /tmp/readd.log; fail "[11/11] check_clean_removal" "the package would not install again after removal"; }
+[ "$(grep -c '^hermes:' /etc/passwd)" = 1 ] && [ "$(grep -c '^hermes:' /etc/group)" = 1 ] && [ "$(grep -c '^hermes:' /etc/shadow)" = 1 ] \
+	|| fail "[11/11] check_clean_removal" "reinstalling left more than one hermes account"
+[ "$(grep '^hermes:' /etc/passwd | cut -d: -f3)" = "$HUID" ] || fail "[11/11] check_clean_removal" "reinstalling gave the hermes user another id"
+echo "PASS [11/11] check_clean_removal (account kept across removal and reinstall, uid $HUID)"
 CONTAINER
 
 echo "gate-package: all 11 checks passed"

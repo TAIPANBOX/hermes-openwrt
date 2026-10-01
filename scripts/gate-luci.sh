@@ -64,6 +64,8 @@ AGENT=${AGENT:-$(pick_apk 'hermes-agent-[0-9]*.apk')}
 LUCI=${LUCI:-$(ls -t "$ROOT"/build/luci-app-hermes-apk/luci-app-hermes-*.apk "$ROOT"/luci-app-hermes-*.apk 2>/dev/null | head -1)}
 [ -n "$AGENT" ] && [ -f "$AGENT" ] || { echo "FAIL: no hermes-agent package; build it first"; exit 1; }
 [ -n "$LUCI" ]  && [ -f "$LUCI" ]  || { echo "FAIL: no luci-app-hermes package; build it first"; exit 1; }
+# hermes-agent depends on openwrt-mcp (0.21.5-r3), which is not in OpenWrt's feed.
+MCP=${MCP:-$("$ROOT/scripts/mcp-apk.sh" "$ARCH")} || exit 1
 
 # The JS never reaches the router's shell, so it is parsed here rather than there. A
 # syntax error would otherwise reach a browser as a blank page with a console message
@@ -85,7 +87,7 @@ echo "-- container checks: $IMAGE ($PLATFORM) --"
 # -i is load-bearing: without it docker hands `sh -s` an empty stdin, nothing runs, the
 # container exits 0, and this gate passes having measured nothing.
 docker run --rm -i --platform "$PLATFORM" \
-	-v "$AGENT:/agent.apk:ro" -v "$LUCI:/luci.apk:ro" -v "$WWW:/out" \
+	-v "$AGENT:/agent.apk:ro" -v "$LUCI:/luci.apk:ro" -v "$MCP:/mcp.apk:ro" -v "$WWW:/out" \
 	"$IMAGE" /bin/sh -s <<'CONTAINER'
 set -eu
 fail() { echo "FAIL $1: $2"; exit 1; }
@@ -93,7 +95,7 @@ CANARY=sk-luci-gate-canary
 
 mkdir -p /var/lock /var/run /var/state
 apk update -q
-apk add -q --allow-untrusted /agent.apk >/dev/null 2>&1
+apk add -q --allow-untrusted /agent.apk /mcp.apk >/dev/null 2>&1
 apk add -q luci-base rpcd >/dev/null 2>&1
 
 # ---- 1. installs ----

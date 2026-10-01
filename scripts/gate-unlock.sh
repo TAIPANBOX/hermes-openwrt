@@ -80,6 +80,9 @@ docker run --rm -i --platform "$PLATFORM" --privileged --cgroupns private --memo
 	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
 set -u
 mkdir -p /var/lock /var/run /var/state /stubs /tmp/pristine
+# A booted router's /tmp is a world-writable tmpfs with the sticky bit; this image's is a
+# plain directory only root can write in. The agent writes there (a tool's scratch files).
+chmod 1777 /tmp
 apk update -q
 apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/install.log 2>&1 || { cat /tmp/install.log; echo "FAIL setup: the packages would not install"; exit 1; }
 # Package installation is complete; nothing below needs more than loopback.
@@ -159,7 +162,10 @@ mode_of()  { set -- $(ls -ld "$1"); echo "$1"; }
 # Back to the state right after install, so no check depends on another.
 reset() {
 	daemon_stop
-	rm -rf /etc/openwrt-mcp /srv/hermes /tmp/argv /tmp/envv /tmp/probe.out /tmp/start.log /tmp/openwrt-mcp-rollback-* /tmp/h
+	# The state directory is emptied, not removed: a symlink put there (a state directory on
+	# RAM, which teeth-unlock.sh plants) is part of the system under test and must survive.
+	mkdir -p /etc/openwrt-mcp && chmod 700 /etc/openwrt-mcp
+	rm -rf /etc/openwrt-mcp/* /etc/openwrt-mcp/.[!.]* /srv/hermes /tmp/argv /tmp/envv /tmp/probe.out /tmp/start.log /tmp/openwrt-mcp-rollback-* /tmp/h
 	cp /tmp/pristine/hermes.config /etc/config/hermes
 	cp /tmp/pristine/mcp.config /etc/config/openwrt-mcp
 	cp /tmp/pristine/hermes.bin /usr/bin/hermes
@@ -262,7 +268,10 @@ PY
 EOF
 	chmod 755 /usr/bin/hermes
 }
-# What upstream registers for the model from the MCP connection the package wrote.
+# What upstream registers for the model from the MCP connection the package wrote: the raw
+# catalog of every enabled tool, which is what the model reaches directly or through
+# upstream's tool_search and tool_call bridge (that bridge only reads this catalog, and
+# replaces it in the model's own list when the tools would take too much of its context).
 probe_tools() {
 	cat > /usr/bin/hermes <<'EOF'
 #!/bin/sh
@@ -277,7 +286,8 @@ discover_mcp_tools()
 config = yaml.safe_load(get_config_path().read_text())
 enabled = sorted(_get_platform_tools(config, "telegram"))
 disabled = (config.get("agent") or {}).get("disabled_toolsets") or []
-defs = model_tools.get_tool_definitions(enabled_toolsets=enabled, disabled_toolsets=disabled, quiet_mode=True)
+defs = model_tools.get_tool_definitions(enabled_toolsets=enabled, disabled_toolsets=disabled, quiet_mode=True,
+                                        skip_tool_search_assembly=True)
 print(json.dumps(sorted(d["function"]["name"] for d in defs if d["function"]["name"].startswith("mcp__openwrt__"))))
 PY
 EOF
@@ -354,8 +364,9 @@ except OSError:
 ' 2>&1) || fail "hermes-drop failed: $out"
 	echo "$out" | grep -q "($HU, $HU, $HU) ($HG, $HG, $HG) \[\]" || fail "after the drop: $out"
 	echo "$out" | grep -q 'setuid(0) refused' || fail "root could be taken back: $out"
-	# The real gateway, started the way procd starts it.
-	run_wrapper >/tmp/svc.log 2>&1 &
+	# The real gateway, started the way procd starts it. One `sh -c exec`, not a function,
+	# so that $! is the very process that becomes the wrapper and then the gateway.
+	sh -c 'exec env $(cat /tmp/envv) "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
 	SVC=$!
 	i=0
 	until tr '\0' ' ' < "/proc/$SVC/cmdline" 2>/dev/null | grep -q 'gateway run'; do
@@ -619,6 +630,12 @@ check_rollback_survives_reboot() {
 	# Where the rollback state lives: on flash, under the state directory, not in /tmp.
 	ls /etc/openwrt-mcp/rollback/*.tar.gz >/dev/null 2>&1 || fail "no rollback snapshot under /etc/openwrt-mcp/rollback"
 	[ -s /etc/openwrt-mcp/pending.json ] || fail "no pending record under /etc/openwrt-mcp"
+	# And "under /etc" has to mean on flash: a state directory that is a link into RAM keeps
+	# the path and loses the point.
+	for f in /etc/openwrt-mcp/rollback /etc/openwrt-mcp/pending.json; do
+		real=$(readlink -f "$f")
+		case "$real" in /tmp/*|/var/*|/run/*|/dev/shm/*) fail "$f is really $real, which a reboot empties" ;; esac
+	done
 	ls /tmp/openwrt-mcp-rollback-* /var/tmp/openwrt-mcp-rollback-* >/dev/null 2>&1 && fail "a rollback snapshot is in /tmp, which a reboot empties"
 	# A reboot: the daemon dies mid-window and everything in /tmp goes.
 	kill -9 "$(cat /tmp/mcp.pid)"; rm -f /tmp/mcp.pid
