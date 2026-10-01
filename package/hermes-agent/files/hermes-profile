@@ -1,0 +1,30 @@
+# Sourced by /etc/init.d/hermes-agent and /usr/sbin/hermes-gateway. Not executable on its
+# own.
+#
+# What each profile in /etc/config/hermes means for who the agent runs as. One place, so
+# the init (which hands the data directory to that user) and the wrapper (which drops to
+# it) cannot disagree: r4 of this package shipped a dependency missing on one
+# architecture for want of exactly one list kept in two places.
+#
+#   owner       the unprivileged user hermes; the default, also when nothing is set
+#   assistant   hermes as well; no terminal, code or file tools
+#   root        root; every selected tool, no unlock, an explicit and warned choice
+#   admin       the old name of root, accepted
+#
+# hermes_profile_canonical <value>   prints the profile's own name, or nothing and status 1
+# hermes_profile_user <canonical>    prints the account the gateway and its tools run as
+hermes_profile_canonical() {
+	case "$1" in
+		owner|assistant|root) printf '%s\n' "$1" ;;
+		admin) printf 'root\n' ;;
+		*) return 1 ;;
+	esac
+}
+
+hermes_profile_user() {
+	case "$1" in
+		owner|assistant) printf 'hermes\n' ;;
+		root) printf 'root\n' ;;
+		*) return 1 ;;
+	esac
+}

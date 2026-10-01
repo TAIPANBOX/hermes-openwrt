@@ -139,6 +139,12 @@ cp "$SRC/files/memory-limit.py" "$OUT/usr/libexec/hermes-memory"
 chmod 0755 "$OUT/usr/libexec/hermes-memory"
 cp "$SRC/files/runtime-check.py" "$OUT/usr/libexec/hermes-runtime-check"
 chmod 0755 "$OUT/usr/libexec/hermes-runtime-check"
+# Gives up root for good and runs a command as another user: the exec wrapper's last line,
+# its two helpers, and the launcher's re-exec all go through it (see its own header).
+cp "$SRC/files/hermes-drop.py" "$OUT/usr/libexec/hermes-drop"
+chmod 0755 "$OUT/usr/libexec/hermes-drop"
+# Which profile is which account; sourced by the init and the wrapper, so it is said once.
+cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
 
 # pip writes a console script whose shebang points at the machine that ran pip. On the
 # router that path does not exist. Write our own, and put the private site-packages on
@@ -151,6 +157,20 @@ cat > "$OUT/usr/bin/hermes" <<'LAUNCHER'
 SITE=/usr/lib/hermes-agent/site-packages
 # Where upstream's skills, locales and MCP catalogue live; see the file itself.
 . /usr/lib/hermes-agent/hermes-env
+# The gateway runs as the user hermes (the owner and assistant profiles), so what it keeps in
+# its data directory belongs to that user. A command run from a root shell against that
+# directory, `HERMES_HOME=/srv/hermes hermes cron create ...` over SSH, would leave files
+# the gateway then cannot update. So root becomes hermes first, when the directory in
+# question is hermes's. HERMES_OPENWRT_AS_ROOT=1 turns that off (the exec wrapper sets it
+# for the root profile). Anything not root, or a directory that is not hermes's, runs as
+# the caller as before.
+if [ "$(id -u)" = 0 ] && [ -z "${HERMES_OPENWRT_AS_ROOT:-}" ]; then
+	dir=${HERMES_HOME:-${HOME:-/root}/.hermes}
+	if [ -d "$dir" ] && [ "$(ls -ldn "$dir" | awk '{print $3}')" = "$(id -u hermes 2>/dev/null)" ]; then
+		PYTHONPATH="$SITE${PYTHONPATH:+:$PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 \
+		exec /usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"
+	fi
+fi
 # Bytecode is shipped with the package, so writing more of it at runtime can only put
 # unowned files inside the package directory and leave litter behind on removal.
 PYTHONPATH="$SITE${PYTHONPATH:+:$PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 \

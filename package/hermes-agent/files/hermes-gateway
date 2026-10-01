@@ -1,7 +1,22 @@
 #!/bin/sh
 # @codex 2026-09-19: read all credentials after procd exec, including respawns.
 # procd's service list holds paths only; root can still inspect the child environment.
+#
+# @decided 2026-10-01: this wrapper runs as root, because it has to: it applies the memory
+# ceiling and reads the root-only key files. Everything after that runs as the profile's
+# user (hermes, unless the profile is root): the two helpers below that read and write the
+# agent's own data, and the gateway itself, through hermes-drop. Root never runs upstream's
+# code over files the agent can write, and the gateway starts with no way back to root.
+# nice 10 and the memory cgroup are inherited across the drop.
 set -eu
+
+. /usr/lib/hermes-agent/hermes-profile
+DROP="/usr/bin/python3 -I -B /usr/libexec/hermes-drop"
+# Unset means owner: the same default the init applies, so a respawn that did not pass
+# the variable cannot land on root.
+profile=$(hermes_profile_canonical "${HERMES_OPENWRT_PROFILE:-owner}") || {
+	echo "hermes-gateway: unknown profile '${HERMES_OPENWRT_PROFILE:-}'" >&2; exit 1; }
+run_user=$(hermes_profile_user "$profile")
 
 KEY_FILE=${1:?hermes-gateway: no key file given}
 /usr/bin/python3 /usr/libexec/hermes-memory "${HERMES_MEM_MAX_MB:-512}"
@@ -76,11 +91,17 @@ fi
 : "${OPENAI_BASE_URL:?hermes-gateway: OPENAI_BASE_URL is required}"
 : "${HERMES_MODEL:?hermes-gateway: HERMES_MODEL is required}"
 : "${HERMES_OPENWRT_TOOLSETS?hermes-gateway: HERMES_OPENWRT_TOOLSETS is required}"
-# Unset, same as a router upgraded from before profiles existed, means admin:
+# Unset, same as a router upgraded from before profiles existed, means owner:
 # the init's own default applies here too, not only at its first start.
-HERMES_OPENWRT_PROVIDERS="${providers_ready#;}" PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL" "${HERMES_OPENWRT_PROFILE:-admin}"
+# Both helpers run as the user the agent runs as (see the top): they read and write the
+# agent's own files, and a file written here as root would be one the agent cannot update.
+HERMES_OPENWRT_PROVIDERS="${providers_ready#;}" PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 \
+	$DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" "$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL" "$profile"
 
 PYTHONPATH=/usr/lib/hermes-agent/site-packages \
-	/usr/bin/python3 /usr/libexec/hermes-runtime-check
-unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS providers_ready entry p_name p_label p_url p_key_file p_model
-exec /usr/bin/hermes gateway run --external-supervisor
+	$DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-runtime-check
+unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_FACTOR providers_ready entry p_name p_label p_url p_key_file p_model
+# The root profile asks for root, so the launcher must not second-guess it from who owns
+# the data directory (see /usr/bin/hermes).
+[ "$run_user" != root ] || export HERMES_OPENWRT_AS_ROOT=1
+exec $DROP "$run_user" /usr/bin/hermes gateway run --external-supervisor

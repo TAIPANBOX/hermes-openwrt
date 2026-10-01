@@ -20,6 +20,28 @@ STOP=10
 PROG=/usr/bin/hermes
 NAME=hermes-agent
 CONF=/etc/hermes-agent
+# Which profile means which account: shared with the exec wrapper, which does the drop.
+. /usr/lib/hermes-agent/hermes-profile
+# Runs a command as another user having given up root; see its own header.
+DROP="/usr/bin/python3 -I -B /usr/libexec/hermes-drop"
+
+# openwrt-mcp: the owner profile's whole way to the router. The agent reads through it and
+# changes through it, and it runs as root and decides. The package manages one client per
+# agent, hermes-<agent>, and its policies in sections named hermes_<agent>_*, and touches
+# no other section of /etc/config/openwrt-mcp.
+MCP_BIN=/usr/bin/openwrt-mcp
+MCP_URL_DEFAULT=http://127.0.0.1:8730/mcp
+# What a ubus_call may read without an unlock, one name per method, never a glob over a
+# whole object: `system.*` would take in `system.reboot`. Names read off the 25.12.4 rootfs
+# (procd's system object, netifd's, rpcd's iwinfo and luci-rpc, odhcpd's dhcp); a name an
+# installed system does not have grants nothing. network.wireless is left out, because its
+# status carries the radio configuration, keys included.
+MCP_READ_UBUS='system.board system.info network.interface.dump network.interface.*.status network.device.status iwinfo.devices iwinfo.info iwinfo.assoclist dhcp.ipv6leases luci-rpc.getDHCPLeases luci-rpc.getHostHints luci-rpc.getNetworkDevices'
+# What uci_get may read. Not wireless, whose keys would go to the model provider, and not
+# the whole of network either: a router running WireGuard keeps its private key in a network
+# section. The default interfaces and the globals are named instead. openwrt-mcp matches a
+# scope with path.Match, so `network.lan*` covers the section and its options.
+MCP_READ_UCI='system system.* dhcp dhcp.* firewall firewall.* network.loopback* network.globals* network.lan* network.wan*'
 
 # Read a secret from a file into stdout, or nothing if it is missing or empty.
 # Never echoes the path's contents to the log.
@@ -27,9 +49,117 @@ read_secret() {
 	[ -n "$1" ] && [ -r "$1" ] && head -n1 "$1" | tr -d ' \t\r\n'
 }
 
+# The data directory belongs to the user the agent runs as, so what the agent writes there
+# it can write again, and what an earlier release (which ran as root) wrote there is still
+# readable. Handed over only when the directory's own owner differs, not on every start: a
+# walk of a database that only grows is a cost the first start after an upgrade pays once.
+# -h so a symlink inside it is chowned as itself and never as whatever it points at.
+hand_over_data_dir() {
+	local dir=$1 user=$2 uid gid owner
+	uid=$(id -u "$user" 2>/dev/null) && gid=$(id -g "$user" 2>/dev/null) || {
+		echo "$NAME: there is no user '$user'; reinstall hermes-agent so its post-install script creates it" >&2
+		return 1; }
+	set -- $(ls -ldn "$dir")
+	owner=$3
+	if [ "$owner" != "$uid" ]; then
+		echo "$NAME: giving $dir to '$user'; it belonged to uid $owner, and what is in it is kept" >&2
+		chown -hR "$uid:$gid" "$dir" || {
+			echo "$NAME: cannot give $dir to '$user'" >&2; return 1; }
+	fi
+	# Whatever the filesystem says, the agent must be able to write there: a FAT or NTFS
+	# stick takes chown without error and ignores it.
+	if [ "$user" != root ] && ! $DROP "$user" /bin/sh -c ': > "$1/.hermes-write-test" && rm -f "$1/.hermes-write-test"' sh "$dir" 2>/dev/null; then
+		echo "$NAME: '$user' cannot write in $dir. The profile needs a data_dir on a filesystem with" >&2
+		echo "$NAME: Unix ownership (ext4, f2fs, the overlay), not FAT or NTFS; or choose the root profile." >&2
+		return 1
+	fi
+}
+
+# The UCI statements for one agent's policies, in the order openwrt-mcp has to see them:
+# it takes the FIRST policy of a client that covers every scope of a call, so the narrow
+# read grants come first, each tool in a policy of its own so that one tool's scope globs
+# cannot widen another's, and the change policy, which asks for the second factor on
+# everything it grants, last. With no factor configured that last one is not written, so a
+# change finds no policy at all ("no policy grants").
+#   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout>
+mcp_policy_batch() {
+	local client=$1 prefix=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 scope
+	set -f
+	printf 'set openwrt-mcp.%sread_ubus=policy\nset openwrt-mcp.%sread_ubus.client=%s\nadd_list openwrt-mcp.%sread_ubus.tools=ubus_call\n' "$prefix" "$prefix" "$client" "$prefix"
+	for scope in $MCP_READ_UBUS; do printf "add_list openwrt-mcp.%sread_ubus.scopes='%s'\n" "$prefix" "$scope"; done
+	printf 'set openwrt-mcp.%sread_uci=policy\nset openwrt-mcp.%sread_uci.client=%s\nadd_list openwrt-mcp.%sread_uci.tools=uci_get\n' "$prefix" "$prefix" "$client" "$prefix"
+	for scope in $MCP_READ_UCI; do printf "add_list openwrt-mcp.%sread_uci.scopes='%s'\n" "$prefix" "$scope"; done
+	printf 'set openwrt-mcp.%sread_log=policy\nset openwrt-mcp.%sread_log.client=%s\nadd_list openwrt-mcp.%sread_log.tools=logread\n' "$prefix" "$prefix" "$client" "$prefix"
+	set +f
+	[ "$factor" = none ] && return 0
+	printf 'set openwrt-mcp.%schange=policy\nset openwrt-mcp.%schange.client=%s\n' "$prefix" "$prefix" "$client"
+	local tool
+	for tool in ubus_call uci_apply uci_confirm wg_new_client; do printf 'add_list openwrt-mcp.%schange.tools=%s\n' "$prefix" "$tool"; done
+	printf "add_list openwrt-mcp.%schange.scopes='*'\nadd_list openwrt-mcp.%schange.mfa_tools='*'\n" "$prefix" "$prefix"
+	printf 'set openwrt-mcp.%schange.mfa_factor=%s\nset openwrt-mcp.%schange.mfa_window=%s\nset openwrt-mcp.%schange.mfa_max_failures=%s\nset openwrt-mcp.%schange.mfa_lockout=%s\n' \
+		"$prefix" "$factor" "$prefix" "$window" "$prefix" "$max_failures" "$prefix" "$lockout"
+}
+
+# Make /etc/config/openwrt-mcp hold exactly the policies this package owns for one agent.
+# What the package wrote is compared with what it would write, by building the desired
+# sections in a scratch config and comparing `uci show` of both, so a start that changes
+# nothing writes nothing to flash. When they differ the package's sections for that agent
+# are deleted and written again, in order, which also puts them after any older ones.
+mcp_policies() {
+	local client=$1 agent=$2 factor=$3 window=$4 max_failures=$5 lockout=$6
+	local prefix="hermes_${agent}_" scratch want have sect
+	scratch=$(mktemp -d /tmp/hermes-mcp.XXXXXX) || return 1
+	: > "$scratch/openwrt-mcp"
+	mcp_policy_batch "$client" "$prefix" "$factor" "$window" "$max_failures" "$lockout" > "$scratch/batch"
+	uci -c "$scratch" -P "$scratch/save" -q batch < "$scratch/batch" && uci -c "$scratch" -P "$scratch/save" -q commit openwrt-mcp || {
+		rm -rf "$scratch"; echo "$NAME: could not build the openwrt-mcp policies for $client" >&2; return 1; }
+	want=$(uci -c "$scratch" -P "$scratch/save" -q show openwrt-mcp | grep "^openwrt-mcp\.$prefix")
+	have=$(uci -q show openwrt-mcp | grep "^openwrt-mcp\.$prefix")
+	if [ "$want" != "$have" ]; then
+		[ -e /etc/config/openwrt-mcp ] || : > /etc/config/openwrt-mcp
+		for sect in $(uci -q show openwrt-mcp | sed -n "s/^openwrt-mcp\.\($prefix[a-z_]*\)=.*/\1/p"); do
+			uci -q delete "openwrt-mcp.$sect"
+		done
+		uci -q batch < "$scratch/batch" && uci -q commit openwrt-mcp || {
+			uci -q revert openwrt-mcp; rm -rf "$scratch"
+			echo "$NAME: could not write the openwrt-mcp policies for $client" >&2; return 1; }
+	fi
+	rm -rf "$scratch"
+}
+
+# One agent's way to the router: its own paired client and token, and its own policies.
+#   hermes_mcp_agent <agent> <token file> <factor> <window> <max failures> <lockout>
+# The token is made only when the file is missing or empty, by `openwrt-mcp pair`, into a
+# root-only file; an earlier token for the same client is revoked first, because nobody
+# holds it any more. Unlocking is per client, so a second agent added later is
+# hermes-<name> with its own token and its own unlock window.
+hermes_mcp_agent() {
+	local agent=$1 token_file=$2 factor=$3 window=$4 max_failures=$5 lockout=$6
+	local client="hermes-$agent" tmp tok
+	case "$agent" in ''|*[!a-z0-9]*) echo "$NAME: agent name '$agent' must be lower-case letters and digits" >&2; return 1 ;; esac
+	[ -x "$MCP_BIN" ] || {
+		echo "$NAME: openwrt-mcp is not installed ($MCP_BIN); apk add openwrt-mcp" >&2; return 1; }
+	if [ -z "$(read_secret "$token_file")" ]; then
+		tmp="$token_file.new"
+		rm -f "$tmp"
+		"$MCP_BIN" unpair "$client" >/dev/null 2>&1
+		( umask 077; "$MCP_BIN" pair "$client" > "$tmp" ) 2>/dev/null
+		tok=$(head -n1 "$tmp" 2>/dev/null | tr -d ' \t\r\n')
+		if [ -z "$tok" ]; then
+			rm -f "$tmp"
+			echo "$NAME: could not pair $client with openwrt-mcp" >&2
+			return 1
+		fi
+		chmod 0600 "$tmp" && mv "$tmp" "$token_file" || return 1
+		echo "$NAME: paired $client with openwrt-mcp; its token is in $token_file" >&2
+	fi
+	mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout"
+}
+
 start_service() {
 	local enabled data_dir base_url model key_file mem_max respawn
-	local mcp_url mcp_token_file key profile max_turns
+	local mcp_url mcp_token_file key profile profile_set run_user max_turns
+	local sec_factor sec_window sec_max sec_lockout v
 	local toolsets providers providers_bad
 	local tg_on tg_token_file tg_token tg_allow_all tg_home tg_allow
 	# tg_allow and toolsets are declared here and filled by the append_* helpers
@@ -52,28 +182,59 @@ start_service() {
 	config_get_bool respawn   main respawn 1
 	config_get mcp_url        main router_mcp_url ''
 	config_get mcp_token_file main router_mcp_token_file ''
-	config_get profile        main profile 'admin'
+	config_get profile_set    main profile ''
 	config_get max_turns      main max_turns '20'
 
 	key=$(read_secret "$key_file")
 
-	# Two profiles, chosen in /etc/config/hermes, not a spectrum: admin leaves every
-	# selected tool in place, as root; assistant turns off terminal, code execution
-	# and file tools regardless of what toolsets below selects, and tells the agent
-	# so. Unset means admin, on every router including ones upgraded from before
-	# this option existed. Refuse rather than guess what a third value
-	# meant, the same way an unusable base_url or model refuses below.
+	# Three profiles, chosen in /etc/config/hermes, and one old name. owner (what applies
+	# wherever none is set, existing routers included) runs the agent as the unprivileged
+	# user hermes with every selected tool, and it changes the router only through
+	# openwrt-mcp, which wants the owner's unlock; assistant runs as hermes too, with
+	# terminal, code execution and file tools off whatever toolsets below selects; root
+	# runs as root with every selected tool and no unlock, and is warned about every time.
+	# admin is the old name of root. Refuse rather than guess what a fourth value meant,
+	# the same way an unusable base_url or model refuses below.
+	profile=$(hermes_profile_canonical "${profile_set:-owner}") || {
+		echo "$NAME: hermes.main.profile in /etc/config/hermes must be 'owner', 'assistant' or 'root', not '$profile_set'" >&2
+		return 1
+	}
+	run_user=$(hermes_profile_user "$profile")
 	case "$profile" in
-		assistant|admin) ;;
-		*)
-			echo "$NAME: hermes.main.profile in /etc/config/hermes must be 'assistant' or 'admin', not '$profile'" >&2
-			return 1
+		owner)
+			if [ -z "$profile_set" ]; then
+				echo "$NAME: profile 'owner' (none is set, so this is the default): the agent runs as the unprivileged user 'hermes'; before 0.21.5-r3 an unset profile ran as root. 'uci set hermes.main.profile=root && uci commit hermes && service hermes-agent restart' keeps that." >&2
+			else
+				echo "$NAME: profile 'owner': the agent runs as the unprivileged user 'hermes'. It reads the router through openwrt-mcp and changes it only there, once you unlock it." >&2
+			fi
+			;;
+		assistant)
+			echo "$NAME: profile 'assistant': the agent runs as the unprivileged user 'hermes'; terminal, code execution and file tools are off. 'uci set hermes.main.profile=owner && uci commit hermes && service hermes-agent restart' allows them." >&2
+			;;
+		root)
+			[ "$profile_set" != admin ] || echo "$NAME: profile 'admin' is the old name of 'root'." >&2
+			echo "$NAME: profile 'root': the agent runs as root on this router. Its terminal, file and code tools can change anything on it with no unlock, whatever openwrt-mcp is set to. 'uci set hermes.main.profile=owner && uci commit hermes && service hermes-agent restart' goes back to the unprivileged user." >&2
 			;;
 	esac
-	if [ "$profile" = assistant ]; then
-		echo "$NAME: profile 'assistant': terminal, code execution and file tools are off. 'uci set hermes.main.profile=admin && uci commit hermes && service hermes-agent restart' allows them." >&2
-	else
-		echo "$NAME: profile 'admin': the agent can run commands and write files on this router as root." >&2
+
+	# The second factor the owner unlocks changes with, and how long and how often. Only the
+	# owner profile has one. "none" is the default, and means nothing can change the router
+	# until the owner sets a factor: no change policy is written at all.
+	sec_factor=none
+	if [ "$profile" = owner ]; then
+		config_get sec_factor   security factor 'none'
+		config_get sec_window   security window '15m'
+		config_get sec_max      security max_failures '5'
+		config_get sec_lockout  security lockout '15m'
+		case "$sec_factor" in
+			none|pin|totp|pin+totp) ;;
+			*) echo "$NAME: hermes.security.factor must be none, pin, totp or pin+totp, not '$sec_factor'" >&2; return 1 ;;
+		esac
+		for v in "$sec_window" "$sec_lockout"; do
+			echo "$v" | grep -Eq '^([0-9]+(\.[0-9]+)?(s|m|h))+$|^[0-9]+(\.[0-9]+)?d$' || {
+				echo "$NAME: hermes.security window and lockout are durations such as 15m, 1h or 1d, not '$v'" >&2; return 1; }
+		done
+		case "$sec_max" in ''|*[!0-9]*|0) echo "$NAME: hermes.security.max_failures must be a whole number of at least 1, not '$sec_max'" >&2; return 1 ;; esac
 	fi
 
 	# Refuse rather than flap. Each branch names the one thing to fix, because the
@@ -158,6 +319,28 @@ start_service() {
 		echo "$NAME: without bound; move data_dir to external storage if space is tight." >&2
 	fi
 	chmod 0700 "$data_dir" 2>/dev/null
+	hand_over_data_dir "$data_dir" "$run_user" || return 1
+
+	# The owner profile's connection to the router. Its URL is openwrt-mcp's own loopback
+	# address unless UCI says otherwise (an option set to nothing turns the connection off),
+	# its token is paired here the first time, and its policies are written here, every
+	# start, from hermes.security. A daemon that cannot be reached costs the agent its
+	# router tools and not the service, like a missing token (invariant 3).
+	if [ "$profile" = owner ]; then
+		[ -n "$mcp_token_file" ] || mcp_token_file="$CONF/router-mcp.token"
+		if [ -z "$mcp_url" ] && ! uci -q get hermes.main.router_mcp_url >/dev/null 2>&1; then
+			mcp_url=$MCP_URL_DEFAULT
+		fi
+		if [ -n "$mcp_url" ]; then
+			if hermes_mcp_agent main "$mcp_token_file" "$sec_factor" "$sec_window" "$sec_max" "$sec_lockout"; then
+				/etc/init.d/openwrt-mcp enable >/dev/null 2>&1
+				/etc/init.d/openwrt-mcp running >/dev/null 2>&1 || /etc/init.d/openwrt-mcp start >/dev/null 2>&1 \
+					|| echo "$NAME: could not start openwrt-mcp; the agent has no router tools until it runs" >&2
+			else
+				mcp_url=""
+			fi
+		fi
+	fi
 
 	# @codex 2026-09-19: validate and persist the actual gateway contract before
 	# opening any procd instance. A bad selection must never fall back to defaults.
@@ -176,10 +359,13 @@ start_service() {
 	providers_bad=""
 	config_foreach append_provider provider
 	[ -z "$providers_bad" ] || return 1
+	# As the user the agent runs as, like the wrapper's own run of it: it writes the agent's
+	# configuration, and a file written here as root would be one the agent cannot update.
 	HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
+		HERMES_OPENWRT_FACTOR="$sec_factor" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}" \
-		PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets \
+		PYTHONDONTWRITEBYTECODE=1 $DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-set-toolsets \
 		"$data_dir" "${toolsets#,}" "$mcp_url" "$base_url" "$model" "$profile" || return 1
 
 	procd_open_instance
@@ -206,6 +392,7 @@ start_service() {
 		HERMES_OPENWRT_TOOLSETS="${toolsets#,}" \
 		HERMES_OPENWRT_MCP_URL="$mcp_url" \
 		HERMES_OPENWRT_PROFILE="$profile" \
+		HERMES_OPENWRT_FACTOR="$sec_factor" \
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}"
 

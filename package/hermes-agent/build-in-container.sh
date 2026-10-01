@@ -71,14 +71,29 @@ esac
 #
 # 0.21.5-r2: the main model is written as a named `uci` entry in `providers`, not as
 # upstream's bare `custom`, so a model picked with /model's buttons keeps the main key.
-PKGREL=${PKGREL:-2}
+#
+# 0.21.5-r3: the agent no longer runs as root unless its profile says so. A user and group
+# hermes are created at install; the gateway and every tool it starts run as that user,
+# dropped to by /usr/libexec/hermes-drop after the wrapper (still root) has applied the
+# memory ceiling and read the key files; profile owner is the new default, and it reaches
+# the router only through openwrt-mcp, which this package now depends on and wires up
+# (client hermes-main, its policies, the second factor from hermes.security). root is the
+# old admin, kept as an explicit, warned choice.
+PKGREL=${PKGREL:-3}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
 # bash is not optional: Hermes runs its terminal tool through bash builtins
 # (tools/environments/local.py), and on busybox ash every command fails with
 # "builtin: not found" while the model reports the box as broken.
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"
+#
+# openwrt-mcp is the router-side half of the owner profile: the agent reads and changes the
+# router only through it. It is not in OpenWrt's feed. Ours is built from the companion
+# branch with that repository's own mkapk.sh (scripts/build-openwrt-mcp.sh) and the feed
+# carries it beside this package. It has no version floor yet, because the branch still
+# says 0.5.0, the number the release without the second factor carries too; set one when
+# the companion is tagged.
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
@@ -136,22 +151,58 @@ find "$WORK/tree" -name .DS_Store -delete 2>/dev/null || true
 echo "==> packaging with apk mkpkg"
 # The scripts are written here rather than shipped as files because they are three lines
 # each and belong next to the metadata that references them.
-cat > "$WORK/post-install" <<'POST'
-#!/bin/sh
+# One fragment, two scripts. apk runs post-upgrade, not post-install, when it replaces an
+# installed version, and runs nothing at all if there is no such script: the r2 -> r3 upgrade
+# on 2026-10-01 left a router with the new files and no hermes user. The fragment is
+# idempotent, which is what an upgrade needs of it.
+cat > "$WORK/account.sh" <<'ACCOUNT'
 mkdir -p /etc/hermes-agent
 chmod 0700 /etc/hermes-agent
+# The account the gateway and its tools run as (profiles owner and assistant). OpenWrt's
+# own helpers, so the entries are written the way every other package's are: a group with
+# the next free id, a user of the same id when that is free, a locked password field and no
+# login shell. Home is the default data directory; UCI can put the data elsewhere, and
+# hermes-drop then uses that as HOME. An upgrade and a reinstall find the account and leave
+# it. Removal leaves it too (see pre-deinstall).
+. /lib/functions.sh
+gid=$(group_add_next hermes)
+if ! user_exists hermes; then
+	uid=$gid
+	cut -d: -f3 /etc/passwd | grep -qx "$uid" && uid=""
+	home=$(uci -q get hermes.main.data_dir)
+	user_add hermes "$uid" "$gid" "Hermes Agent" "${home:-/srv/hermes}" /bin/false
+fi
 /etc/init.d/hermes-agent enable
-# Deliberately not started: the package ships disabled with no key and no model, and a
-# service that cannot work should not spend the first boot logging that it cannot.
-exit 0
-POST
+ACCOUNT
+{
+	printf '#!/bin/sh\n'
+	cat "$WORK/account.sh"
+	printf '# Deliberately not started: the package ships disabled with no key and no model, and a\n'
+	printf '# service that cannot work should not spend the first boot logging that it cannot.\n'
+	printf 'exit 0\n'
+} > "$WORK/post-install"
+{
+	printf '#!/bin/sh\n'
+	cat "$WORK/account.sh"
+	# Not restarted here: a restart interrupts a chat in progress, and nothing a build can run
+	# proves the restart on a router. So it is said, because until it happens the old gateway
+	# keeps running as root and the new profile default has not taken effect.
+	printf 'if /etc/init.d/hermes-agent running >/dev/null 2>&1; then\n'
+	printf '\techo "hermes-agent: restart it for this release to take effect: service hermes-agent restart"\n'
+	printf '\techo "hermes-agent: the gateway then runs as the user hermes, unless the profile in /etc/config/hermes is root."\n'
+	printf 'fi\n'
+	printf 'exit 0\n'
+} > "$WORK/post-upgrade"
 cat > "$WORK/pre-deinstall" <<'PRE'
 #!/bin/sh
 /etc/init.d/hermes-agent stop
 /etc/init.d/hermes-agent disable
+# The hermes user and group stay, like the data directory and the keys: files that user owns
+# are left on disk, and a later user handed the same id would own the agent's sessions. A
+# reinstall finds the account and keeps its id. Remove it by hand with the data directory.
 exit 0
 PRE
-chmod 0755 "$WORK/post-install" "$WORK/pre-deinstall"
+chmod 0755 "$WORK/post-install" "$WORK/post-upgrade" "$WORK/pre-deinstall"
 
 docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "name:hermes-agent" \
@@ -163,6 +214,7 @@ docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "description:Hermes Agent, the self-hosted AI agent, packaged for OpenWrt. Runs as a procd service against any OpenAI-compatible endpoint." \
 	--info "depends:$DEPENDS" \
 	--script "post-install:/work/post-install" \
+	--script "post-upgrade:/work/post-upgrade" \
 	--script "pre-deinstall:/work/pre-deinstall" \
 	--files /work/tree \
 	--output "/work/$OUT"
@@ -181,6 +233,10 @@ echo "==> $OUT  ($(du -h "$ROOT/$OUT" | cut -f1))"
 # code we do not ship. Relabelling is therefore honest here. It would not be for a
 # package carrying C compiled with -mcpu=cortex-a53.
 for extra in ${EXTRA_ARCHES:-}; do
+	# Again: a .DS_Store can appear in the tree between the two mkpkg calls (a Finder window
+	# open on build/ is enough), and the relabel would then differ from the primary by a
+	# file the primary never had. 2026-10-01: it did, and gate-relabel said so.
+	find "$WORK/tree" -name .DS_Store -delete 2>/dev/null || true
 	xout="hermes-agent-$HERMES_VERSION-r$PKGREL.apk"
 	xdir="$ROOT/build/$LINE/$extra"
 	rm -rf "$xdir"; mkdir -p "$xdir"
@@ -194,6 +250,7 @@ for extra in ${EXTRA_ARCHES:-}; do
 		--info "description:Hermes Agent, the self-hosted AI agent, packaged for OpenWrt. Runs as a procd service against any OpenAI-compatible endpoint." \
 		--info "depends:$DEPENDS" \
 		--script "post-install:/work/post-install" \
+		--script "post-upgrade:/work/post-upgrade" \
 		--script "pre-deinstall:/work/pre-deinstall" \
 		--files /work/tree \
 		--output "/out/$xout"
