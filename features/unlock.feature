@@ -102,6 +102,12 @@ Feature: The agent changes the router only when its owner unlocks it
     Then the previous configuration is back
     # -> check_rollback_survives_reboot
 
+  Scenario: No tool that answers with a private key is granted by default
+    Given a factor is configured, so the package writes its change policy
+    Then that policy does not grant wg_new_client, whose answer is a WireGuard private key
+    And a call to it is refused even while the owner has unlocked changes
+    # -> check_change_policy_hands_out_no_private_key
+
   # ---- The factors, each optional ----
 
   Scenario: The owner chooses a PIN alone

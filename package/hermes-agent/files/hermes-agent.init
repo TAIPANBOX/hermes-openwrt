@@ -94,7 +94,9 @@ mcp_policy_batch() {
 	[ "$factor" = none ] && return 0
 	printf 'set openwrt-mcp.%schange=policy\nset openwrt-mcp.%schange.client=%s\n' "$prefix" "$prefix" "$client"
 	local tool
-	for tool in ubus_call uci_apply uci_confirm wg_new_client; do printf 'add_list openwrt-mcp.%schange.tools=%s\n' "$prefix" "$tool"; done
+	# Not wg_new_client: its answer is a WireGuard peer's private key, and what a tool answers
+	# goes to the model provider. An owner who wants it grants it in a policy of their own.
+	for tool in ubus_call uci_apply uci_confirm; do printf 'add_list openwrt-mcp.%schange.tools=%s\n' "$prefix" "$tool"; done
 	printf "add_list openwrt-mcp.%schange.scopes='*'\nadd_list openwrt-mcp.%schange.mfa_tools='*'\n" "$prefix" "$prefix"
 	printf 'set openwrt-mcp.%schange.mfa_factor=%s\nset openwrt-mcp.%schange.mfa_window=%s\nset openwrt-mcp.%schange.mfa_max_failures=%s\nset openwrt-mcp.%schange.mfa_lockout=%s\n' \
 		"$prefix" "$factor" "$prefix" "$window" "$prefix" "$max_failures" "$prefix" "$lockout"

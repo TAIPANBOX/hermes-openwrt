@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
-# One planted fault for each check the gate implements, eleven in all. Each is a change a
+# One planted fault for each check the gate implements, twelve in all. Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -9,7 +9,7 @@
 # to do with the fault, means the check is thinner than its name says.
 #
 # And the three things around the faults, so that the reds above were the faults and not the
-# harness: the same eleven checks pass with nothing planted, a name that matches no check is
+# harness: every implemented check passes with nothing planted, a name that matches no check is
 # "measured nothing" and not a pass, and a scenario whose check does not exist yet (stage 4
 # and 5) fails with NOT IMPLEMENTED instead of being skipped.
 #
@@ -140,15 +140,22 @@ mkdir -p "$W/overlay/tmp/owmcp-state" "$W/overlay/etc"
 ln -s /tmp/owmcp-state "$W/overlay/etc/openwrt-mcp"
 expect_red "the openwrt-mcp state directory in RAM" check_rollback_survives_reboot
 
+# ---- 12. the change policy grants the tool that answers with a private key ----
+plant "$INIT" '	for tool in ubus_call uci_apply uci_confirm; do' '	for tool in ubus_call uci_apply uci_confirm wg_new_client; do'
+expect_red "wg_new_client back in the change policy" check_change_policy_hands_out_no_private_key
+
 # ---- and the controls ----
-# Nothing planted: the eleven pass, so the reds above were the faults and not the harness.
-IMPLEMENTED=$("$ROOT/scripts/gate-unlock.sh" --selftest | head -n 11 | tr '\n' ' ')
+# Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
+# Counted from the gate's own list, so this cannot go stale when a check is added.
+IMPLEMENTED=$(sed -n "s/^IMPLEMENTED='\(.*\)'$/\1/p" "$ROOT/scripts/gate-unlock.sh")
+N=$(echo $IMPLEMENTED | wc -w | tr -d ' ')
+[ "$N" -gt 0 ] || { echo "TEETH FAIL: read no implemented check from gate-unlock.sh; measured nothing"; exit 1; }
 if ! ONLY="$IMPLEMENTED" ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
 	echo "TEETH FAIL: with nothing planted the implemented checks are not green, so a fault was not undone"
 	grep -E '^FAIL' "$OUT"; exit 1
 fi
-grep -q '^gate-unlock: 11 passed, 0 failed' "$OUT" || { echo "TEETH FAIL: the clean run did not pass all eleven"; tail -n 3 "$OUT"; exit 1; }
-echo "teeth ok: nothing planted -> all 11 pass"
+grep -q "^gate-unlock: $N passed, 0 failed" "$OUT" || { echo "TEETH FAIL: the clean run did not pass all $N"; tail -n 3 "$OUT"; exit 1; }
+echo "teeth ok: nothing planted -> all $N pass"
 
 # A name that matches no check measures nothing, and says so.
 if ONLY=check_that_does_not_exist ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
@@ -164,4 +171,4 @@ fi
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-echo "teeth-unlock: 11 faults, 11 distinct checks, controls green"
+echo "teeth-unlock: 12 faults, 12 distinct checks, controls green"

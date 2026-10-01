@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Seventeen faults, each a change somebody could plausibly make to the rpcd backend or its
+# Eighteen faults, each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
 # page's ubus object rather than inside it; fault 5 measures the free space on the data
@@ -30,6 +30,8 @@ PROVIDERS="$WORK/tree/www/luci-static/resources/view/hermes/providers.js"
 FLASH="$WORK/tree/www/luci-static/resources/hermes/flash.js"
 SRC_PROVIDERS="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/providers.js"
 SRC_FLASH="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/hermes/flash.js"
+SETTINGS="$WORK/tree/www/luci-static/resources/view/hermes/settings.js"
+SRC_SETTINGS="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/settings.js"
 
 [ -d "$WORK/tree" ] || { echo "teeth-luci: no tree at $WORK/tree; build the LuCI package first:"
 	echo "  ./package/luci-app-hermes/build.sh"
@@ -267,6 +269,14 @@ repack_luci
 expect_red "\"Saved\" beside a key that did not save" check_saved_when_only_a_key_changed
 cp "$SRC_FLASH" "$FLASH"
 
+# ---- fault 18: the profile field puts the agent back to root on save ----
+# The field writes hermes.main.profile on every save; defaulting it to the root profile
+# would undo the package's own default the first time somebody saved the page.
+plant "$SETTINGS" "o.default = 'owner';" "o.default = 'root';" "fault 18"
+repack_luci
+expect_red "the profile field defaulting to root" check_profile_field_defaults_to_owner
+cp "$SRC_SETTINGS" "$SETTINGS"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -274,4 +284,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 17 faults on 12 checks, green restored"
+echo "teeth-luci: 18 faults on 13 checks, green restored"

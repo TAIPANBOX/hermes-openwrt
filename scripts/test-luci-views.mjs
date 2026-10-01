@@ -74,8 +74,8 @@ function world(replies) {
 		changes: () => { w.calls.push({ method: 'uci.changes' }); return Promise.resolve(w.staged); } };
 
 	class Option {
-		constructor(section, name) { this.section = section; this.name = name; }
-		value() {}
+		constructor(section, name) { this.section = section; this.name = name; this.values = []; }
+		value(key) { this.values.push(key); }
 	}
 	class Section {
 		constructor(map, type) { this.map = map; this.sectiontype = type; this.options = {}; }
@@ -283,6 +283,21 @@ check('check_stale_message_not_shown', async () => {
 	w.storage.set('luci-app-hermes.flash', 'not json');
 	await open(w, 'providers');
 	assert(!w.storage.has('luci-app-hermes.flash'), 'unreadable storage was left for every later visit');
+});
+
+// The profile field writes hermes.main.profile on every save of the page. If it offered or
+// defaulted to the old root profile, saving the page with no profile set would silently put
+// the agent back to running as root, undoing the package's own default.
+check('check_profile_field_defaults_to_owner', async () => {
+	const w = world({ 'hermes.status': {} });
+	await open(w, 'settings');
+	const field = w.map.sections.map(s => s.options.profile).find(Boolean);
+	assert(field, 'the settings page has no profile field');
+	assert(field.default === 'owner', `the profile field defaults to '${field.default}', not 'owner'`);
+	for (const v of ['owner', 'assistant', 'root'])
+		assert(field.values.includes(v), `the profile field does not offer '${v}'`);
+	assert(!field.values.includes('admin'), "the profile field still offers 'admin', the old name of root");
+	assert(field.values[0] === 'owner', `the first choice is '${field.values[0]}', not 'owner'`);
 });
 
 for (const [name, fn] of Object.entries(checks)) {

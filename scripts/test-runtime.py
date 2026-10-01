@@ -1209,7 +1209,7 @@ procd_close_service
         self.assertNotIn("network", uci)
         self.assertNotIn("network.*", uci)
         change = section(lines, "hermes_unit_change")
-        self.assertEqual(change["tools"], "'ubus_call' 'uci_apply' 'uci_confirm' 'wg_new_client'")
+        self.assertEqual(change["tools"], "'ubus_call' 'uci_apply' 'uci_confirm'")
         self.assertEqual((change["scopes"], change["mfa_tools"], change["mfa_factor"]), ("'*'", "'*'", "'pin'"))
         self.assertEqual((change["mfa_window"], change["mfa_max_failures"], change["mfa_lockout"]),
                          ("'20m'", "'3'", "'1h'"))

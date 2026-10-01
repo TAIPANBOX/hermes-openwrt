@@ -63,16 +63,23 @@ return view.extend({
 		var m, s, o;
 
 		m = new form.Map('hermes', _('Hermes Agent'),
-			_('The agent runs as root on this router; the model runs elsewhere. In the assistant profile, terminal, code execution and file tools stay off regardless of the toolsets list below; the admin profile allows them, with root access. Enable it only for trusted users.'));
+			_('The agent runs on this router as the unprivileged user hermes, unless the profile below is root; the model runs elsewhere. In the owner profile it changes this router only through openwrt-mcp, once you unlock it.'));
 
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Service'));
 		s.anonymous = true;
 
 		o = s.option(form.ListValue, 'profile', _('Profile'),
-			_('admin (default, and what applies if this is unset) allows every tool the Toolsets list below selects, running as root. assistant keeps terminal, code execution and file tools off no matter what that list selects, and tells the agent so; without an MCP server such as openwrt-mcp it then cannot read this router at all.'));
-		o.value('admin', _('Admin (full tool access, as root)'));
-		o.value('assistant', _('Assistant (no commands, no files)'));
-		o.default = 'admin';
+			_('owner (default, and what applies if this is unset) runs the agent as the user hermes with every tool the Toolsets list below selects; it reads this router through openwrt-mcp and changes it only after you unlock it. assistant keeps terminal, code execution and file tools off as well. root runs the agent as root with every tool and no unlock: anything it is asked to do on this router, it can do.'));
+		o.value('owner', _('Owner (unprivileged, changes need your unlock)'));
+		o.value('assistant', _('Assistant (unprivileged, no commands, no files)'));
+		o.value('root', _('Root (full access, no unlock)'));
+		o.default = 'owner';
+		// 'admin' is the old name of root: show and save it as root, so opening and saving the
+		// page neither changes what the agent may do nor offers the old name as a choice.
+		o.cfgvalue = function(section_id) {
+			var v = form.ListValue.prototype.cfgvalue.apply(this, arguments);
+			return v === 'admin' ? 'root' : v;
+		};
 		o.rmempty = false;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'),

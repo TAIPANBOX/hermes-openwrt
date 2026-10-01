@@ -172,9 +172,13 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `hermes_main_*` and no others, at every start: one read policy per tool, ubus methods
     by name and never a whole object, `uci_get` on system, dhcp, firewall and the default
     network sections, `logread`; and last, because openwrt-mcp takes the first policy that
-    covers a call, one change policy (`ubus_call`, `uci_apply`, `uci_confirm`,
-    `wg_new_client`) that asks the factor in `hermes.security` for everything it grants.
-    `exec` is never granted. With factor `none`, the default, no change policy is written,
+    covers a call, one change policy (`ubus_call`, `uci_apply`, `uci_confirm`) that asks the factor in
+    `hermes.security` for everything it grants. `exec` is never granted, and neither is
+    `wg_new_client`, whose answer is a private key that would reach the model provider
+    (gate: `scripts/gate-unlock.sh` `check_change_policy_hands_out_no_private_key`).
+    `@claude` 2026-10-01: an open unlock window is root for its length, since `ubus_call` on
+    everything reaches rpcd's `file` object and `uci_apply` a firewall include; the unlock
+    guards the time outside the window, and the README says so. With factor `none`, the default, no change policy is written,
     so nothing can change the router until the owner sets a factor, and the agent says so.
     The model is never offered `mfa_unlock` or `mfa_lock` (`tools.exclude` in the
     package-written `mcp_servers.openwrt` entry, in every profile), and is told to ask the

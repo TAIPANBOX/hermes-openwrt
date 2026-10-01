@@ -34,7 +34,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key'
 # The Hermes-side half (a plugin that takes /unlock, deletes the message, keeps it from the
 # model) is stage 4; the factors end to end through it, with it. The LuCI page and the SSH
 # enrolment are stage 5. The split is the one this file was written with, not a measurement.
@@ -560,6 +560,20 @@ check_no_factor_means_no_changes() {
 	prompt=$(/usr/libexec/hermes-drop hermes env HERMES_HOME=/srv/hermes python3 -c 'from gateway.run import GatewayRunner; print(GatewayRunner._load_ephemeral_system_prompt())' 2>&1) || fail "could not load the gateway's system prompt: $prompt"
 	echo "$prompt" | grep -q 'LuCI' || fail "the agent is not told a factor has to be set up in LuCI first"
 	pass "factor unset: no change policy, every change refused for want of one, reads fine, and the agent says to set a factor up first"
+}
+
+# wg_new_client answers with a WireGuard peer's private key and QR. Whatever a tool
+# returns goes to the model provider, so the package's change policy must not grant it,
+# not even inside an unlock window. An owner who wants it grants it themselves.
+check_change_policy_hands_out_no_private_key() {
+	reset; configure - pin
+	started
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	uci -q show openwrt-mcp | grep -q 'hermes_main_change' || fail "no change policy was written with a factor set, so this measured nothing"
+	uci -q get openwrt-mcp.hermes_main_change.tools | grep -qw wg_new_client && fail "the change policy grants wg_new_client, whose answer is a private key"
+	if out=$(mcp "$TOKEN" wg_new_client '{"name":"probe"}'); then fail "wg_new_client was answered: $out"; fi
+	pass "factor set: the change policy grants no tool that answers with a private key"
 }
 
 check_unlock_tools_hidden_from_model() {

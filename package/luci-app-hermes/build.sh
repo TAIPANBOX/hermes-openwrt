@@ -26,7 +26,8 @@ set -eu
 # and sign-out from the page.
 # r10: 25.12 only; the Telegram hints no longer name opkg or 24.10.
 # r11: the Providers page refuses 'uci', the main model's own entry since agent 0.21.5-r2.
-PKGREL=${PKGREL:-11}
+# r12: the profile field offers owner (the default), assistant and root, and shows admin as root.
+PKGREL=${PKGREL:-12}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

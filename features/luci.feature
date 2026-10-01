@@ -191,6 +191,13 @@ Feature: The web page manages the agent and never hands a key back
     Then it is dropped, while one five minutes old, from a tab that loaded slowly in the background, is shown
     # -> check_stale_message_not_shown
 
+  Scenario: saving the settings page never puts the agent back to root
+    Given a router where no profile was ever chosen, so the unprivileged owner profile applies
+    When the settings page is opened and saved
+    Then the profile it writes is owner, the first choice offered, beside assistant and root
+    And the old name admin is not offered, and a router set to admin is shown and saved as root
+    # -> check_profile_field_defaults_to_owner
+
   Scenario: removing the web app leaves the agent and its key alone
     When luci-app-hermes is removed
     Then its backend and menu entry are gone

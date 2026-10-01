@@ -554,9 +554,20 @@ one of a client that covers a call:
 | `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
 | `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, and `network`'s loopback, globals, lan and wan sections | none |
 | `hermes_main_read_log` | `logread` | none |
-| `hermes_main_change` | `ubus_call`, `uci_apply`, `uci_confirm`, `wg_new_client`, anything | the factor |
+| `hermes_main_change` | `ubus_call`, `uci_apply`, `uci_confirm`, anything | the factor |
 
-`exec` is never granted. Each tool has a policy of its own, so one tool's scope globs
+`exec` and `wg_new_client` are not granted: the second answers with a WireGuard private
+key, and whatever a tool answers goes to the model provider.
+
+**An open unlock window is root for its length.** The change policy grants `ubus_call` and
+`uci_apply` on everything, and both reach far: rpcd's `file` object runs commands, and a
+firewall include is a script the router runs as root. So unlocking means trusting the agent
+with the router for the window (15 minutes unless changed), with every call in openwrt-mcp's
+audit log and a UCI change that is not confirmed undone by itself, a reboot included. What
+the unlock protects against is the time outside the window: an agent misled by a web page,
+or anyone who gets the bot to talk, cannot change the router without you.
+
+Each tool has a policy of its own, so one tool's scope globs
 cannot widen another's, and no read is a glob over a whole ubus object: `system.*` would
 include `system.reboot`. The wireless config is not readable, because its keys would go to
 the model provider, and neither is the whole of `network`, because a router running
