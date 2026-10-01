@@ -75,8 +75,11 @@ for arch in $ARCHES; do
 	# inside would survive only until the next base build. That is why the name has a
 	# suffix here rather than a slash.
 	found=0
+	# hermes-agent depends on openwrt-mcp from 0.21.5-r3, and OpenWrt's feed has none, so this
+	# feed carries it: built from the companion's own mkapk.sh by scripts/build-openwrt-mcp.sh,
+	# into a sibling directory for the same reason as the add-on's.
 	for src in "$ROOT/build/$RELEASE/$arch" "$ROOT/build/$RELEASE/$arch-telegram" \
-	           "$ROOT/build/luci-app-hermes-apk"; do
+	           "$ROOT/build/$RELEASE/$arch-openwrt-mcp" "$ROOT/build/luci-app-hermes-apk"; do
 		[ -d "$src" ] || continue
 		for f in "$src"/*.apk; do
 			[ -f "$f" ] || continue
@@ -92,7 +95,7 @@ for arch in $ARCHES; do
 			# means the working directory is not what this script believes it is, and
 			# the artefact about to be signed should not be built on that.
 			case "$(basename "$f")" in
-				hermes-agent-[0-9]*.apk|hermes-agent-telegram-[0-9]*.apk|luci-app-hermes-[0-9]*.apk) ;;
+				hermes-agent-[0-9]*.apk|hermes-agent-telegram-[0-9]*.apk|luci-app-hermes-[0-9]*.apk|openwrt-mcp-[0-9]*.apk) ;;
 				*)
 					echo "build-feed.sh: $f is not a package this repository publishes." >&2
 					echo "build-feed.sh: a stray file in a build directory, most likely from an" >&2
@@ -106,6 +109,7 @@ for arch in $ARCHES; do
 	[ "$found" -gt 0 ] || {
 		echo "build-feed.sh: nothing for $arch. Build it first:" >&2
 		echo "  ./package/hermes-agent/build-in-container.sh $arch" >&2
+		echo "  ./scripts/build-openwrt-mcp.sh $arch" >&2
 		echo "  ./package/luci-app-hermes/build.sh" >&2
 		exit 1; }
 	echo "==> $arch: $found packages"
