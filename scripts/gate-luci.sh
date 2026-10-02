@@ -537,10 +537,33 @@ ff() { fail check_security_factor_never_outruns_what_exists "$1"; }
 $MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || ff "could not pair"
 uci set hermes.main.profile=owner; uci set hermes.security.factor=none; uci set hermes.security.window=15m
 uci set hermes.security.max_failures=5; uci set hermes.security.lockout=15m; uci commit hermes
-# The reload trigger, observed: LuCI's own apply runs /sbin/reload_config, which tells procd the
-# config changed. There is no procd here, so a stand-in leaves a mark that it was run.
-cp /sbin/reload_config /tmp/reload_config.real
-printf '#!/bin/sh\ntouch /tmp/reload-ran\n' > /sbin/reload_config; chmod 755 /sbin/reload_config
+# The reload trigger, observed where procd hears it. A new factor reaches the openwrt-mcp
+# policies only when procd is told `config.change` for hermes and restarts the agent. There is
+# no procd here, so an rpcd stand-in answers as its `service` object and writes down every
+# event, and the real /sbin/reload_config runs against it. LuCI r13 ran only reload_config,
+# whose first run after a boot keeps a copy of every config and tells nobody, so the first
+# factor chosen after a boot stayed out of the policies until a restart (a Brume 2, 2026-10-02).
+service_standin() {
+	cat > /usr/libexec/rpcd/service <<'SVC'
+#!/bin/sh
+case "$1" in
+	list) echo '{"event":{"type":"str","data":{}}}' ;;
+	call) [ "$2" = event ] && { cat >> /tmp/service-events; echo >> /tmp/service-events; echo '{}'; } ;;
+esac
+SVC
+	chmod 755 /usr/libexec/rpcd/service
+	killall rpcd 2>/dev/null; sleep 1; rpcd >/dev/null 2>&1 & sleep 2
+	ubus list 2>/dev/null | grep -qx service || fail "$1" "the procd stand-in did not come up"
+	rm -f /tmp/service-events
+}
+service_standin_gone() {
+	rm -f /usr/libexec/rpcd/service /tmp/service-events
+	killall rpcd 2>/dev/null; sleep 1; rpcd >/dev/null 2>&1 & sleep 2
+}
+hermes_events() { [ -f /tmp/service-events ] || { echo 0; return; }; grep -c '"package" *: *"hermes"' /tmp/service-events || true; }
+service_standin check_security_factor_never_outruns_what_exists
+# As after a boot: reload_config has not run yet, so it has no copy to compare with.
+rm -f /var/run/config.md5
 sf_call() { # <factor> <window> <max failures> <lockout>
 	ubus call hermes set_factor "{\"factor\":\"$1\",\"window\":\"$2\",\"max_failures\":$3,\"lockout\":\"$4\"}" 2>&1
 }
@@ -548,7 +571,7 @@ refused() { # <what> <call output>
 	echo "$2" | grep -q '"ok": false' || { echo "$2"; ff "$1 was accepted"; }
 }
 snap() { md5sum /etc/config/hermes | cut -d' ' -f1; }
-rm -f /tmp/reload-ran; before=$(snap)
+before=$(snap)
 refused "pin with no PIN set" "$(sf_call pin 15m 5 15m)"
 refused "totp with no phone" "$(sf_call totp 15m 5 15m)"
 refused "pin+totp with neither" "$(sf_call pin+totp 15m 5 15m)"
@@ -570,15 +593,22 @@ refused "a command in the window" "$(sf_call pin '$(id)' 5 15m)"
 refused "a second command in the window" "$(sf_call pin '15m;reboot' 5 15m)"
 sleep 1
 [ "$(snap)" = "$before" ] || ff "a refused set_factor changed /etc/config/hermes"
-[ ! -e /tmp/reload-ran ] || ff "a refused set_factor still asked procd to reload"
+[ "$(hermes_events)" = 0 ] || ff "a refused set_factor still told procd the config changed"
 [ "$(uci -q get hermes.security.factor)" = none ] || ff "the factor is $(uci -q get hermes.security.factor) after only refusals"
 # What is allowed: none always, pin with the PIN, and nothing else yet.
 out=$(sf_call pin 20m 3 1h); echo "$out" | grep -q '"ok": true' || { echo "$out"; ff "pin with a PIN set was refused"; }
 [ "$(uci -q get hermes.security.factor)" = pin ] && [ "$(uci -q get hermes.security.window)" = 20m ] \
 	&& [ "$(uci -q get hermes.security.max_failures)" = 3 ] && [ "$(uci -q get hermes.security.lockout)" = 1h ] || ff "the accepted choice is not what was asked for"
 grep -q "option factor 'pin'" /etc/config/hermes || ff "the accepted choice was not committed to /etc/config/hermes"
-i=0; while [ ! -e /tmp/reload-ran ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
-[ -e /tmp/reload-ran ] || ff "an accepted choice did not ask procd to reload, so the policies would keep the old factor until a restart"
+i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+[ "$(hermes_events)" -ge 1 ] || ff "the first choice after a boot did not tell procd hermes changed, so the policies would keep the old factor until a restart"
+sleep 1; [ "$(hermes_events)" = 1 ] || ff "one choice told procd $(hermes_events) times, so the agent restarts more than once"
+# And once reload_config has its copy: still told, and still once.
+[ -f /var/run/config.md5 ] || ff "reload_config did not run, so LuCI's next apply restarts the agent again for this change"
+rm -f /tmp/service-events
+out=$(sf_call none 20m 3 1h); echo "$out" | grep -q '"ok": true' || { echo "$out"; ff "none was refused"; }
+i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+sleep 1; [ "$(hermes_events)" = 1 ] || ff "a later choice told procd $(hermes_events) times instead of once"
 # Activating the phone opens the rest.
 code=$(python3 - <<'PY'
 import base64, hashlib, hmac, struct, subprocess, time, json
@@ -611,7 +641,7 @@ for f in none totp; do
 	out=$(ubus call hermes clear_pin 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ff "clear_pin was refused with the factor $f"; }
 	[ "$(ubus call hermes security_status | jsonfilter -e '@.pin_set')" = false ] || ff "the PIN was not cleared with the factor $f"
 done
-cp /tmp/reload_config.real /sbin/reload_config; rm -f /tmp/reload-ran /tmp/reload_config.real
+service_standin_gone
 rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
 uci set hermes.security.factor=none; uci commit hermes
 echo "PASS check_security_factor_never_outruns_what_exists"
@@ -622,8 +652,7 @@ echo "PASS check_security_factor_never_outruns_what_exists"
 # openwrt-mcp change policy to protect, so a PIN set there would be a setting that guards nothing.
 po() { fail check_security_refused_outside_the_owner_profile "$1"; }
 $MCP pair hermes-main >/dev/null 2>&1 || true
-rm -f /tmp/reload-ran; cp /sbin/reload_config /tmp/reload_config.real
-printf '#!/bin/sh\ntouch /tmp/reload-ran\n' > /sbin/reload_config; chmod 755 /sbin/reload_config
+service_standin check_security_refused_outside_the_owner_profile
 for prof in root admin assistant nonsense; do
 	uci set hermes.main.profile=$prof; uci commit hermes
 	before=$(md5sum /etc/config/hermes | cut -d' ' -f1)
@@ -636,13 +665,13 @@ for prof in root admin assistant nonsense; do
 	[ "$(md5sum /etc/config/hermes | cut -d' ' -f1)" = "$before" ] || po "a refused call changed /etc/config/hermes in the $prof profile"
 	[ ! -e /etc/openwrt-mcp/pin ] && [ ! -e /etc/openwrt-mcp/mfa.pending ] || po "a refused call wrote a PIN or a pending enrolment in the $prof profile"
 done
-sleep 1; [ ! -e /tmp/reload-ran ] || po "a refused call asked procd to reload"
+sleep 1; [ "$(hermes_events)" = 0 ] || po "a refused call told procd the config changed"
 # The control: the same call in the owner profile is accepted, so the refusals were the profile's.
 uci set hermes.main.profile=owner; uci commit hermes
 out=$(ubus call hermes set_pin '{"pin":"4821","again":"4821"}' 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; po "set_pin was refused in the owner profile too, so the refusals above prove nothing"; }
 uci -q delete hermes.main.profile; uci commit hermes
 out=$(ubus call hermes clear_pin 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; po "with no profile set (which is owner) clear_pin was refused"; }
-cp /tmp/reload_config.real /sbin/reload_config; rm -f /tmp/reload-ran /tmp/reload_config.real
+service_standin_gone
 rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
 uci set hermes.main.profile=owner; uci commit hermes
 echo "PASS check_security_refused_outside_the_owner_profile"
