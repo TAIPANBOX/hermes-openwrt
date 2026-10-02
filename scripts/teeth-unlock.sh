@@ -357,8 +357,9 @@ IMPLEMENTED=$(sed -n "s/^IMPLEMENTED='\(.*\)'$/\1/p" "$ROOT/scripts/gate-unlock.
 N=$(echo $IMPLEMENTED | wc -w | tr -d ' ')
 [ "$N" -gt 0 ] || { echo "TEETH FAIL: read no implemented check from gate-unlock.sh; measured nothing"; exit 1; }
 # The whole gate once, so in shard 0 only: the other shards plant into a fresh overlay per fault
-# and leave nothing behind for it to find.
-if [ "$SHARD_I" = 0 ]; then
+# and leave nothing behind for it to find. CI sets CLEAN_RUN_ELSEWHERE=1, because its unlock leg
+# runs this same whole gate beside the shards, and twice made shard 0 the slowest leg by 8 min.
+if [ "$SHARD_I" = 0 ] && [ "${CLEAN_RUN_ELSEWHERE:-0}" != 1 ]; then
 	if ! ONLY="$IMPLEMENTED" ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
 		echo "TEETH FAIL: with nothing planted the implemented checks are not green, so a fault was not undone"
 		grep -E '^FAIL' "$OUT"; exit 1
@@ -366,7 +367,7 @@ if [ "$SHARD_I" = 0 ]; then
 	grep -q "^gate-unlock: $N passed, 0 failed" "$OUT" || { echo "TEETH FAIL: the clean run did not pass all $N"; tail -n 3 "$OUT"; exit 1; }
 	echo "teeth ok: nothing planted -> all $N pass"
 else
-	echo "teeth skip (shard $SHARD): the clean run is shard 0's"
+	echo "teeth skip (shard $SHARD): the clean run is shard 0's, or another job's"
 fi
 
 # A name that matches no check measures nothing, and says so.
