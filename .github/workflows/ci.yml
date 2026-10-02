@@ -161,6 +161,8 @@ jobs:
         run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#unlock-teeth-}/4 ./scripts/teeth-unlock.sh
         env:
           MATRIX_SUITE: ${{ matrix.suite }}
+          # The unlock leg runs the whole gate with nothing planted; shard 0 need not repeat it.
+          CLEAN_RUN_ELSEWHERE: '1'
 
       - uses: actions/upload-artifact@v4
         if: matrix.suite == 'core'
