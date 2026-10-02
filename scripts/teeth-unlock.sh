@@ -1,8 +1,8 @@
 #!/bin/sh
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
-# One planted fault for each check the gate implements, and a second for the three that guard a secret
-# (thirty-three in all, over thirty-one checks). Each is a change a
+# One planted fault for each check the gate implements, and more for the ones that guard a secret
+# or have several ways to go wrong (forty-two in all, over thirty-five checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -29,7 +29,7 @@ LUCI_TREE="$ROOT/build/luci-app-hermes-apk/tree"
 
 # The tree must be the repository's: a stale build would plant faults in files the gate
 # then does not install.
-for pair in hermes-agent.init:etc/init.d/hermes-agent hermes-gateway:usr/sbin/hermes-gateway \
+for pair in hermes-agent.init:etc/init.d/hermes-agent hermes-agent.config:etc/config/hermes hermes-gateway:usr/sbin/hermes-gateway \
 	set-toolsets.py:usr/libexec/hermes-set-toolsets hermes-drop.py:usr/libexec/hermes-drop \
 	openwrt_unlock.py:usr/lib/hermes-agent/site-packages/openwrt_unlock.py; do
 	cmp -s "$ROOT/package/hermes-agent/files/${pair%%:*}" "$TREE/${pair##*:}" || {
@@ -288,6 +288,57 @@ expect_red "the PIN written to a file" check_luci_pin_write_only
 plant "$RPCD" 'pin=$(msg_get pin)' 'json_load "$MSG"; json_get_var pin pin' "$LUCI_TREE"
 expect_red "the PIN read with json_load and json_get_var" check_luci_pin_write_only
 
+# ---- r5: a router with no /srv, and the agent told the window is open ----
+
+# ---- 34. the parents of a missing data directory made closed to everyone but root again ----
+# What the init did until 0.21.5-r5, under the umask a boot starts it with.
+plant "$INIT" '( umask 022; mkdir -p' '( umask 077; mkdir -p'
+expect_red "the parents of the data directory made 0700" check_fresh_router_without_srv_starts
+
+# ---- 35. a parent the agent cannot enter not named ----
+# The check that names it is gone, so the start still stops, and says "cannot write", which sends the
+# reader to the data directory and not to the one that stands in the way.
+plant "$INIT" '	[ -n "$blocked" ] || return 0' '	return 0'
+expect_red "an unreachable parent not named" check_unreachable_parent_is_named
+
+# ---- 36. the hook never registered ----
+# The plugin remembers the window and nothing ever asks it: the agent is told nothing.
+plant "$PLUGIN" '    ctx.register_hook("pre_llm_call", pre_llm_call)' '    pass'
+expect_red "the pre_llm_call hook not registered" check_agent_told_window_is_open
+
+# ---- 37. /lock that leaves the agent being told ----
+plant "$PLUGIN" '        if tool == "mfa_lock":
+            end = None' '        if tool == "mfa_lock":
+            return'
+expect_red "/lock that does not end the telling" check_agent_told_window_is_open
+
+# ---- 38. a lockout that leaves the agent being told ----
+plant "$PLUGIN" '        elif tool == "mfa_unlock" and "locked out" in low:
+            end = None' '        elif tool == "mfa_unlock" and "locked out" in low:
+            return'
+expect_red "a lockout that does not end the telling" check_agent_told_window_is_open
+
+# ---- 39. the line left in the history the request replays ----
+# New turns are not told after /lock, but the earlier turns still carry "do it now".
+plant "$PLUGIN" '    if bare:
+        text = _drop_stale_notes(text)' '    if False:
+        text = _drop_stale_notes(text)'
+expect_red "the line left in the replayed history" check_agent_told_window_is_open
+
+# ---- 40. a scheduled job told the window is open ----
+plant "$PLUGIN" '        if note is None or _is_scheduled(ctx):' '        if note is None:'
+expect_red "a scheduled job told the window is open" check_agent_told_window_is_open
+
+# ---- 41. a window that never runs out for the agent ----
+plant "$PLUGIN" '    if end is None or time.time() >= end:' '    if end is None:'
+expect_red "the end of the window ignored" check_agent_not_told_after_window_ends
+
+# ---- 42. the config file showing the one-step enrolment again ----
+# The shipped config is what an owner reads on the router first. It once still gave `enrol` without
+# --pending, which puts the new phone in force before a code of it was ever entered.
+plant etc/config/hermes 'openwrt-mcp mfa enrol hermes-main --pending --qr' 'openwrt-mcp mfa enrol hermes-main --qr'
+expect_red "the config file's enrol command without --pending" check_cli_enrol_prints_qr
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -315,4 +366,4 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-echo "teeth-unlock: 33 faults, $N distinct checks, controls green"
+echo "teeth-unlock: 42 faults, $N distinct checks, controls green"
