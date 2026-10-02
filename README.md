@@ -599,13 +599,81 @@ a second agent would be `hermes-<name>`, with its own token, its own policies an
 window. An unconfirmed `uci_apply` is undone from a snapshot under `/etc/openwrt-mcp`, not
 in `/tmp`, so it is undone after a reboot as well as after its timeout.
 
-**Not built yet, and the gate says so.** The Hermes-side unlock, the plugin that takes
-`/unlock` in the private chat, deletes the message and keeps it from the model, and the
-LuCI Security page that enrols a phone and sets a PIN, are the next two stages. Until they
-exist nothing in this package can open an unlock window, so with a factor set the agent
-stays read-only, and `scripts/gate-unlock.sh` lists the eighteen scenarios that depend on
-them as NOT IMPLEMENTED and fails. A scheduled job that tries to change the router is one
-of them; do not rely on it until it is checked.
+### Unlocking from Telegram
+
+The owner unlocks in the same private chat the agent answers in. With the factor set,
+any of these opens the window (the first, `/unlock`, always works; the others are for
+whoever finds typing the command a nuisance):
+
+| factor | send |
+|---|---|
+| `pin` | `/unlock 4821`, or just the PIN |
+| `totp` | `/unlock 503917`, or just the six-digit code from the app |
+| `pin+totp` | `/unlock 4821 503917`, or the same without `/unlock` |
+
+`/lock` closes the window at once. The bot deletes the message first, then asks
+openwrt-mcp, and answers only the outcome: open until what time, refused, or locked out
+until what time. The message never reaches the model and is written to no log and to no
+conversation. If the bot cannot delete it (a failed call to Telegram), it says so and asks
+you to delete it yourself. A wrong PIN is not told apart from a wrong code, and five wrong
+tries close unlocking for fifteen minutes, which openwrt-mcp counts, not the plugin. A
+message that does not fit what the factor asks for (a PIN where a code is wanted) is held
+back, deleted and answered with what to send, and is not counted.
+
+Only an id listed in `hermes.telegram.allow_user_id` may try. That is stricter than
+chatting: someone paired with the bot, or let in by `allow_all`, cannot use up your five
+tries. Anyone else is dropped without an answer. In a group the answer is that
+`/unlock` works only in the private chat, where the bot can delete the message, and
+nothing is unlocked.
+
+How it is kept from the model, four times over, because the first line can fail to be
+wired without anyone noticing and each is tested alone (`scripts/gate-unlock.sh`):
+
+1. A Telegram-native handler, registered by the plugin `openwrt-unlock`, runs before every
+   handler the adapter has and consumes the update, so the adapter does not see it at all,
+   busy or not. This matters: a message sent while a turn runs is steered, redirected or
+   queued by Hermes without passing its `pre_gateway_dispatch` hook.
+2. The `pre_gateway_dispatch` hook drops it, for anything that reaches the gateway without
+   passing the first.
+3. Every request to the model is scrubbed of any line of a user message that is a PIN, a
+   code or an `/unlock`, which is what stops a PIN typed on a line of its own inside a
+   longer message.
+4. The Telegram library prints every update, text included, at DEBUG before any handler
+   runs, so the plugin holds that logger at INFO, and Hermes' log redaction carries
+   patterns for the `/unlock` forms.
+
+The plugin lives in the package's own site-packages with a `hermes_agent.plugins` entry
+point, which makes it root's files that the agent, running as `hermes`, cannot rewrite;
+the bridge enables it in the owner profile only, in `plugins.enabled`, and takes it out of
+`plugins.disabled` there. It is Python standard library only, and what fails on the secret
+path drops the message: Hermes lets a message proceed when a hook raises, so nothing on that
+path raises. A scheduled job cannot change the router even while a window is open: a
+`pre_tool_call` hook refuses `uci_apply`, `uci_confirm` and any `ubus_call` outside the
+read list, for a run Hermes marks as scheduled. The agent is told that if one of your
+messages is replaced by a notice that it was removed, it should answer what it was doing
+and ask you to send `/unlock` again.
+
+What this does not do, measured and named:
+
+- A PIN alone on a line of a longer message is removed from what the model is sent, and
+  stays in the chat and in the conversation database. Send it on its own.
+- In a log line, `/unlock <PIN> <code>` and `<PIN> <code>` in a quoted form leave the last
+  four digits of the code visible if a log line ever carried them. Hermes masks a match whole
+  and leaves the first six and last four characters of anything of 18 or more, a pattern
+  must start with two literal characters, and what follows a PIN has none. The gate shows
+  that nothing reaches a log in the first place, so this is the last of four lines.
+- With a factor set, a line of 4 to 8 digits in what you type is taken for a PIN or a code:
+  held back when it is the whole message, and replaced in the request when it is one line
+  of several, which includes a number you pasted.
+- With `allow_all`, anyone may chat and none may unlock.
+- A scheduled job that hands its work to a subagent is not proven to be refused.
+- The window is root for its length, as above. The gateway's own environment holds the
+  router token and is readable by any process of the `hermes` user, as invariant 7 says.
+
+The LuCI Security page that enrols a phone and sets a PIN, and the SSH enrolment that prints
+the QR code, are the last stage and are not built; `scripts/gate-unlock.sh` lists their three
+scenarios as NOT IMPLEMENTED and fails until they are. Set a factor on the router as shown
+above.
 
 ### Pairing openwrt-mcp yourself
 
@@ -686,11 +754,11 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-telegram.sh` | 8 checks: the base alone cannot import telegram, the add-on installs beside it, neither package claims a file the other owns, the library imports, and the service refuses in each of the three ways a Telegram setup can be incomplete |
 | `gate-runtime.sh` | 61 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the profiles, who each runs the gateway and its helpers as, what the agent is told, `hermes-drop` and the launcher, the owner profile's openwrt-mcp policies and the second factor's settings, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
 | `teeth-runtime.py` | 85 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
-| `gate-unlock.sh` | 29 checks, one per scenario in `features/unlock.feature`, run in OpenWrt's own rootfs with `hermes-agent` and `openwrt-mcp` installed. Eleven are implemented: the gateway and a tool process run as `hermes` with groups dropped and no way back, the key files are root-only and unreadable as `hermes`, the memory ceiling is applied by root before the drop and the agent cannot lift it, an upgrade hands a root-era data directory over with its contents kept, root is opt-in and warned, reads need no unlock (and wireless, the WireGuard section and `exec` are refused), a change while locked is refused for the second factor and the agent is told to ask for /unlock, no factor means no change policy at all, the model is offered neither `mfa_unlock` nor `mfa_lock`, one agent's unlock does not open another's, and an unconfirmed change is undone after a reboot and after its window from a snapshot that is not in `/tmp`. The other eighteen print NOT IMPLEMENTED and fail, so this gate is red until the unlock command and the LuCI page exist |
+| `gate-unlock.sh` | 30 checks, one per scenario in `features/unlock.feature`. Twenty-seven are implemented, in OpenWrt's own rootfs with `hermes-agent`, its Telegram add-on and `openwrt-mcp` installed. Twelve are about the agent and the router: it runs as `hermes` with groups dropped and no way back, the key files are root-only, the memory ceiling is applied before the drop, an upgrade hands a root-era data directory over, root is opt-in and warned, reads need no unlock, a change while locked is refused and the agent told how to unlock, no factor means no change policy, the model is offered neither `mfa_unlock` nor `mfa_lock`, one agent's unlock does not open another's, an unconfirmed change is undone after a reboot, and no private key is granted. Fifteen run the real gateway with Telegram on, the real adapter and plugin and the real daemon, against two stand-ins (`scripts/unlock-harness.py`): a Bot API that records what the bot sent and deleted, and a model endpoint that records every request: each factor alone and both, the PIN's slow salted hash, five wrong tries and the lockout, a code used once, the window ending by itself, `/lock`, the message deleted before the daemon is asked and never sent to the model, an unlock while busy in each of the three busy modes, a bare PIN or code, nothing in any log at DEBUG, a group, someone outside the allowlist, and a scheduled job refused with a window open. The other three (the LuCI page and the SSH enrolment) print NOT IMPLEMENTED and fail, so this gate is red until they exist |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
-| `teeth-unlock.sh` | eleven faults, one per implemented check of `gate-unlock.sh`: the gateway started without the drop, `/etc/hermes-agent` opened to everyone, the ceiling applied as `hermes`, the data directory never handed over, an unset profile meaning root, the change policy written ahead of the reads, a change policy that asks for no factor, no factor written as a PIN, the unlock tools not excluded, every agent paired as `hermes-main`, and the openwrt-mcp state directory in RAM; and with nothing planted the eleven pass, a name that matches no check is "measured nothing", and an unimplemented check is NOT IMPLEMENTED |
+| `teeth-unlock.sh` | twenty-seven faults, one per implemented check of `gate-unlock.sh`: the gateway started without the drop, `/etc/hermes-agent` opened to everyone, the ceiling applied as `hermes`, the data directory never handed over, an unset profile meaning root, the change policy written ahead of the reads, a change policy that asks for no factor, no factor written as a PIN, the unlock tools not excluded, every agent paired as `hermes-main`, the openwrt-mcp state directory in RAM, `wg_new_client` in the change policy, a scheduled job not told apart, the PIN and the code reversed on the way to the daemon, `pin+totp` written as `pin`, a PIN stored as typed, no limit on wrong tries, a used code refused without saying why, a window of a day, `/lock` that does not lock, the unlock message never deleted, the request to the model not scrubbed, a bare PIN not recognised, the Telegram library left at DEBUG, a group let unlock, and the allowlist not consulted; and with nothing planted the twenty-seven pass, a name that matches no check is "measured nothing", and an unimplemented check is NOT IMPLEMENTED |
 | `teeth-upstream.sh` | seven faults, one per check: another commit recorded, the agent's metadata saying 0.21.4, a library off its locked version, `nemo-relay` back, the Relay fallback raising, the translations variable forgotten, the Telegram plugin manifest missing |
 | `teeth-telegram.sh` | four more: a colliding file, a missing library, and two refusals cut out of the init script |
 | `teeth-luci.sh` | seventeen for the web page: procd's service list back in the read permission, a file read grant beside it, the failed-write check removed, the refusal to write a slot the service does not read removed, the free space measured on the missing data directory again, a provider slot that takes any name, ChatGPT reported as signed in regardless, a sign-in run in the foreground, a package without its post-upgrade script, the version read by running Hermes again, a provider deleted without its key, a message not kept across the reload, an old message shown anyway, a Save & Apply message kept before the apply went through, a key-only Save & Apply that never says it saved, a leftover message shown twice, and "Saved" beside a key that did not save |
@@ -729,8 +797,9 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] Telegram, as a two-distribution add-on package
 - [x] Three profiles, owner by default, assistant and root by choice; `admin` accepted as root
 - [x] The agent runs as an unprivileged user, `hermes`, unless the profile says root
-- [x] The owner profile reads the router through openwrt-mcp and changes it only through it, refused until a second factor is set and unlocked (stage 3 of 5: the policies, the factor's settings, the refusals, per-agent unlock and the rollback are built and gated; the Hermes-side unlock command and the LuCI Security page are not)
-- [ ] The unlock from Telegram, and the Security page that sets a PIN or enrols a phone
+- [x] The owner profile reads the router through openwrt-mcp and changes it only through it, refused until a second factor is set and unlocked (stage 3 of 5: the policies, the factor's settings, the refusals, per-agent unlock and the rollback)
+- [x] The unlock from Telegram: `/unlock` and `/lock`, the message deleted and kept from the model, the logs and the conversation, a scheduled job refused (stage 4 of 5, 0.21.5-r4)
+- [ ] The LuCI Security page that sets a PIN or enrols a phone, and the SSH enrolment that prints the QR code (stage 5)
 - [x] A per-turn limit on model calls, set on the router
 - [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included
 - [x] Upstream's native Anthropic provider

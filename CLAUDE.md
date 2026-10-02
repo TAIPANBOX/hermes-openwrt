@@ -191,9 +191,41 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     whole, and `MCP_READ_UCI` in the init is the one line that says otherwise. Read answers
     (state, addresses, hosts, the log) are sent to the model provider; that is what reading
     means. This stage proves reads, refusals, the factor's configuration, per-agent unlock
-    and the rollback; the Hermes-side unlock command (the plugin that takes /unlock, deletes
-    the message and keeps it from the model) and the LuCI Security page are not built, and
-    `scripts/gate-unlock.sh` lists their eighteen scenarios as NOT IMPLEMENTED and fails
+    and the rollback.
+    `@decided 2026-10-01` (the owner's, paraphrased): unlocking happens in the same Telegram
+    chat as the agent; the message that unlocks is removed from the chat at once and never
+    reaches the model; the factor is the owner's choice (PIN, app code, or both); five wrong
+    tries lock unlocking for fifteen minutes; the window is fifteen minutes; a PIN is 4 to 8
+    digits. `@claude` 2026-10-02, how it is built (the Hermes side, 0.21.5-r4): the owner
+    sends /unlock and /lock, or a bare PIN, a bare code, or a PIN and a code, whichever the
+    factor in `hermes.security` asks for. The plugin `openwrt-unlock` takes it: it ships in the package's own site-packages with an entry
+    point (root's files, which the agent cannot rewrite), the bridge enables it in the
+    owner profile only and takes it out of `plugins.disabled`, and it is stdlib Python.
+    The message is deleted from the chat first, then openwrt-mcp is asked with the token
+    the gateway already holds, and the owner is told only the outcome. Whatever fails on
+    that path drops the message: upstream lets a message proceed when a hook raises, so
+    nothing on it raises. Only an id in `TELEGRAM_ALLOWED_USERS` may try (allow_all and
+    pairing do not count), anyone else is dropped without a check, a count or an answer; a
+    group gets an answer and no unlock; a message that does not fit the factor is held
+    back and not counted. Four lines, each tested alone: a Telegram-native handler placed
+    before the adapter's own, so busy or not the adapter never sees the message; the
+    `pre_gateway_dispatch` hook; an `llm_request` middleware that removes any line that is
+    a PIN, a code or an /unlock from every user message in every request to the model; and
+    redaction patterns plus the Telegram library's own DEBUG logger held at INFO, because
+    that library prints each update, text included, before any handler. `@claude`
+    2026-10-02, limits named and not fixed: a PIN alone on a line of a longer message is
+    removed from the request but stays in the chat and in the conversation database;
+    the redaction patterns leave the last four digits of a code that followed a PIN in a
+    log line (a pattern cannot match more than 17 characters without leaving ten of them
+    visible, and what follows a PIN has no literal start to match); a line of 4 to 8
+    digits in what the owner types is removed from the request when a factor is set,
+    which includes a pasted number. A change a scheduled job asks for is refused by a
+    `pre_tool_call` hook even while a window is open (upstream marks a cron run in the
+    `HERMES_CRON_SESSION` context variable and in its session and task ids); a job that
+    delegates to a subagent is not proven (gate: `scripts/gate-unlock.sh`, the fifteen
+    Hermes-side checks, `scripts/unlock-harness.py`; teeth: `scripts/teeth-unlock.sh`).
+    The LuCI Security page and the SSH enrolment are not built, and
+    `scripts/gate-unlock.sh` lists their three scenarios as NOT IMPLEMENTED and fails
     until they are (gate: `scripts/gate-unlock.sh`, red by design until then; teeth:
     `scripts/teeth-unlock.sh`, `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
 
