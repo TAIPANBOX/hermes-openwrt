@@ -61,7 +61,7 @@
 <text x="744" y="258" font-size="12.5" fill="#2dd4bf" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">procd</text>
 <text x="512" y="296" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">Python 3.13</text>
 <text x="512" y="318" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">239 MB installed</text>
-<text x="512" y="340" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">~130 MB RSS</text>
+<text x="512" y="340" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">~160-200 MB RSS</text>
 
 <!-- luci-app-hermes card -->
 <rect x="492" y="372" width="296" height="108" rx="8" ry="8" fill="#1b2331" stroke="#283341" stroke-width="1"/>

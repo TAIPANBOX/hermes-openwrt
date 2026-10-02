@@ -139,7 +139,8 @@ No `--allow-untrusted` and no `--force` anywhere. That is the point of signing t
 ## Measured on hardware
 
 Every figure in this section was measured on two routers with **Hermes 0.21.5**, the
-version the package carries, on 2026-09-25: not in a container and not on a VM.
+version the package carries, on 2026-09-25 unless a subsection gives its own date: not in a
+container and not on a VM.
 
 ![The two routers behind these numbers](docs/boxes.svg)
 
@@ -169,21 +170,36 @@ wall clock is mostly the model's own time.
 
 ![Measured on hardware](docs/measured.svg)
 
-### What fits alongside your other services
+### How many agents fit alongside your other services
 
 A box with WireGuard, Tailscale and the usual packages still has to run all of them, so
-the number that matters is what Hermes takes while working, not while idle.
-Conversations were run the way the gateway runs them, as threads of one process inside
-the service's own memory group, one, two, four and then six at once:
+the number that matters is what Hermes takes while working, not while idle. Measured on
+2026-10-03 on both routers, the same task each time, with `gpt-5.6-luna` through a
+ChatGPT subscription. There are two ways to run more than one agent, and they cost very
+differently:
 
-![How many conversations fit on a 1 GB router](docs/concurrency.svg)
+![How many agents fit on a 1 GB router](docs/concurrency.svg)
 
-The gateway takes about 180 MB and stays there. Conversations on top of it cost little:
-all of Hermes peaked at 361 to 384 MB whether one conversation ran or six, the kernel
-killed nothing, and the router kept 270 MB or more of memory available throughout.
-The gateway was the same process with the same 179 MB after all four runs. The
-service's own 512 MB ceiling never came into play. Cores buy wall clock rather than
-capacity: six conversations took 25 s on four cores and 30 s on two.
+- **Conversations in one gateway**, which is how the Telegram gateway serves several
+  chats: each is a thread of the process that is already running. One to four at once
+  all answered, and all of Hermes stayed flat at 388 MB on the Flint 2 and 445 MB on the
+  Brume 2, whose gateway also carries the Telegram add-on. The 2026-09-25 run took six
+  at once with the same flat line.
+- **Separate agents**, such as a second `hermes chat` or a gateway for another profile:
+  each is its own Python interpreter, about 140 MB. Under the default 512 MB ceiling two
+  fit. A third fills the ceiling, and since the service's memory group is ended as a
+  whole, the gateway goes with it; procd started it again (27 s on the Brume 2), and the
+  router kept 286 MB or more available throughout.
+- **With the ceiling lifted** (`mem_max_mb=0`) on clean OpenWrt, with Tailscale and every
+  other non-OpenWrt service stopped for the run: three separate agents fit, leaving 201
+  to 216 MB. A fourth took the router under 120 MB, where the test stopped the agents
+  before the kernel had to choose. With Tailscale and the lab's services left running,
+  three still fit, leaving 170 to 182 MB.
+
+So plan on conversations rather than agents: one gateway serves many chats for the price
+of one. Run separate agents only with the ceiling raised, and no more than three on 1 GB.
+Cores buy wall clock rather than capacity. The harness is in `scripts/fit/` and the raw
+summaries are in `docs/measurements/2026-10-03/`.
 
 ### Under the router's own work
 

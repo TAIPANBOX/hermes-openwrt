@@ -1,0 +1,6 @@
+procs-1: guard fired 0x, wall 49 s, 1/1 answered, all of Hermes (cgroup) peak 468 MB, MemAvailable low 449 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 41.778 C
+procs-2: guard fired 0x, wall 53 s, 2/2 answered, all of Hermes (cgroup) peak 616 MB, MemAvailable low 304 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 42.684 C
+procs-3: guard fired 0x, wall 71 s, 3/3 answered, all of Hermes (cgroup) peak 751 MB, MemAvailable low 170 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 42.986 C
+procs-4: guard fired 1x, wall 47 s, 0/4 answered, all of Hermes (cgroup) peak 759 MB, MemAvailable low 109 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 42.986 C
+procs-5: guard fired 1x, wall 45 s, 0/5 answered, all of Hermes (cgroup) peak 748 MB, MemAvailable low 119 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 43.288 C
+procs-6: guard fired 1x, wall 43 s, 0/6 answered, all of Hermes (cgroup) peak 753 MB, MemAvailable low 117 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 43.137 C

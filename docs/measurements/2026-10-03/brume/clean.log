@@ -1,0 +1,2 @@
+00:26:46 stopped: tailscale watchcat usbmuxd; MemAvailable 821 MB; left: openwrt-mcp=9M
+00:35:02 restarted: tailscale watchcat usbmuxd

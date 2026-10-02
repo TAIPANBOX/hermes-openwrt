@@ -1,0 +1,10 @@
+00:10:53 modes procs, mem_max_mb 0; router flint, hermes-agent-0.21.5-r2, model gpt-5.6-luna, counts 1 2 3 4 5 6
+00:10:57 gateway pid 9632 in /sys/fs/cgroup/services/hermes-agent/instance1, memory.max max; settling 60 s
+00:11:57 gateway at rest: RSS 162 MB, cgroup 265 MB, MemAvailable 614 MB
+00:12:36 procs-1: 39 s, 1/1 answered
+00:14:22 procs-2: 76 s, 2/2 answered
+00:15:52 procs-3: 60 s, 3/3 answered
+00:16:42 procs-4: 20 s, 0/4 answered
+00:17:31 procs-5: 19 s, 0/5 answered
+00:18:19 procs-6: 18 s, 0/6 answered
+00:18:49 done, gateway stopped

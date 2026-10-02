@@ -1,0 +1,12 @@
+23:33:28 router OpenWrt, hermes-agent-0.21.5-r5, model gpt-5.6-luna, counts 1 2 3 4
+23:33:35 gateway pid 7105 in /sys/fs/cgroup/services/hermes-agent/instance1, memory.max 536870912; settling 60 s
+23:34:35 gateway at rest: RSS 202 MB, cgroup 332 MB, MemAvailable 606 MB
+23:35:12 threads-1: 37 s, 1/1 answered
+23:36:23 threads-2: 41 s, 2/2 answered
+23:37:43 threads-3: 50 s, 3/3 answered
+23:39:10 threads-4: 57 s, 4/4 answered
+23:40:23 procs-1: 43 s, 1/1 answered
+23:41:53 procs-2: 60 s, 2/2 answered
+23:42:56 procs-3: 33 s, 0/3 answered
+23:44:04 procs-4: 38 s, 0/4 answered
+23:44:34 done, gateway stopped
