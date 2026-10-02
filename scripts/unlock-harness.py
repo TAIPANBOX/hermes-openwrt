@@ -904,8 +904,9 @@ def notes_in(requests):
 
 
 def shown_note(found):
-    """The end of the first message that carried a note, for a failure message; built whether or not there was one."""
-    return found[0][1][-120:] if found else ""
+    """The note, and what follows it, from the first message that carried one, for a failure message;
+    built whether or not there was one."""
+    return found[0][1][found[0][1].find(NOTE):][:160] if found else ""
 
 
 def ask(text, timeout=40):
