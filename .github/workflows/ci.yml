@@ -92,6 +92,13 @@ jobs:
       - name: build the openwrt-mcp apk the gates install beside hermes-agent
         run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh ${{ matrix.arch }}
 
+      # apk mkpkg records each file's owner as found on disk, and this runner's uid 1001 became
+      # `nobody` on the router, /etc/hermes-agent included. A Mac never shows it, so it is read
+      # here, from the packages, where it happened.
+      - name: every file in every package is root's
+        if: matrix.suite == 'core'
+        run: ./scripts/gate-apk-owner.sh && ./scripts/teeth-apk-owner.sh
+
       - name: it installs, runs, and keeps the key out of sight
         if: matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh

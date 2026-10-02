@@ -294,6 +294,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     have been started once in the owner profile, since that is what pairs hermes-main; the
     unlock window that is open cannot be shown, because openwrt-mcp keeps it in memory and a
     separate process cannot see it.
+19. `@claude` 2026-10-02: every file in every package is root's, whoever ran the build.
+    `apk mkpkg` records each file's owner as found on disk, with no option to override it, and
+    a Linux CI runner's uid 1001 became `nobody` on the router, /etc/hermes-agent and its key
+    files included; a Mac never shows it, because Docker Desktop presents a bind mount as root.
+    So every mkpkg call goes through `scripts/mkpkg-root.sh`, which packages the tree as root's
+    and hands it back after (gate: `scripts/gate-apk-owner.sh`, reading the built packages,
+    in CI; teeth: `scripts/teeth-apk-owner.sh`, a uid 1001 tree built in the container's own
+    filesystem). Also caught by gate-unlock `check_key_files_root_only` once it ran in CI.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
