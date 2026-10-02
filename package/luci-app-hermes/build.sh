@@ -31,7 +31,9 @@ set -eu
 # phone added by a QR code shown once and activated by its first code, and the factor the owner
 # unlocks with, chosen only from what exists. Six rpcd methods behind it; security_status joins the
 # read permission, which is a deliberate change to invariant 11, and the rest are write-only.
-PKGREL=${PKGREL:-13}
+# r14: set_factor tells procd hermes changed even on the first reload after a boot, when
+# reload_config only records its copy.
+PKGREL=${PKGREL:-14}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

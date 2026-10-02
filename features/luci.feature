@@ -233,6 +233,7 @@ Feature: The web page manages the agent and never hands a key back
     When a factor that needs what is missing is chosen, or a window, a failure limit or a lockout the router would not take
     Then the choice is refused and nothing is written, not the factor and not another page's staged changes
     And a choice that can be honoured is written, with its settings, and the agent is told its configuration changed
+    And it is told exactly once, the first choice after a boot included, so the new factor is in force without a restart
     And the PIN the factor in force asks for cannot be cleared
     # -> check_security_factor_never_outruns_what_exists
 

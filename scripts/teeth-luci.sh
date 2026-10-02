@@ -374,6 +374,22 @@ repack_luci
 expect_red "a key read with json_load" check_secret_never_returned
 cp "$SRC_RPCD" "$RPCD"
 
+# ---- fault 32: only reload_config, as until LuCI r14 ----
+# Its first run after a boot keeps a copy and tells procd nothing, so the first factor chosen
+# after a boot stayed out of the openwrt-mcp policies until a restart.
+plant "$RPCD" 'if [ "$had_copy" != 1 ] || [ ! -x "$RELOAD" ]; then' 'if false; then' "fault 32"
+repack_luci
+expect_red "the first choice after a boot announced by nobody" check_security_factor_never_outruns_what_exists
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 33: announced as well as reloaded, every time ----
+# Once reload_config has its copy it tells procd itself, so a second announcement restarts the
+# agent twice for one choice.
+plant "$RPCD" 'if [ "$had_copy" != 1 ] || [ ! -x "$RELOAD" ]; then' 'if true; then' "fault 33"
+repack_luci
+expect_red "one choice announced twice" check_security_factor_never_outruns_what_exists
+cp "$SRC_RPCD" "$RPCD"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -381,4 +397,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 31 faults on 22 checks, green restored"
+echo "teeth-luci: 33 faults on 22 checks, green restored"

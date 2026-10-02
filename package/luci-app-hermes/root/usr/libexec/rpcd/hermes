@@ -266,6 +266,7 @@ method_chatgpt_logout() {
 SEC_CLIENT=hermes-main
 MCP_BIN=/usr/bin/openwrt-mcp
 RELOAD=/sbin/reload_config
+CONFIG_MD5=/var/run/config.md5
 # What the init accepts for a window and a lockout (hermes-agent.init), so nothing is saved here
 # that the service would then refuse to start on.
 SEC_DURATION='^([0-9]+(\.[0-9]+)?(s|m|h))+$|^[0-9]+(\.[0-9]+)?d$'
@@ -516,7 +517,17 @@ method_set_factor() {
 		rm -f /etc/config/.hermes.security
 		sec_refuse "could not write /etc/config/hermes"; return 0
 	fi
-	[ -x "$RELOAD" ] && ( setsid "$RELOAD" > /dev/null 2>&1 < /dev/null & ) > /dev/null 2>&1
+	# reload_config is what LuCI's own apply runs: it compares every config with the copy it kept
+	# last time and tells procd which ones changed, and procd restarts the agent, which rewrites
+	# the openwrt-mcp policies. Its first run after a boot has no copy, so it only keeps one and
+	# tells nobody: until r14 the first factor chosen after a boot stayed out of the policies
+	# until a restart (a Brume 2, 2026-10-02). So it still runs, to keep its copy current, and
+	# when it had none the change is announced here. Never both, or the agent restarts twice.
+	had_copy=0; [ -f "$CONFIG_MD5" ] && had_copy=1
+	[ -x "$RELOAD" ] && "$RELOAD" > /dev/null 2>&1 < /dev/null
+	if [ "$had_copy" != 1 ] || [ ! -x "$RELOAD" ]; then
+		ubus -t 5 call service event '{"type":"config.change","data":{"package":"hermes"}}' > /dev/null 2>&1
+	fi
 	json_init; json_add_boolean "ok" 1; json_add_string "factor" "$factor"; json_dump
 }
 
