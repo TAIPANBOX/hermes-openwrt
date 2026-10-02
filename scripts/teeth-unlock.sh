@@ -64,8 +64,19 @@ shutil.copymode(src, dst)
 PY
 }
 
+# SHARD=i/n runs every n-th fault starting at the i-th (0-based), so CI can run the faults on
+# n runners at once. Every fault is still planted in every shard, which keeps each fault's own
+# "planted nothing" guard live everywhere; only the gate run is skipped outside the shard.
+SHARD=${SHARD:-0/1}
+SHARD_I=${SHARD%/*}; SHARD_N=${SHARD#*/}
+case "$SHARD_I/$SHARD_N" in *[!0-9/]*|/*|*/) echo "teeth-unlock: SHARD must be i/n, not '$SHARD'" >&2; exit 1 ;; esac
+[ "$SHARD_N" -ge 1 ] && [ "$SHARD_I" -lt "$SHARD_N" ] || { echo "teeth-unlock: SHARD $SHARD is out of range" >&2; exit 1; }
+FAULT_K=0 RAN=0
 expect_red() {
 	name=$1; check=$2
+	FAULT_K=$((FAULT_K + 1))
+	if [ $(((FAULT_K - 1) % SHARD_N)) -ne "$SHARD_I" ]; then echo "teeth skip (shard $SHARD): $name"; rm -rf "$W/overlay"; return 0; fi
+	RAN=$((RAN + 1))
 	if ONLY="$check" OVERLAY="$W/overlay" ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
 		echo "TEETH FAIL: $name left $check green"; tail -n 15 "$OUT"; exit 1
 	fi
@@ -345,12 +356,18 @@ expect_red "the config file's enrol command without --pending" check_cli_enrol_p
 IMPLEMENTED=$(sed -n "s/^IMPLEMENTED='\(.*\)'$/\1/p" "$ROOT/scripts/gate-unlock.sh")
 N=$(echo $IMPLEMENTED | wc -w | tr -d ' ')
 [ "$N" -gt 0 ] || { echo "TEETH FAIL: read no implemented check from gate-unlock.sh; measured nothing"; exit 1; }
-if ! ONLY="$IMPLEMENTED" ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
-	echo "TEETH FAIL: with nothing planted the implemented checks are not green, so a fault was not undone"
-	grep -E '^FAIL' "$OUT"; exit 1
+# The whole gate once, so in shard 0 only: the other shards plant into a fresh overlay per fault
+# and leave nothing behind for it to find.
+if [ "$SHARD_I" = 0 ]; then
+	if ! ONLY="$IMPLEMENTED" ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
+		echo "TEETH FAIL: with nothing planted the implemented checks are not green, so a fault was not undone"
+		grep -E '^FAIL' "$OUT"; exit 1
+	fi
+	grep -q "^gate-unlock: $N passed, 0 failed" "$OUT" || { echo "TEETH FAIL: the clean run did not pass all $N"; tail -n 3 "$OUT"; exit 1; }
+	echo "teeth ok: nothing planted -> all $N pass"
+else
+	echo "teeth skip (shard $SHARD): the clean run is shard 0's"
 fi
-grep -q "^gate-unlock: $N passed, 0 failed" "$OUT" || { echo "TEETH FAIL: the clean run did not pass all $N"; tail -n 3 "$OUT"; exit 1; }
-echo "teeth ok: nothing planted -> all $N pass"
 
 # A name that matches no check measures nothing, and says so.
 if ONLY=check_that_does_not_exist ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
@@ -366,4 +383,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-echo "teeth-unlock: 42 faults, $N distinct checks, controls green"
+[ "$FAULT_K" = 42 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 42 expected; update the count with the faults"; exit 1; }
+[ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
+echo "teeth-unlock: $RAN of 42 faults (shard $SHARD), $N distinct checks, controls green"

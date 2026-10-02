@@ -99,8 +99,19 @@ run_gate() {
 	ARCH="$ARCH" LUCI="$WORK/mutant.apk" "$ROOT/scripts/gate-luci.sh" >/tmp/teeth-luci.out 2>&1
 }
 
+# SHARD=i/n runs every n-th fault starting at the i-th (0-based), so CI can run the faults on
+# n runners at once. Every fault is still planted in every shard, which keeps each fault's own
+# "planted nothing" guard live everywhere; only the gate run is skipped outside the shard.
+SHARD=${SHARD:-0/1}
+SHARD_I=${SHARD%/*}; SHARD_N=${SHARD#*/}
+case "$SHARD_I/$SHARD_N" in *[!0-9/]*|/*|*/) echo "teeth-luci: SHARD must be i/n, not '$SHARD'" >&2; exit 1 ;; esac
+[ "$SHARD_N" -ge 1 ] && [ "$SHARD_I" -lt "$SHARD_N" ] || { echo "teeth-luci: SHARD $SHARD is out of range" >&2; exit 1; }
+FAULT_K=0 RAN=0
 expect_red() {
 	name=$1; want=$2
+	FAULT_K=$((FAULT_K + 1))
+	if [ $(((FAULT_K - 1) % SHARD_N)) -ne "$SHARD_I" ]; then echo "teeth skip (shard $SHARD): $name"; return 0; fi
+	RAN=$((RAN + 1))
 	if run_gate; then
 		echo "TEETH FAIL: $name left the gate green"; cat /tmp/teeth-luci.out; exit 1
 	fi
@@ -397,4 +408,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 33 faults on 22 checks, green restored"
+[ "$FAULT_K" = 33 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 33 expected; update the count with the faults"; exit 1; }
+[ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
+echo "teeth-luci: $RAN of 33 faults on 22 checks (shard $SHARD), green restored"
