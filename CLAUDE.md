@@ -52,9 +52,17 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    controls are an OS security sandbox. `@claude` 2026-10-01, a limit named and not fixed:
    a process running as hermes, the agent's own terminal included, can read the gateway's
    environment in `/proc/<gateway>/environ`, which is where the keys are; the files on disk
-   stay root-only (gate: `scripts/gate-unlock.sh` `check_gateway_runs_as_hermes_user`,
+   stay root-only. `@claude` 2026-10-02, 0.21.5-r5: a data directory that does not exist is
+   made 0700 and any missing parent 0755, each under a umask the init sets itself, because a
+   boot starts the service with 077 and `mkdir -p` then closed a new `/srv` to everyone but
+   root, so `hermes` could not reach its own directory and the start was refused as "cannot
+   write"; a parent that exists is left as it is, and one the agent cannot enter stops the start
+   and is named with its mode. `@measured` 2026-10-02 by `ONLY="check_fresh_router_without_srv_starts
+   check_unreachable_parent_is_named" ./scripts/gate-unlock.sh` against 0.21.5-r4: both red, on
+   that refusal. (gate: `scripts/gate-unlock.sh` `check_gateway_runs_as_hermes_user`,
    `check_key_files_root_only`, `check_memory_ceiling_non_root`,
-   `check_upgrade_hands_data_dir_to_hermes`, and `scripts/gate-package.sh`
+   `check_upgrade_hands_data_dir_to_hermes`, `check_fresh_router_without_srv_starts`,
+   `check_unreachable_parent_is_named`, and `scripts/gate-package.sh`
    `check_clean_removal`; teeth: `scripts/teeth-unlock.sh`, `scripts/teeth-runtime.py`; the
    environment limit is not enforced).
 8. UCI selects the primary model, OpenAI-compatible endpoint and file-backed key, and
@@ -221,7 +229,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     chat as the agent; the message that unlocks is removed from the chat at once and never
     reaches the model; the factor is the owner's choice (PIN, app code, or both); five wrong
     tries lock unlocking for fifteen minutes; the window is fifteen minutes; a PIN is 4 to 8
-    digits. `@claude` 2026-10-02, how it is built (the Hermes side, 0.21.5-r4): the owner
+    digits. `@claude` 2026-10-02, how it is built (the Hermes side, 0.21.5-r4, and r5 below): the owner
     sends /unlock and /lock, or a bare PIN, a bare code, or a PIN and a code, whichever the
     factor in `hermes.security` asks for. The plugin `openwrt-unlock` takes it: it ships in the package's own site-packages with an entry
     point (root's files, which the agent cannot rewrite), the bridge enables it in the
@@ -247,12 +255,25 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     which includes a pasted number. A change a scheduled job asks for is refused by a
     `pre_tool_call` hook even while a window is open (upstream marks a cron run in the
     `HERMES_CRON_SESSION` context variable and in its session and task ids); a job that
-    delegates to a subagent is not proven (gate: `scripts/gate-unlock.sh`, the sixteen
-    Hermes-side checks, `scripts/unlock-harness.py`; teeth: `scripts/teeth-unlock.sh`).
+    delegates to a subagent is not proven. `@claude` 2026-10-02, 0.21.5-r5: the agent is told
+    the window is open, because the unlock message is never shown to it and an agent that had
+    asked for /unlock went on asking after it was given (seen on a Brume 2 through Telegram).
+    The plugin remembers the end of a window from the daemon's own answer, and through
+    upstream's `pre_llm_call` hook adds one line to the owner's next message while it is open,
+    saying the owner has unlocked changes until that time and that a waiting change should be done
+    now: nothing about the PIN or a code, which the plugin never keeps. A lock, a lockout or the
+    end of the window ends it, and the line is removed from the earlier turns a request replays,
+    since upstream replays each user message with what was injected into it (`llm_request` drops
+    any such line that no longer names the window open now); a scheduled job is not told. It knows
+    only windows it saw open: one opened elsewhere, or still open when the gateway restarted,
+    is not announced, and the agent finds out from a refusal as before (gate:
+    `scripts/gate-unlock.sh`, the eighteen Hermes-side checks, `scripts/unlock-harness.py`,
+    among them `check_agent_told_window_is_open` and `check_agent_not_told_after_window_ends`;
+    teeth: `scripts/teeth-unlock.sh`).
     `@decided 2026-10-01` (the owner's, paraphrased): setup happens once, in LuCI with a QR code
     to scan or over SSH with the QR code in the terminal; the first code from the app must be
     entered before the factor is switched on; the PIN field is write-only. `@claude` 2026-10-02,
-    how that is built, the last stage (LuCI r13, hermes-agent unchanged at 0.21.5-r4):
+    how that is built, the last stage (LuCI r13, hermes-agent unchanged at 0.21.5-r4, whose shipped config file shows the same two steps since r5):
     the owner sets a factor in LuCI, Services -> Hermes Agent -> Security, or over SSH with
     `openwrt-mcp pin set hermes-main` and `openwrt-mcp mfa enrol hermes-main --pending --qr`
     then `openwrt-mcp mfa activate hermes-main <code>`, which prints the QR in the terminal.
