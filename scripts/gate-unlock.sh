@@ -49,7 +49,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -523,6 +523,57 @@ check_root_profile_is_opt_in_and_warned() {
 	pass "unset -> owner, as hermes; root and admin -> uid 0 with a warning; an unknown value refuses"
 }
 
+# A router that has never had a /srv. The images the test routers and this gate run on already
+# have one anyone may enter, which is how the init's `mkdir -p` closing it to everyone but root
+# went unseen until a QEMU image without one (OpenWrt 25.12.5, armsr) refused to start the agent
+# as "cannot write in /srv/hermes". A boot starts the service with a umask of 077, so that is
+# what this check runs under: without it the gate's own umask would hide the defect again.
+check_fresh_router_without_srv_starts() {
+	reset; configure - -
+	rm -rf /srv
+	[ ! -e /srv ] || fail "could not remove /srv, so this measured nothing"
+	umask 077
+	started
+	m=$(mode_of /srv)
+	[ "$m" = drwxr-xr-x ] || fail "/srv was created $m, which the agent's user cannot enter"
+	m=$(mode_of /srv/hermes)
+	[ "$m" = drwx------ ] || fail "the data directory was created $m, not closed to everyone but its owner"
+	HU=$(uid_of hermes)
+	[ "$(owner_of /srv/hermes)" = "$HU" ] || fail "the data directory belongs to uid $(owner_of /srv/hermes), not hermes ($HU)"
+	[ "$(owner_of /srv)" = 0 ] || fail "/srv belongs to uid $(owner_of /srv), not root"
+	# The real gateway, started the way procd starts it, under the same umask.
+	sh -c 'exec env $(cat /tmp/envv) "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
+	SVC=$!
+	i=0
+	until tr '\0' ' ' < "/proc/$SVC/cmdline" 2>/dev/null | grep -q 'gateway run'; do
+		kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the wrapper exited before the gateway started"; }
+		i=$((i + 1)); [ "$i" -lt 180 ] || { tail -n 5 /tmp/svc.log; fail "the gateway did not start in 180 s"; }
+		sleep 1
+	done
+	sleep 3
+	kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the gateway died right after starting"; }
+	ids=$(grep -E '^Uid:' "/proc/$SVC/status" | tr -s '\t ' ' ')
+	kill "$SVC" 2>/dev/null; sleep 1
+	echo "$ids" | grep -qx "Uid: $HU $HU $HU $HU" || fail "the gateway's uids are not hermes ($HU): $ids"
+	pass "no /srv before the start: created $(mode_of /srv) root, the data directory drwx------ hermes, and the gateway ran as uid $HU"
+}
+
+check_unreachable_parent_is_named() {
+	reset; configure - -
+	# A /srv that is already there and that only root may enter. The init does not change the mode
+	# of a directory it did not make; it says which one stands in the way.
+	rm -rf /srv; mkdir /srv; chmod 700 /srv
+	if start_instance; then fail "the agent was started with a directory above its data that it cannot enter"; fi
+	grep -q "cannot enter /srv[ ,]" /tmp/start.log || { cat /tmp/start.log; fail "the refusal does not name the directory that stands in the way: $(tail -n 1 /tmp/start.log)"; }
+	grep -q 'drwx------' /tmp/start.log || { cat /tmp/start.log; fail "the refusal does not give that directory's mode"; }
+	[ "$(mode_of /srv)" = drwx------ ] || fail "an existing /srv was changed to $(mode_of /srv)"
+	[ "$(owner_of /srv)" = 0 ] || fail "an existing /srv changed hands"
+	# Not vacuous: the same configuration starts once /srv can be entered.
+	chmod 755 /srv
+	started
+	pass "refused naming /srv and its mode, /srv left as it was; started once /srv was opened"
+}
+
 check_reads_need_no_unlock() {
 	reset; configure - pin
 	started
@@ -800,6 +851,8 @@ check_edited_unlock_never_reaches_model()                 { scenario "$CUR_NAME"
 check_secret_in_no_log()                                  { scenario "$CUR_NAME" pin+totp; }
 check_unlock_refused_in_group()                           { scenario "$CUR_NAME" pin; }
 check_unlock_only_from_allowlist()                        { scenario "$CUR_NAME" pin; }
+check_agent_told_window_is_open()                        { scenario "$CUR_NAME" pin; }
+check_agent_not_told_after_window_ends()                  { scenario "$CUR_NAME" pin 20s; }
 check_scheduled_job_cannot_change()                       { scenario "$CUR_NAME" pin; }
 
 # ======================================================= the LuCI Security page, and the SSH enrolment

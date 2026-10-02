@@ -279,6 +279,12 @@ def scenario_cli():
                 "openwrt-mcp pin set %s" % CLIENT]
     for c in commands:
         need(c in readme, "the README does not give the command: %s" % c)
+    # The config file the package ships says it too, in the same two steps: it is what an owner
+    # reads on the router before anything else, and it once still showed the one-step form. The
+    # copy the gate took before uci rewrote the file (which drops comments) is the shipped one.
+    shipped = open("/tmp/pristine/hermes.config", encoding="utf-8").read()
+    for c in commands:
+        need(c in shipped, "the config file the package ships does not give the command: %s" % c)
     st = cli("status", "--json", "--audit", "0").stdout
     mine = [c for c in json.loads(st)["clients"] if c["name"] == CLIENT]
     need(mine and mine[0]["mfa"]["totp_pending"] is False and mine[0]["mfa"]["totp_enrolled"] is False, "not a clean start: %s" % st[:200])

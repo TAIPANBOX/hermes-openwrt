@@ -880,6 +880,112 @@ def check_scheduled_job_cannot_change():
     return "with the window open the same uci_apply changed the router from the owner's chat and was refused for a scheduled job, which was told why"
 
 
+# ================================================================== the agent is told the window is open
+
+NOTE = "The owner has unlocked router changes until "
+
+
+def text_of(message):
+    content = message.get("content")
+    return content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+
+
+def notes_in(requests):
+    """Every 'unlocked until HH:MM' note found in a user message of these requests, with the
+    message it rides on, so a note in the conversation's history counts as much as a new one."""
+    out = []
+    for req in requests:
+        for m in req["body"].get("messages", []):
+            if m.get("role") != "user":
+                continue
+            for found in re.finditer(re.escape(NOTE) + r"(\d\d:\d\d)", text_of(m)):
+                out.append((found.group(1), text_of(m)))
+    return out
+
+
+def shown_note(found):
+    """The end of the first message that carried a note, for a failure message; built whether or not there was one."""
+    return found[0][1][-120:] if found else ""
+
+
+def ask(text, timeout=40):
+    """The owner says `text` and the agent answers; the requests the model was sent for it.
+    The session title is asked for by a request of its own, so a turn may be several."""
+    before = len(chat_requests())
+    say(text)
+    wait_for(lambda: len(chat_requests()) > before, "a request to the model for " + repr(text), timeout=timeout)
+    wait_for(lambda: state()["model_inflight"] == 0, "the model to answer " + repr(text), timeout=timeout)
+    settle(1.5)
+    return chat_requests()[before:]
+
+
+def check_agent_told_window_is_open():
+    gateway_is_wired()
+    need(locked(), "changes were open before anything was sent")
+    # 1. before any unlock the agent is told nothing of the kind
+    need(not notes_in(ask("good morning")), "the agent was told a window is open when none was")
+    # 2. after one, the next request carries the line, on the message that asked
+    reply = unlock("/unlock " + PIN)
+    need(not locked(), "the PIN did not open changes: " + reply)
+    shown = re.search(r"open until (\d\d:\d\d)", reply)
+    need(shown, "the owner's own answer has no time to compare with: " + reply)
+    mine = notes_in(ask("please change the router description"))
+    need(mine, "the request after a successful unlock carries no note that the window is open, so the agent is told nothing")
+    need(all(t == shown.group(1) for t, _ in mine), "the note's time %s is not the owner's %s" % (mine[0][0], shown.group(1)))
+    carrier = mine[0][1]
+    need("please change the router description" in carrier, "the note does not ride on the owner's own message")
+    need(carrier.count(NOTE) == 1 and len(carrier) - len(carrier.split(NOTE)[0]) < 220, "the note is not one short line: " + carrier[-260:])
+    need(PIN not in carrier and "do it now" in carrier, "the note is not what was specified: " + carrier[-260:])
+    # 3. a second turn in the same window is told again, the first still in what the conversation replays
+    need(notes_in(ask("and one more thing")), "the second turn of the window was not told")
+    # 4. /lock: the next request carries no note, nor does what it replays of the earlier turns
+    say("/lock")
+    wait_for(lambda: locked(), "the window to close", timeout=15)
+    stale = notes_in(ask("did that work"))
+    need(not stale, "after /lock a request still carries the note (%s)" % shown_note(stale))
+    # 5. a window opened again is told again, and wrong tries until the lockout end the telling
+    unlock("/unlock " + PIN)
+    need(notes_in(ask("one more try")), "a second window was not told to the agent")
+    for _ in range(5):
+        n = len(bot_sent())
+        say("/unlock " + WRONG_PIN)
+        wait_for(lambda: len(bot_sent()) > n, "the answer to a wrong try", timeout=20)
+    n = len(bot_sent())
+    say("/unlock " + PIN)
+    wait_for(answered("Unlocking is closed until", n), "the lockout to be reported", timeout=20)
+    stale = notes_in(ask("is it still open"))
+    need(not stale, "after the lockout a request still carries the note (%s)" % shown_note(stale))
+    # 6. what asks the plugin directly: a scheduled job is never told, whatever the window
+    probe = (
+        "import time, openwrt_unlock as u\n"
+        "end = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 600))\n"
+        "u.note_outcome('mfa_unlock', True, 'unlocked until ' + end, False)\n"
+        "got = [u.pre_llm_call(session_id='s1', task_id='t1'), u.pre_llm_call(session_id='cron_job_1'), u.pre_llm_call(task_id='cron:job:1')]\n"
+        "u.note_outcome('mfa_lock', True, 'Locked.', False)\n"
+        "got.append(u.pre_llm_call(session_id='s1'))\n"
+        "print([bool(g) for g in got])\n")
+    r = subprocess.run(["python3", "-c", probe], capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, PYTHONPATH="/usr/lib/hermes-agent/site-packages"))
+    need(r.stdout.strip() == "[True, False, False, False]",
+         "the plugin told a scheduled job, or not a person, or kept telling after a lock: " + (r.stdout + r.stderr).strip()[-200:])
+    no_trace([PIN, WRONG_PIN], "the PIN")
+    return ("after /unlock the next request carried one line saying changes are open until the time the owner was told, "
+            "and not the PIN; /lock, and a lockout, ended it, in the history the request replays too; a scheduled job is never told")
+
+
+def check_agent_not_told_after_window_ends():
+    gateway_is_wired()
+    # the gate configured a window of twenty seconds
+    unlock("/unlock " + PIN)
+    need(notes_in(ask("please change the router description")), "inside the window the agent was not told it is open")
+    wait_for(lambda: locked(), "the window to end by itself", timeout=40, every=0.5)
+    # the plugin's own clock is the daemon's answer, to the second: let that second pass
+    time.sleep(1.5)
+    stale = notes_in(ask("is it still open"))
+    need(not stale, "after the window ran out a request still carries the note (%s)" % shown_note(stale))
+    return "inside a twenty second window the agent was told it was open; once the window ran out, with nobody sending /lock, it was not"
+
+
 # ======================================================================================== entry point
 
 def main(argv):

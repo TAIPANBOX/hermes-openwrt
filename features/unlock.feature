@@ -49,6 +49,18 @@
 #                        "Method not found" for the first and third and, for the second, on
 #                        the README not giving the commands. Green on r13.
 #
+#   @measured 2026-10-02 in a QEMU OpenWrt 25.12.5 (armsr) with no /srv, where the init's
+#                        mkdir -p made /srv closed to everyone but root, so the agent's user
+#                        could not enter it on the way to its own data directory and the
+#                        start was refused as "cannot write". The test routers and the gate's
+#                        images already had a /srv that anyone may enter, which is why nothing
+#                        caught it. Two scenarios under "Without root" are about that.
+#   @measured 2026-10-02 on a Brume 2, through Telegram: after a successful /unlock the agent
+#                        went on answering "send /unlock" from the conversation, because the
+#                        unlock message is, by design, never shown to it. The two scenarios
+#                        under "The unlock message itself" that end "the agent is told" are
+#                        about that; what the agent is told never includes a PIN or a code.
+#
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
 # fix. A scenario whose check is not built yet is listed by the gate as NOT IMPLEMENTED and
@@ -88,6 +100,21 @@ Feature: The agent changes the router only when its owner unlocks it
     Then the agent runs as root without any unlock
     And the start prints a warning that says what this allows
     # -> check_root_profile_is_opt_in_and_warned
+
+  Scenario: A router with no /srv still starts the agent
+    Given a router on which /srv does not exist yet
+    When the service starts for the first time, as a boot does, with a umask that closes new directories to everyone but root
+    Then /srv is created so that anyone may enter it, and the data directory inside it belongs to hermes and is closed to everyone else
+    And the gateway runs as hermes
+    # -> check_fresh_router_without_srv_starts
+
+  Scenario: A directory above the data directory that the agent cannot enter is named
+    Given /srv already exists and only root may enter it
+    When the service starts
+    Then the start is refused with a message that names /srv and its mode
+    And /srv is left as it was
+    And once /srv is opened the same configuration starts
+    # -> check_unreachable_parent_is_named
 
   # ---- What needs an unlock ----
 
@@ -211,6 +238,22 @@ Feature: The agent changes the router only when its owner unlocks it
     Then it is handled exactly as /unlock, not passed to the model
     # -> check_bare_code_is_an_unlock_attempt
 
+  Scenario: After an unlock the agent is told the window is open, and never the PIN
+    Given the owner unlocked in the chat
+    When the owner then sends the agent a message
+    Then the request to the model carries one line saying the owner has unlocked changes until a time, and that a change which was waiting should be done now
+    And no request to the model holds the PIN or a code
+    When the owner sends /lock, or is locked out by wrong tries
+    Then no later request carries that line, not even in the conversation it replays
+    And a scheduled job is not told the window is open, since it may not change the router in it
+    # -> check_agent_told_window_is_open
+
+  Scenario: When the window ends by itself the agent is no longer told it is open
+    Given the owner unlocked and the agent was told
+    When the window runs out with nobody sending /lock
+    Then the next request to the model carries no such line
+    # -> check_agent_not_told_after_window_ends
+
   Scenario: Nothing secret lands in a log
     Given the gateway logs at its most verbose level
     When the owner unlocks with a PIN and a code
@@ -246,6 +289,7 @@ Feature: The agent changes the router only when its owner unlocks it
   Scenario: The owner enrols a phone over SSH
     When the owner runs the enrol command on the router
     Then the QR code is printed in the terminal
+    And the config file the package ships gives the same two steps as the README, pending first and then activate
     # -> check_cli_enrol_prints_qr
 
   Scenario: The PIN field is write-only
