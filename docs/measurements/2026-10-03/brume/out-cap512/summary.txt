@@ -1,0 +1,8 @@
+threads-1: wall 37 s, 1/1 answered, all of Hermes (cgroup) peak 445 MB, MemAvailable low 445 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 41.627 C
+threads-2: wall 41 s, 2/2 answered, all of Hermes (cgroup) peak 446 MB, MemAvailable low 440 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 41.627 C
+threads-3: wall 50 s, 3/3 answered, all of Hermes (cgroup) peak 447 MB, MemAvailable low 438 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 41.627 C
+threads-4: wall 57 s, 4/4 answered, all of Hermes (cgroup) peak 447 MB, MemAvailable low 441 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 41.778 C
+procs-1: wall 43 s, 1/1 answered, all of Hermes (cgroup) peak 476 MB, MemAvailable low 442 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 41.778 C
+procs-2: wall 60 s, 2/2 answered, all of Hermes (cgroup) peak 511 MB, MemAvailable low 324 MB, cgroup OOM kills 0, kernel OOM lines 0, gateway same, temp max 42.684 C
+procs-3: wall 33 s, 0/3 answered, all of Hermes (cgroup) peak 511 MB, MemAvailable low 292 MB, cgroup OOM kills 4, kernel OOM lines 4, gateway gone:, temp max 42.533 C
+procs-4: wall 38 s, 0/4 answered, all of Hermes (cgroup) peak 511 MB, MemAvailable low 286 MB, cgroup OOM kills 5, kernel OOM lines 5, gateway gone:, temp max 42.835 C

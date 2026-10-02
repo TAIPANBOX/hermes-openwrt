@@ -1,77 +1,124 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="690" viewBox="0 0 1280 690" role="img" aria-label="How many conversations fit on a 1 GB router: one, two, four and six at once on each of two boxes, Hermes 0.21.5, no kernel OOM kill at any count">
-<defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
-  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
-  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
-</defs>
-<rect width="1280" height="690" fill="url(#bg)"/><rect width="1280" height="690" fill="url(#grid)" opacity="0.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="848" viewBox="0 0 1280 848" role="img" aria-label="How many Hermes agents fit on a 1 GB router: conversations in one gateway, separate agents under the default 512 MB ceiling, and separate agents with no ceiling on clean OpenWrt, measured on two routers">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient><linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern></defs>
+<rect width="1280" height="848" fill="url(#bg)"/><rect width="1280" height="848" fill="url(#grid)" opacity="0.5"/>
 <rect width="1280" height="4" fill="url(#accent)"/>
-<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">How many conversations fit on a 1 GB router</text>
-<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Hermes 0.21.5, 2026-09-25. Conversations run as the gateway runs them: threads of one process in the service&#x27;s memory group. Bar width: 880 MB.</text>
-<rect x="48" y="104" width="14" height="14" rx="3" fill="#4493f8"/><text x="70" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">gateway, resident</text>
-<rect x="229" y="104" width="14" height="14" rx="3" fill="#2dd4bf"/><text x="251" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">the rest of Hermes while working</text>
-<rect x="515" y="104" width="14" height="14" rx="3" fill="#1b2331" stroke="#30363d"/><text x="537" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#9aa7b8">still available</text>
-<text x="48" y="158" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" fill="#2dd4bf" font-weight="600">GL-MT6000 · MT7986 · 4 cores</text>
-<text x="48" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 conversation</text>
-<rect x="200" y="180" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="180" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="180" width="157" height="18" fill="#2dd4bf"/>
-<text x="916" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">18 s</text>
-<text x="972" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">1/1 answered</text>
-<text x="1098" y="193" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">301 MB free · 52 C</text>
-<text x="48" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">2 conversations</text>
-<rect x="200" y="216" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="216" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="216" width="150" height="18" fill="#2dd4bf"/>
-<text x="916" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">19 s</text>
-<text x="972" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">2/2 answered</text>
-<text x="1098" y="229" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">319 MB free · 52 C</text>
-<text x="48" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">4 conversations</text>
-<rect x="200" y="252" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="252" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="252" width="146" height="18" fill="#2dd4bf"/>
-<text x="916" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">21 s</text>
-<text x="972" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">4/4 answered</text>
-<text x="1098" y="265" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">314 MB free · 52 C</text>
-<text x="48" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">6 conversations</text>
-<rect x="200" y="288" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="288" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="288" width="145" height="18" fill="#2dd4bf"/>
-<text x="916" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">24 s</text>
-<text x="972" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">6/6 answered</text>
-<text x="1098" y="301" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">312 MB free · 52 C</text>
-<text x="48" y="350" font-family="ui-sans-serif,system-ui,sans-serif" font-size="15" fill="#2dd4bf" font-weight="600">GL-MT2500 · MT7981 · 2 cores</text>
-<text x="48" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 conversation</text>
-<rect x="200" y="372" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="372" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="372" width="164" height="18" fill="#2dd4bf"/>
-<text x="916" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">25 s</text>
-<text x="972" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">1/1 answered</text>
-<text x="1098" y="385" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">272 MB free · 47 C</text>
-<text x="48" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">2 conversations</text>
-<rect x="200" y="408" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="408" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="408" width="158" height="18" fill="#2dd4bf"/>
-<text x="916" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">24 s</text>
-<text x="972" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">2/2 answered</text>
-<text x="1098" y="421" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">271 MB free · 46 C</text>
-<text x="48" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">4 conversations</text>
-<rect x="200" y="444" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="444" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="444" width="159" height="18" fill="#2dd4bf"/>
-<text x="916" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">24 s</text>
-<text x="972" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">4/4 answered</text>
-<text x="1098" y="457" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">270 MB free · 46 C</text>
-<text x="48" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">6 conversations</text>
-<rect x="200" y="480" width="700" height="18" rx="4" fill="#1b2331" stroke="#30363d"/>
-<rect x="200" y="480" width="142" height="18" rx="4" fill="#4493f8"/>
-<rect x="342" y="480" width="160" height="18" fill="#2dd4bf"/>
-<text x="916" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">30 s</text>
-<text x="972" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">6/6 answered</text>
-<text x="1098" y="493" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b">270 MB free · 47 C</text>
-<rect x="48" y="546" width="1184" height="120" rx="10" fill="#0f1520" stroke="#30363d"/>
-<text x="72" y="576" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600">READ IT LIKE THIS</text>
-<text x="72" y="602" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">The gateway holds about 180 MB and stays there. All of Hermes peaked at 361 to 384 MB whether one conversation ran or six:</text>
-<text x="72" y="624" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">an extra conversation costs a thread, not a second interpreter. No kernel OOM kill at any count, and 270 MB or more stayed available.</text>
-<text x="72" y="646" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">Cores buy time, not capacity: six at once took 25 s on four cores and 30 s on two. Fanless, 45 to 52 C.</text>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">How many agents fit on a 1 GB router</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Hermes 0.21.5, 2026-10-03, both routers, the same task each time (five commands through the terminal tool), model gpt-5.6-luna.</text>
+<text x="48" y="106" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">“MB left” is the lowest memory the router itself still had available during the run.</text>
+<text x="48" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#2dd4bf" font-weight="600">GL-MT6000 (Flint 2)</text>
+<text x="248" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">MT7986, 4 cores, 1 GB, hermes-agent r2, no Telegram add-on; gateway at rest 162 MB</text>
+<text x="446.0" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">1 at once</text>
+<text x="626.0" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">2 at once</text>
+<text x="806.0" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">3 at once</text>
+<text x="986.0" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">4 at once</text>
+<text x="1166.0" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">5 at once</text>
+<text x="48" y="218" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Conversations in one gateway</text>
+<text x="48" y="237" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">512 MB ceiling (default)</text>
+<rect x="360" y="192" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="372" y="215" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 33 s</text>
+<text x="372" y="236" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">528 MB left</text>
+<rect x="540" y="192" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="552" y="215" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 35 s</text>
+<text x="552" y="236" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">522 MB left</text>
+<rect x="720" y="192" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="732" y="215" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 38 s</text>
+<text x="732" y="236" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">519 MB left</text>
+<rect x="900" y="192" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="912" y="215" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 45 s</text>
+<text x="912" y="236" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">520 MB left</text>
+<rect x="1080" y="192" width="172" height="58" rx="6" fill="#0f1520" stroke="#21262d"/>
+<text x="1166.0" y="226" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#484f58" text-anchor="middle">not run</text>
+<text x="48" y="284" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Separate agents</text>
+<text x="48" y="303" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">512 MB ceiling (default)</text>
+<rect x="360" y="258" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="372" y="281" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 43 s</text>
+<text x="372" y="302" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">462 MB left</text>
+<rect x="540" y="258" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="552" y="281" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 43 s</text>
+<text x="552" y="302" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">319 MB left</text>
+<rect x="720" y="258" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="732" y="281" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, ceiling hit</text>
+<text x="732" y="302" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">service restarted</text>
+<rect x="900" y="258" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="912" y="281" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, ceiling hit</text>
+<text x="912" y="302" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">service restarted</text>
+<rect x="1080" y="258" width="172" height="58" rx="6" fill="#0f1520" stroke="#21262d"/>
+<text x="1166.0" y="292" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#484f58" text-anchor="middle">not run</text>
+<text x="48" y="350" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Separate agents</text>
+<text x="48" y="369" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">no ceiling, clean OpenWrt</text>
+<rect x="360" y="324" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="372" y="347" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 37 s</text>
+<text x="372" y="368" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">499 MB left</text>
+<rect x="540" y="324" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="552" y="347" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 40 s</text>
+<text x="552" y="368" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">357 MB left</text>
+<rect x="720" y="324" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="732" y="347" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 44 s</text>
+<text x="732" y="368" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">216 MB left</text>
+<rect x="900" y="324" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="912" y="347" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, stopped by guard</text>
+<text x="912" y="368" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">under 120 MB left</text>
+<rect x="1080" y="324" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="1092" y="347" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, stopped by guard</text>
+<text x="1092" y="368" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">under 120 MB left</text>
+<text x="48" y="424" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#2dd4bf" font-weight="600">GL-MT2500 (Brume 2)</text>
+<text x="248" y="424" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">MT7981, 2 cores, 1 GB, hermes-agent r5 with Telegram and openwrt-mcp; gateway at rest 202 MB</text>
+<text x="446.0" y="456" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">1 at once</text>
+<text x="626.0" y="456" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">2 at once</text>
+<text x="806.0" y="456" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">3 at once</text>
+<text x="986.0" y="456" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">4 at once</text>
+<text x="1166.0" y="456" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#69788b" text-anchor="middle">5 at once</text>
+<text x="48" y="492" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Conversations in one gateway</text>
+<text x="48" y="511" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">512 MB ceiling (default)</text>
+<rect x="360" y="466" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="372" y="489" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 37 s</text>
+<text x="372" y="510" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">445 MB left</text>
+<rect x="540" y="466" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="552" y="489" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 41 s</text>
+<text x="552" y="510" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">440 MB left</text>
+<rect x="720" y="466" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="732" y="489" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 50 s</text>
+<text x="732" y="510" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">438 MB left</text>
+<rect x="900" y="466" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="912" y="489" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 57 s</text>
+<text x="912" y="510" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">441 MB left</text>
+<rect x="1080" y="466" width="172" height="58" rx="6" fill="#0f1520" stroke="#21262d"/>
+<text x="1166.0" y="500" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#484f58" text-anchor="middle">not run</text>
+<text x="48" y="558" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Separate agents</text>
+<text x="48" y="577" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">512 MB ceiling (default)</text>
+<rect x="360" y="532" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="372" y="555" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 43 s</text>
+<text x="372" y="576" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">442 MB left</text>
+<rect x="540" y="532" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="552" y="555" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 60 s</text>
+<text x="552" y="576" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">324 MB left</text>
+<rect x="720" y="532" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="732" y="555" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, ceiling hit</text>
+<text x="732" y="576" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">service restarted</text>
+<rect x="900" y="532" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="912" y="555" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, ceiling hit</text>
+<text x="912" y="576" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">service restarted</text>
+<rect x="1080" y="532" width="172" height="58" rx="6" fill="#0f1520" stroke="#21262d"/>
+<text x="1166.0" y="566" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#484f58" text-anchor="middle">not run</text>
+<text x="48" y="624" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Separate agents</text>
+<text x="48" y="643" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">no ceiling, clean OpenWrt</text>
+<rect x="360" y="598" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="372" y="621" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 46 s</text>
+<text x="372" y="642" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">486 MB left</text>
+<rect x="540" y="598" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="552" y="621" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 48 s</text>
+<text x="552" y="642" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">345 MB left</text>
+<rect x="720" y="598" width="172" height="58" rx="6" fill="#12261b" stroke="#2ea043"/>
+<text x="732" y="621" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600">fits, 73 s</text>
+<text x="732" y="642" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">201 MB left</text>
+<rect x="900" y="598" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="912" y="621" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, stopped by guard</text>
+<text x="912" y="642" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">under 120 MB left</text>
+<rect x="1080" y="598" width="172" height="58" rx="6" fill="#2a1416" stroke="#da3633"/>
+<text x="1092" y="621" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#f85149" font-weight="600">no, stopped by guard</text>
+<text x="1092" y="642" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">under 120 MB left</text>
+<rect x="48" y="720" width="1184" height="104" rx="10" fill="#0f1520" stroke="#30363d"/>
+<text x="72" y="750" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600">READ IT LIKE THIS</text>
+<text x="72" y="776" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">A conversation is a thread of the gateway that is already running, so more of them cost almost nothing. A separate agent is a whole</text>
+<text x="72" y="798" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">second interpreter, about 140 MB each: two fit under the default ceiling, three with no ceiling; a fourth takes the router under 120 MB, where the test stopped it.</text>
 </svg>
