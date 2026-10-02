@@ -74,11 +74,12 @@ jobs:
 
       # hermes-agent depends on openwrt-mcp (0.21.5-r3), which OpenWrt's feed does not have, so
       # every gate that installs it is handed an apk built from the companion's branch with that
-      # repository's own mkapk.sh. The ref is the branch the owner's second factor lives on.
+      # repository's own mkapk.sh. Pinned to the commit (on branch feat/owner-unlock), not the
+      # branch name, so a later push there cannot change what this build tests.
       - uses: actions/checkout@v4
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: feat/owner-unlock
+          ref: 461ce9e88b3add5e0eee1b28cb8730e2d13ed8ab
           path: openwrt-mcp-src
       - uses: actions/setup-go@v5
         with:
