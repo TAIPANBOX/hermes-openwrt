@@ -86,7 +86,17 @@ esac
 # in Telegram: it deletes the message, asks openwrt-mcp, answers only the outcome, and keeps
 # the PIN or code from the model, the conversation and the logs. A scheduled job cannot
 # change the router even while an unlock is open.
-PKGREL=${PKGREL:-4}
+#
+# 0.21.5-r5: what a QEMU OpenWrt with no /srv and a Brume 2 on Telegram showed on 2026-10-02.
+# The init made a missing /srv closed to everyone but root (a boot's umask is 077), so the
+# agent's user could not enter it and the start was refused as "cannot write"; parents are now
+# made 0755 and the data directory 0700, an existing parent is left alone, and one the agent
+# cannot enter is named. The plugin remembers the window the daemon said it opened and, through
+# pre_llm_call, adds one line to the owner's next message while it is open, so an agent that
+# asked for /unlock does not go on asking after it was given; the line goes again on /lock, a
+# lockout or the end of the window, in the history the request replays too. The config file's
+# enrolment commands are the two-step form the README gives.
+PKGREL=${PKGREL:-5}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

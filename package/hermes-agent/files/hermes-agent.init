@@ -51,6 +51,24 @@ read_secret() {
 	[ -n "$1" ] && [ -r "$1" ] && head -n1 "$1" | tr -d ' \t\r\n'
 }
 
+# The agent reaches its data directory through every directory above it, and one that only
+# root may enter ends a start with "cannot write in <data dir>", which sends the reader to the
+# wrong place. This names the directory that stands in the way, and its mode, and leaves it
+# alone: the mode of a directory this script did not make is not this script's to change.
+# One run as the agent's user walks every ancestor; if that run itself cannot be made, nothing
+# is said here and the write test in hand_over_data_dir still stops the start.
+check_agent_can_reach() {
+	local dir=$1 user=$2 blocked mode
+	[ "$user" != root ] || return 0
+	blocked=$($DROP "$user" /bin/sh -c 'p=$1; while [ "$p" != / ] && [ "$p" != . ]; do p=$(dirname "$p"); [ -x "$p" ] || { echo "$p"; exit 1; }; done' sh "$dir" 2>/dev/null)
+	[ -n "$blocked" ] || return 0
+	set -- $(ls -ld "$blocked")
+	mode=$1
+	echo "$NAME: '$user' cannot enter $blocked ($mode), which is above the data directory $dir." >&2
+	echo "$NAME: 'chmod 755 $blocked' opens it (this script leaves the mode of a directory that already exists alone), or point data_dir somewhere the agent can reach." >&2
+	return 1
+}
+
 # The data directory belongs to the user the agent runs as, so what the agent writes there
 # it can write again, and what an earlier release (which ran as root) wrote there is still
 # readable. Handed over only when the directory's own owner differs, not on every start: a
@@ -58,6 +76,7 @@ read_secret() {
 # -h so a symlink inside it is chowned as itself and never as whatever it points at.
 hand_over_data_dir() {
 	local dir=$1 user=$2 uid gid owner
+	check_agent_can_reach "$dir" "$user" || return 1
 	uid=$(id -u "$user" 2>/dev/null) && gid=$(id -g "$user" 2>/dev/null) || {
 		echo "$NAME: there is no user '$user'; reinstall hermes-agent so its post-install script creates it" >&2
 		return 1; }
@@ -317,7 +336,12 @@ start_service() {
 	# is missing we make it, but a router whose overlay is a few megabytes should have
 	# data_dir pointed at external storage instead, and this is where that gets said.
 	if [ ! -d "$data_dir" ]; then
-		mkdir -p "$data_dir" 2>/dev/null || {
+		# The parents are made with a umask of 022 and the directory itself with 077, whatever
+		# the umask this script was started with: a boot starts it with one that makes `mkdir -p`
+		# create every missing parent closed to everyone but root, and the agent's user then cannot
+		# enter /srv to reach its own directory. Measured 2026-10-02 in a QEMU OpenWrt 25.12.5
+		# that had no /srv; the test routers had one already. A parent that exists is not touched.
+		( umask 022; mkdir -p "$(dirname "$data_dir")" ) 2>/dev/null && ( umask 077; mkdir "$data_dir" ) 2>/dev/null || {
 			echo "$NAME: cannot create $data_dir" >&2; return 1; }
 		echo "$NAME: created $data_dir on the root filesystem. Sessions and memory grow" >&2
 		echo "$NAME: without bound; move data_dir to external storage if space is tight." >&2

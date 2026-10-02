@@ -27,6 +27,12 @@ the first can fail to be wired without anyone noticing.
 
 And, because an open window is root for its length, the plugin refuses a change to the router
 from a scheduled job (``pre_tool_call``), which an unlock cannot tell apart from the owner.
+
+The other half of "never shown to the agent": the unlock message is not in the conversation, so
+an agent that asked for /unlock sees nothing after it and goes on asking. While a window the
+plugin saw opened is still open, ``pre_llm_call`` adds one line to the owner's next message saying
+so (never the PIN or the code, which this file does not keep), and the line is taken out of every
+request again once the window is over, in the history the request replays too.
 """
 from __future__ import annotations
 
@@ -37,6 +43,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 import urllib.request
 
 # Named so that gateway.log, which holds the loggers under hermes_plugins, carries it too.
@@ -123,6 +131,8 @@ def scrub_text(text: str, *, bare: bool) -> str:
     line of nothing but digits counts (it does in what the owner wrote, not in a tool's output)."""
     if not isinstance(text, str) or not text:
         return text
+    if bare:
+        text = _drop_stale_notes(text)
     if "/unlock" not in text.lower() and not (bare and re.search(_D + r"{4,}", text)):
         return text
     out = []
@@ -239,7 +249,7 @@ def llm_request(request=None, **_ignored):
         fixed = _walk(request, factor)
         if fixed is request:
             return None
-        return {"request": fixed, "source": "openwrt-unlock", "reason": "an unlock PIN or code was removed"}
+        return {"request": fixed, "source": "openwrt-unlock", "reason": "an unlock PIN or code, or an unlock note that no longer holds, was removed"}
     except BaseException:  # noqa: BLE001 - fail closed, see above
         try:
             return {"request": _everything_a_user_said_replaced(request), "source": "openwrt-unlock",
@@ -311,13 +321,21 @@ def call_tool(tool: str, arguments: dict):
 _RFC3339 = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})")
 
 
-def _clock(text: str):
+def _when(text: str):
+    """The first RFC 3339 time in the daemon's answer, or None."""
     m = _RFC3339.search(text or "")
     if not m:
         return None
     try:
-        when = datetime.datetime.fromisoformat(m.group(0).replace("Z", "+00:00"))
-        return when.astimezone().strftime("%H:%M (%Z, %d %b)")
+        return datetime.datetime.fromisoformat(m.group(0).replace("Z", "+00:00"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _clock(text: str):
+    when = _when(text)
+    try:
+        return when.astimezone().strftime("%H:%M (%Z, %d %b)") if when else None
     except Exception:  # noqa: BLE001
         return None
 
@@ -380,6 +398,7 @@ async def process(kind: str, args: str, *, user_id, chat_id, private: bool, fact
             tool = "mfa_unlock"
         answered, text, is_error = await asyncio.to_thread(call_tool, tool, arguments)
         arguments = None  # the secret leaves scope here
+        note_outcome(tool, answered, text, is_error)
         await send(answer_for(tool, answered, text, is_error, factor) + note)
     except Exception as exc:  # noqa: BLE001
         log.warning("the unlock path failed (%s); the message was dropped", type(exc).__name__)
@@ -487,6 +506,81 @@ def telegram_handler(app, adapter):
     log.info("openwrt-unlock: the Telegram handler is in place")
 
 
+# ------------------------------------------------------- the agent is told the window is open
+
+# When the window the owner opened ends, as epoch seconds, or None. One gateway process holds one
+# client, hermes-main, so one value is the whole state; a second agent would be a second process
+# with its own. Written from the event loop and read from the agent's thread.
+_window_end = None
+_window_lock = threading.Lock()
+
+NOTE_FORMAT = "The owner has unlocked router changes until %s; if a change was waiting for that, do it now."
+_NOTE_AT = "The owner has unlocked router changes until "
+# The line, and the blank lines that set it apart from the message it was appended to.
+_NOTE_LINE = re.compile(r"\n*[ \t]*" + re.escape(_NOTE_AT) + r"[^\n]*")
+
+
+def note_outcome(tool: str, answered: bool, text: str, is_error: bool) -> None:
+    """Remembers what an answer from the daemon says about the window, so the agent can be told.
+
+    It learns an open window only from an answer that says it is open and when it ends, and forgets
+    it on any answer that closes it or leaves it in doubt (a lock, a lockout, a lock that could not
+    be told apart from an error). Not hearing from the daemon changes nothing."""
+    global _window_end
+    try:
+        if not answered:
+            return
+        low = (text or "").lower()
+        if tool == "mfa_lock":
+            end = None
+        elif tool == "mfa_unlock" and not is_error and low.startswith("unlocked until"):
+            when = _when(text)
+            end = when.timestamp() if when is not None else None
+        elif tool == "mfa_unlock" and "locked out" in low:
+            end = None
+        else:
+            return  # a refused try says nothing about a window that was already open
+        with _window_lock:
+            _window_end = end
+    except Exception:  # noqa: BLE001 - never on the secret path
+        pass
+
+
+def _current_note():
+    """The line for the window that is open now, or None."""
+    with _window_lock:
+        end = _window_end
+    if end is None or time.time() >= end:
+        return None
+    return NOTE_FORMAT % datetime.datetime.fromtimestamp(end).strftime("%H:%M")
+
+
+def pre_llm_call(**ctx):
+    """Upstream's hook before a turn's request: what it returns is added to the user's message.
+
+    The owner's /unlock never reaches the agent, so without this it asks for one it was already
+    given. A scheduled job is not told: it may not change the router inside a window, and being
+    told it may would only send it to a refusal."""
+    try:
+        note = _current_note()
+        if note is None or _is_scheduled(ctx):
+            return None
+        return {"context": note}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _drop_stale_notes(text: str) -> str:
+    """``text`` without the notes that no longer hold: every one when no window is open, and any
+    that names another end than the window open now. The request replays earlier turns with the
+    line they were sent with, and after /lock that would still read "do it now"."""
+    if _NOTE_AT not in text:
+        return text
+    current = _current_note()
+    new = _NOTE_LINE.sub(lambda m: m.group(0) if current is not None and m.group(0).strip() == current else "", text)
+    return text if new == text else new
+
+
 # ---------------------------------------------------------------- scheduled jobs cannot change
 
 # What a read-only caller may do through openwrt-mcp: the tools that read, and ubus_call only
@@ -584,6 +678,7 @@ def register(ctx):
     ctx.register_hook("pre_gateway_dispatch", pre_gateway_dispatch)
     ctx.register_middleware("llm_request", llm_request)
     ctx.register_hook("pre_tool_call", pre_tool_call)
+    ctx.register_hook("pre_llm_call", pre_llm_call)
     ctx.register_redaction_patterns(list(REDACTION_PATTERNS))
     # The Telegram library prints each update, text included, at DEBUG before any handler runs.
     logging.getLogger("telegram").setLevel(logging.INFO)
