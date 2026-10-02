@@ -527,3 +527,9 @@ Feature: What is set on the router is what the gateway runs with
     When the service starts
     Then the main model from the router's configuration is back in place and the start goes ahead
     # -> check_chatgpt_login_does_not_trip_the_preflight
+
+  Scenario: the owner profile switches the unlock plugin on and the others take only that out again
+    Given the operator's own plugin lists, one of them naming the unlock plugin as disabled
+    When the owner profile is applied, and then another profile
+    Then the plugin is enabled and no longer disabled, the operator's other names stay, and the other profile removes the name only if the bridge put it there
+    # -> check_owner_profile_enables_the_unlock_plugin_and_the_others_take_it_out_again

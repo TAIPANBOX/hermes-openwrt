@@ -110,7 +110,9 @@ for di in site.glob("*.dist-info"):
     meta = (di / "METADATA").read_text(errors="replace")
     name = canon(re.search(r"^Name: (.+)$", meta, re.M).group(1).strip())
     ver = re.search(r"^Version: (.+)$", meta, re.M).group(1).strip()
-    if name == "hermes-agent":
+    # Not a library: hermes-agent itself, and openwrt-unlock, the package's own plugin (its
+    # dist-info is the entry point upstream finds it by; build.sh writes it, uv.lock has no such name).
+    if name in ("hermes-agent", "openwrt-unlock"):
         continue
     shipped += 1
     if ver not in locked.get(name, set()):

@@ -79,7 +79,14 @@ esac
 # the router only through openwrt-mcp, which this package now depends on and wires up
 # (client hermes-main, its policies, the second factor from hermes.security). root is the
 # old admin, kept as an explicit, warned choice.
-PKGREL=${PKGREL:-3}
+#
+# 0.21.5-r4: the Hermes-side half of the unlock. A plugin, openwrt-unlock, ships in
+# site-packages (so it is root's and the agent cannot rewrite it), is enabled in the owner
+# profile by the same bridge that writes the rest of config.yaml, and takes /unlock and /lock
+# in Telegram: it deletes the message, asks openwrt-mcp, answers only the outcome, and keeps
+# the PIN or code from the model, the conversation and the logs. A scheduled job cannot
+# change the router even while an unlock is open.
+PKGREL=${PKGREL:-4}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

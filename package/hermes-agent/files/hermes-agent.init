@@ -35,7 +35,9 @@ MCP_URL_DEFAULT=http://127.0.0.1:8730/mcp
 # whole object: `system.*` would take in `system.reboot`. Names read off the 25.12.4 rootfs
 # (procd's system object, netifd's, rpcd's iwinfo and luci-rpc, odhcpd's dhcp); a name an
 # installed system does not have grants nothing. network.wireless is left out, because its
-# status carries the radio configuration, keys included.
+# status carries the radio configuration, keys included. The same list goes to the gateway
+# (HERMES_OPENWRT_READ_UBUS), where the unlock plugin uses it to tell a read from a change when
+# it refuses a scheduled job's changes: one list, so the two cannot disagree.
 MCP_READ_UBUS='system.board system.info network.interface.dump network.interface.*.status network.device.status iwinfo.devices iwinfo.info iwinfo.assoclist dhcp.ipv6leases luci-rpc.getDHCPLeases luci-rpc.getHostHints luci-rpc.getNetworkDevices'
 # What uci_get may read. Not wireless, whose keys would go to the model provider, and not
 # the whole of network either: a router running WireGuard keeps its private key in a network
@@ -395,6 +397,7 @@ start_service() {
 		HERMES_OPENWRT_MCP_URL="$mcp_url" \
 		HERMES_OPENWRT_PROFILE="$profile" \
 		HERMES_OPENWRT_FACTOR="$sec_factor" \
+		HERMES_OPENWRT_READ_UBUS="$(printf '%s' "$MCP_READ_UBUS" | tr ' ' ',')" \
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}"
 

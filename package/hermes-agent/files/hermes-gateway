@@ -100,7 +100,12 @@ HERMES_OPENWRT_PROVIDERS="${providers_ready#;}" PYTHONPATH=/usr/lib/hermes-agent
 
 PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 	$DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-runtime-check
-unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_FACTOR providers_ready entry p_name p_label p_url p_key_file p_model
+# The unlock plugin, which runs inside the gateway, asks openwrt-mcp at the address this wrapper
+# found it usable at (empty when the token was missing: the plugin then says it cannot reach it).
+# HERMES_OPENWRT_FACTOR and HERMES_OPENWRT_READ_UBUS stay in the environment for it too; neither
+# is a secret.
+export HERMES_OPENWRT_UNLOCK_URL="$mcp_effective"
+unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS providers_ready entry p_name p_label p_url p_key_file p_model
 # The root profile asks for root, so the launcher must not second-guess it from who owns
 # the data directory (see /usr/bin/hermes).
 [ "$run_user" != root ] || export HERMES_OPENWRT_AS_ROOT=1

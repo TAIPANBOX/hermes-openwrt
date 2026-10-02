@@ -980,6 +980,28 @@ procd_close_service
                 "http://127.0.0.1:9/v1", "runtime-model", profile]
         return subprocess.run(args, env=env, check=False, capture_output=True, text=True)
 
+    def test_owner_profile_enables_the_unlock_plugin_and_the_others_take_it_out_again(self):
+        # The unlock plugin is the control that keeps the owner's PIN from the model, so the
+        # owner profile switches it on whatever the operator's lists say, and the operator's
+        # own names stay. The other profiles take out only what this bridge put there.
+        (self.home / "config.yaml").write_text(yaml.safe_dump(
+            {"plugins": {"enabled": ["kept"], "disabled": ["openwrt-unlock", "other"]}}))
+        self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        plugins = self.config()["plugins"]
+        self.assertEqual(plugins["enabled"], ["kept", "openwrt-unlock"])
+        self.assertEqual(plugins["disabled"], ["other"])
+        self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        self.assertEqual(self.config()["plugins"]["enabled"], ["kept", "openwrt-unlock"], "listed twice")
+        for other in ("assistant", "root"):
+            self.assertEqual(self.bridge(other).returncode, 0)
+            self.assertEqual(self.config()["plugins"]["enabled"], ["kept"], other)
+            self.assertNotIn("_openwrt_unlock_managed", self.config())
+            self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        # a name the operator listed themselves, with no marker from this bridge, is theirs
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"plugins": {"enabled": ["openwrt-unlock"]}}))
+        self.assertEqual(self.bridge("assistant").returncode, 0)
+        self.assertEqual(self.config()["plugins"]["enabled"], ["openwrt-unlock"])
+
     def test_owner_profile_keeps_tools_and_its_note_follows_the_factor(self):
         # owner runs as hermes with every selected tool, like admin did; what it tells the
         # agent depends on whether a second factor is set up, and neither note touches the

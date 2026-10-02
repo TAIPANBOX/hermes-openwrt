@@ -42,6 +42,14 @@ up first. The package-written mcp_servers.openwrt entry carries tools.exclude, s
 model is never offered openwrt-mcp's unlock or lock tools in any profile (upstream's
 tools/mcp_tool_registration.py reads that key).
 
+@decided 2026-10-01 (the unlock plugin): in the owner profile the bridge also enables the
+plugin openwrt-unlock, which ships in the package's own site-packages and takes /unlock and
+/lock in Telegram (its own header says how). It adds the name to plugins.enabled, keeping
+every name the operator listed, and takes it out of plugins.disabled, which would otherwise
+win over the list and leave the owner's PIN to the model: in this profile that is not the
+operator's to turn off, because the unlock is the control. The other profiles remove the name
+again, but only when this bridge was what added it (the _openwrt_unlock_managed marker).
+
 @decided 2026-09-25: more than one provider on one router. Every chat starts on the
 UCI main model; the others are offered by /model and switch that chat only.
 
@@ -91,7 +99,11 @@ OWNER_NOTE = ("You run on an OpenWrt router as an unprivileged user. You can rea
 OWNER_NOTE_LOCKED = ("A change is refused until the owner has unlocked it. When a tool answers that "
                      "a second factor is required, tell the owner to send /unlock in the private "
                      "chat with you, and try again once they say it is done. Never ask the owner "
-                     "for a PIN or a code in a message, and never repeat one you were given.")
+                     "for a PIN or a code in a message, and never repeat one you were given. "
+                     "The owner's PIN or code never reaches you: if one of their messages is "
+                     "replaced by a notice that it was removed, the unlock is not something you "
+                     "can see or finish. Answer what you were doing, then ask them to send "
+                     "/unlock again in the private chat.")
 OWNER_NOTE_NO_FACTOR = ("No second factor is set up on this router, so every change is refused. "
                         "When a change is refused, tell the owner that a factor has to be set up "
                         "in LuCI (Services -> Hermes Agent -> Security) first, and do not look for "
@@ -151,6 +163,10 @@ def _validate_endpoint(value: str, label: str) -> None:
 
 
 PROFILES = ("owner", "assistant", "root", "admin")
+
+# The unlock plugin's name in plugins.enabled (its entry point's name, see build.sh).
+UNLOCK_PLUGIN = "openwrt-unlock"
+UNLOCK_MARKER = "_openwrt_unlock_managed"
 
 # The tools of openwrt-mcp the model is never offered, in any profile: they are how the
 # OWNER proves who they are, and a model that could call them would be asking for a PIN.
@@ -399,6 +415,42 @@ def main() -> int:
                         # Consistent with the rest of this file: never leave a key
                         # behind that now holds nothing (see _openwrt_mcp_managed).
                         agent_cfg.pop("disabled_toolsets", None)
+
+        # The unlock plugin, in the owner profile. Left alone when no profile was passed (the
+        # callers that predate profiles), and taken out again by the others only when this
+        # bridge put it there.
+        if profile == "owner":
+            plugins = config.get("plugins")
+            if plugins is None:
+                plugins = config["plugins"] = {}
+            if not isinstance(plugins, dict):
+                raise ValueError("plugins must be a mapping")
+            listed = plugins.get("enabled")
+            if listed is None:
+                listed = []
+            if not isinstance(listed, list) or not all(isinstance(n, str) for n in listed):
+                raise ValueError("plugins.enabled must be a list of names")
+            if UNLOCK_PLUGIN not in listed:
+                plugins["enabled"] = list(listed) + [UNLOCK_PLUGIN]
+            denied = plugins.get("disabled")
+            if isinstance(denied, list) and UNLOCK_PLUGIN in denied:
+                kept = [n for n in denied if n != UNLOCK_PLUGIN]
+                if kept:
+                    plugins["disabled"] = kept
+                else:
+                    plugins.pop("disabled", None)
+            config[UNLOCK_MARKER] = True
+        elif profile is not None and config.get(UNLOCK_MARKER) is True:
+            plugins = config.get("plugins")
+            if isinstance(plugins, dict) and isinstance(plugins.get("enabled"), list):
+                remaining = [n for n in plugins["enabled"] if n != UNLOCK_PLUGIN]
+                if remaining:
+                    plugins["enabled"] = remaining
+                else:
+                    plugins.pop("enabled", None)
+                if not plugins:
+                    config.pop("plugins", None)
+            config.pop(UNLOCK_MARKER, None)
 
         # The profile's note in agent.system_prompt: assistant's and owner's added, root's
         # (it has none) taking out whichever is there, the operator's own text kept either way.

@@ -146,6 +146,25 @@ chmod 0755 "$OUT/usr/libexec/hermes-drop"
 # Which profile is which account; sourced by the init and the wrapper, so it is said once.
 cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
 
+# The Hermes-side unlock plugin. It goes in the private site-packages, beside the libraries and
+# owned by root like them, so the agent (which runs as hermes) cannot rewrite the code that
+# stands between the owner's PIN and the model; and it is found the way upstream finds any
+# pip-installed plugin, through a hermes_agent.plugins entry point in a dist-info. It is
+# enabled by the bridge (set-toolsets), in the owner profile only. See its own header.
+cp "$SRC/files/openwrt_unlock.py" "$SITE/openwrt_unlock.py" && chmod 0644 "$SITE/openwrt_unlock.py"
+PLUGIN_DIST="$SITE/openwrt_unlock-$HERMES_VERSION.dist-info"
+mkdir -p "$PLUGIN_DIST"
+cat > "$PLUGIN_DIST/METADATA" <<METADATA
+Metadata-Version: 2.1
+Name: openwrt-unlock
+Version: $HERMES_VERSION
+Summary: The owner's /unlock and /lock in Telegram, and the walls that keep the PIN from the model
+METADATA
+printf '[hermes_agent.plugins]\nopenwrt-unlock = openwrt_unlock\n' > "$PLUGIN_DIST/entry_points.txt"
+printf 'pip\n' > "$PLUGIN_DIST/INSTALLER"
+printf 'openwrt_unlock.py,,\nopenwrt_unlock-%s.dist-info/METADATA,,\nopenwrt_unlock-%s.dist-info/entry_points.txt,,\nopenwrt_unlock-%s.dist-info/INSTALLER,,\nopenwrt_unlock-%s.dist-info/RECORD,,\n' \
+	"$HERMES_VERSION" "$HERMES_VERSION" "$HERMES_VERSION" "$HERMES_VERSION" > "$PLUGIN_DIST/RECORD"
+
 # pip writes a console script whose shebang points at the machine that ran pip. On the
 # router that path does not exist. Write our own, and put the private site-packages on
 # the path explicitly rather than relying on the caller's environment.
