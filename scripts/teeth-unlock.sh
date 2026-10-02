@@ -230,6 +230,14 @@ expect_red "a group treated as the private chat" check_unlock_refused_in_group
 plant "$PLUGIN" '        if not authorized(user_id):' '        if False:'
 expect_red "the allowlist not consulted" check_unlock_only_from_allowlist
 
+# ---- 28. the gateway hook gone: an edit into /unlock is seen by nothing that deletes it ----
+# Telegram sends an edit as edited_message, which the plugin's own Telegram handler does not
+# take; the gateway turns it into a message event, and line 2 is what catches it there.
+plant "$PLUGIN" '        if platform != "telegram":
+            return None' '        if True:
+            return None'
+expect_red "the gateway hook passing every message" check_edited_unlock_never_reaches_model
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -257,4 +265,4 @@ fi
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-echo "teeth-unlock: 27 faults, 27 distinct checks, controls green"
+echo "teeth-unlock: 28 faults, 28 distinct checks, controls green"

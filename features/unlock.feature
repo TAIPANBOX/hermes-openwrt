@@ -190,6 +190,13 @@ Feature: The agent changes the router only when its owner unlocks it
     And a PIN on a line of its own inside a longer message, which no earlier line takes, is removed from every request to the model before it is sent
     # -> check_unlock_while_busy_never_reaches_model
 
+  Scenario: A message edited into an unlock is handled the same way
+    Given the owner sent an ordinary message
+    When they edit it into /unlock with a PIN
+    Then the edited message is deleted from the chat
+    And the PIN reaches neither the model nor any file on the router
+    # -> check_edited_unlock_never_reaches_model
+
   Scenario: A bare code is treated as an unlock attempt
     Given a factor is configured
     When the owner sends a message that is only a PIN or a code, without /unlock

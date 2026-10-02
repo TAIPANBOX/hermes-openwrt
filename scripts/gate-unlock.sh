@@ -46,7 +46,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model'
 # What is still to be built: the LuCI Security page and the SSH enrolment (stage 5).
 STAGE4=''
 STAGE5='check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
@@ -784,6 +784,7 @@ check_lock_closes_at_once()                               { scenario "$CUR_NAME"
 check_unlock_message_deleted_and_never_reaches_model()    { scenario "$CUR_NAME" pin+totp; }
 check_unlock_while_busy_never_reaches_model()             { scenario "$CUR_NAME" pin; }
 check_bare_code_is_an_unlock_attempt()                    { scenario "$CUR_NAME" pin+totp; }
+check_edited_unlock_never_reaches_model()                 { scenario "$CUR_NAME" pin; }
 check_secret_in_no_log()                                  { scenario "$CUR_NAME" pin+totp; }
 check_unlock_refused_in_group()                           { scenario "$CUR_NAME" pin; }
 check_unlock_only_from_allowlist()                        { scenario "$CUR_NAME" pin; }

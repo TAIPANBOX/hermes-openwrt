@@ -224,7 +224,14 @@ class Control(Base):
                 if args["text"].startswith("/"):
                     cmd = args["text"].split()[0]
                     msg["entities"] = [{"type": "bot_command", "offset": 0, "length": len(cmd)}]
-                S.updates.append({"update_id": uid, "message": msg})
+                if args.get("edit_of"):
+                    # An edit of an earlier message: same message_id, an edit_date, and Telegram
+                    # delivers it as edited_message rather than message.
+                    msg["message_id"] = mid = int(args["edit_of"])
+                    msg["edit_date"] = int(time.time())
+                    S.updates.append({"update_id": uid, "edited_message": msg})
+                else:
+                    S.updates.append({"update_id": uid, "message": msg})
                 S.cond.notify_all()
             return self.send_json({"update_id": uid, "message_id": mid, "chat_id": chat})
         if path == "/set":
@@ -662,6 +669,22 @@ def check_unlock_message_deleted_and_never_reaches_model():
     wait_for(lambda: state()["model_calls"] > calls_before, "an ordinary message to reach the model", timeout=40)
     ctl("/set", {"delete_delay": 0})
     return "deleted from the chat before the daemon was asked, answered with the outcome only, no request to the model, in no file; an ordinary message still reaches the model"
+
+
+def check_edited_unlock_never_reaches_model():
+    """An ordinary message edited afterwards into an /unlock: Telegram sends the edit as a
+    separate kind of update, which a handler that looks only at new messages never sees."""
+    gateway_is_wired()
+    calls_before = state()["model_calls"]
+    sent = say("good evening")
+    wait_for(lambda: state()["model_calls"] > calls_before, "the first message to reach the model", timeout=40)
+    settle()
+    say("/unlock " + PIN, edit_of=sent["message_id"])
+    settle(6.0)
+    no_trace([PIN], "a PIN written into an edited message")
+    need((str(sent["chat_id"]), str(sent["message_id"])) in deleted(),
+         "the message edited into an /unlock was not deleted from the chat")
+    return "a message edited into /unlock <PIN> was deleted, and the PIN reached neither the model nor a file"
 
 
 def busy_turn(mode, mixed):
