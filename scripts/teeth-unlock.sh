@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
-# One planted fault for each check the gate implements, twelve in all. Each is a change a
+# One planted fault for each check the gate implements, twenty-seven in all. Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -10,8 +10,8 @@
 #
 # And the three things around the faults, so that the reds above were the faults and not the
 # harness: every implemented check passes with nothing planted, a name that matches no check is
-# "measured nothing" and not a pass, and a scenario whose check does not exist yet (stage 4
-# and 5) fails with NOT IMPLEMENTED instead of being skipped.
+# "measured nothing" and not a pass, and a scenario whose check does not exist yet (stage 5)
+# fails with NOT IMPLEMENTED instead of being skipped.
 #
 # The faults go into files copied out of the BUILT tree, never into the build tree itself, so
 # a run that goes red partway leaves nothing behind for the next build to inherit.
@@ -27,7 +27,8 @@ TREE="$ROOT/build/$LINE/$ARCH/tree"
 # The tree must be the repository's: a stale build would plant faults in files the gate
 # then does not install.
 for pair in hermes-agent.init:etc/init.d/hermes-agent hermes-gateway:usr/sbin/hermes-gateway \
-	set-toolsets.py:usr/libexec/hermes-set-toolsets hermes-drop.py:usr/libexec/hermes-drop; do
+	set-toolsets.py:usr/libexec/hermes-set-toolsets hermes-drop.py:usr/libexec/hermes-drop \
+	openwrt_unlock.py:usr/lib/hermes-agent/site-packages/openwrt_unlock.py; do
 	cmp -s "$ROOT/package/hermes-agent/files/${pair%%:*}" "$TREE/${pair##*:}" || {
 		echo "teeth-unlock: ${pair##*:} in the build tree differs from the repository's; rebuild first:" >&2
 		echo "  ./package/hermes-agent/build-in-container.sh $ARCH" >&2
@@ -144,6 +145,91 @@ expect_red "the openwrt-mcp state directory in RAM" check_rollback_survives_rebo
 plant "$INIT" '	for tool in ubus_call uci_apply uci_confirm; do' '	for tool in ubus_call uci_apply uci_confirm wg_new_client; do'
 expect_red "wg_new_client back in the change policy" check_change_policy_hands_out_no_private_key
 
+# ---- the Hermes-side half: the plugin, and the init lines that tell the daemon what to ask ----
+# Faults in the plugin are planted in the copy of site-packages/openwrt_unlock.py of the built
+# tree, laid over the installation by OVERLAY exactly as the faults above are.
+PLUGIN=usr/lib/hermes-agent/site-packages/openwrt_unlock.py
+
+# ---- 13. a scheduled job's change let through ----
+plant "$PLUGIN" '        if not _is_scheduled(ctx):
+            return None' '        if True:
+            return None'
+expect_red "a scheduled job told apart from nobody" check_scheduled_job_cannot_change
+
+# ---- 14. the PIN sent to the daemon backwards ----
+plant "$PLUGIN" '        return {"pin": tokens[0]}' '        return {"pin": tokens[0][::-1]}'
+expect_red "the PIN reversed on its way to the daemon" check_pin_alone_unlocks
+
+# ---- 15. the code sent to the daemon backwards ----
+plant "$PLUGIN" '        return {"code": tokens[0]}' '        return {"code": tokens[0][::-1]}'
+expect_red "the code reversed on its way to the daemon" check_code_alone_unlocks
+
+# ---- 16. pin+totp written as a PIN alone ----
+# Both factors configured, the daemon asked for one: a right PIN and a wrong code open changes.
+plant "$INIT" '"$prefix" "$factor" "$prefix" "$window"' '"$prefix" "${factor%+totp}" "$prefix" "$window"'
+expect_red "pin+totp written as pin" check_pin_and_code_both_required
+
+# ---- 17. a PIN kept in the clear by the tool that sets it ----
+# The daemon is a dependency, so the fault is a stand-in for it: a wrapper ahead of it on the
+# PATH that sets the PIN and then writes the PIN down as typed.
+mkdir -p "$W/overlay/usr/sbin"
+cat > "$W/overlay/usr/sbin/openwrt-mcp" <<'SHIM'
+#!/bin/sh
+if [ "$1" = pin ] && [ "$2" = set ]; then
+	pin=$(cat)
+	printf '%s\n' "$pin" | /usr/bin/openwrt-mcp "$@"; rc=$?
+	printf '%s pbkdf2-sha256$1$%s$%s\n' "$3" "$pin" "$pin" > /etc/openwrt-mcp/pin
+	exit $rc
+fi
+exec /usr/bin/openwrt-mcp "$@"
+SHIM
+chmod 755 "$W/overlay/usr/sbin/openwrt-mcp"
+expect_red "a PIN stored as typed" check_pin_stored_as_slow_hash
+
+# ---- 18. no limit on wrong tries ----
+plant "$INIT" '"$prefix" "$max_failures" "$prefix" "$lockout"' '"$prefix" "100000" "$prefix" "$lockout"'
+expect_red "a limit of a hundred thousand wrong tries" check_wrong_attempts_lock_out
+
+# ---- 19. the owner is not told a code was used ----
+# The replay itself is the daemon's. What this reads is the state it reports and the words the
+# owner is given, so a plugin that stops saying why is caught here.
+plant "$PLUGIN" '    if "already used" in low and factor == "totp":' '    if False:'
+expect_red "a used code refused without saying so" check_code_works_once
+
+# ---- 20. a window that does not end ----
+plant "$INIT" '"$prefix" "$window" "$prefix" "$max_failures"' '"$prefix" "24h" "$prefix" "$max_failures"'
+expect_red "a window of a day" check_unlock_window_ends
+
+# ---- 21. /lock that asks for nothing ----
+plant "$PLUGIN" '            tool, arguments = "mfa_lock", {}' '            tool, arguments = "ubus_list", {}'
+expect_red "/lock that does not lock" check_lock_closes_at_once
+
+# ---- 22. the message left in the chat ----
+plant "$PLUGIN" '            deleted = bool(await delete())' '            deleted = True'
+expect_red "the unlock message never deleted" check_unlock_message_deleted_and_never_reaches_model
+
+# ---- 23. the request to the model sent as it is ----
+plant "$PLUGIN" '        fixed = _walk(request, factor)
+        if fixed is request:
+            return None' '        return None'
+expect_red "the model's request not scrubbed" check_unlock_while_busy_never_reaches_model
+
+# ---- 24. a bare PIN and code treated as an ordinary message ----
+plant "$PLUGIN" '    if factor in FACTORS and BARE.match(text):' '    if False and BARE.match(text):'
+expect_red "a bare PIN and code not recognised" check_bare_code_is_an_unlock_attempt
+
+# ---- 25. the Telegram library left at DEBUG ----
+plant "$PLUGIN" '    logging.getLogger("telegram").setLevel(logging.INFO)' '    pass'
+expect_red "the Telegram library left printing every update" check_secret_in_no_log
+
+# ---- 26. a group let unlock ----
+plant "$PLUGIN" '        if not private:' '        if False:'
+expect_red "a group treated as the private chat" check_unlock_refused_in_group
+
+# ---- 27. anyone let try ----
+plant "$PLUGIN" '        if not authorized(user_id):' '        if False:'
+expect_red "the allowlist not consulted" check_unlock_only_from_allowlist
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -165,10 +251,10 @@ grep -q 'measured nothing' "$OUT" || { echo "TEETH FAIL: no check named, but the
 echo "teeth ok: no such check -> measured nothing"
 
 # A scenario with no check behind it yet is red, not skipped.
-if ONLY=check_pin_alone_unlocks ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
+if ONLY=check_luci_pin_write_only ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
 	echo "TEETH FAIL: a check that is not implemented passed"; exit 1
 fi
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-echo "teeth-unlock: 12 faults, 12 distinct checks, controls green"
+echo "teeth-unlock: 27 faults, 27 distinct checks, controls green"

@@ -22,23 +22,33 @@
 # daemon's own refusal, over its own HTTP endpoint, with the token the package paired.
 #
 # This gate is red until the feature is complete. Each scenario in
-# features/unlock.feature names one check; the ones that need the Hermes-side unlock
-# command (stage 4) or the LuCI Security page (stage 5) print NOT IMPLEMENTED and fail, so
-# a green run can only mean everything the feature promises is proven.
+# features/unlock.feature names one check; the ones that need the LuCI Security page
+# (stage 5) print NOT IMPLEMENTED and fail, so a green run can only mean everything the
+# feature promises is proven.
+#
+# The Hermes-side half (stage 4) runs the installed gateway for real: the init's own command
+# and environment, through the wrapper that drops root, with Telegram on, the real adapter,
+# the real plugin and the real openwrt-mcp daemon. Only the two services across the network
+# are stood in for, by scripts/unlock-harness.py: Telegram's Bot API, which records what the
+# bot sent and deleted, and a model endpoint, which records every request it is sent. "Never
+# reaches the model" is asserted on those recorded requests and "never in a log" on the files
+# the gateway, the agent and the daemon wrote with the gateway logging at DEBUG.
 #
 #   gate-unlock.sh                  all checks
 #   ONLY="check_a check_b" ...      just those (the teeth use this)
 #   APK=/path/hermes-agent.apk      another build of the base package
+#   TGAPK=/path/addon.apk           another build of the Telegram add-on
+#   HARNESS=/path/harness.py        another harness (the red-first runs use one whose
+#                                   precondition, that the plugin is wired, is removed, so
+#                                   each check fails on what it asserts)
 #   OVERLAY=/dir                    files copied over the installed ones before the checks
 #                                   (teeth-unlock.sh plants its faults this way)
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key'
-# The Hermes-side half (a plugin that takes /unlock, deletes the message, keeps it from the
-# model) is stage 4; the factors end to end through it, with it. The LuCI page and the SSH
-# enrolment are stage 5. The split is the one this file was written with, not a measurement.
-STAGE4='check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist'
+# What is still to be built: the LuCI Security page and the SSH enrolment (stage 5).
+STAGE4=''
 STAGE5='check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 
 if [ "${1:-}" = "--selftest" ]; then
@@ -65,7 +75,13 @@ APK=${APK:-$(ls -t "$BUILD_DIR"/hermes-agent-[0-9]*.apk 2>/dev/null | head -1 ||
 [ -n "$APK" ] && [ -f "$APK" ] || {
 	echo "FAIL: no package found. Build it: ./package/hermes-agent/build-in-container.sh $ARCH"; exit 1; }
 MCP=$("$ROOT/scripts/mcp-apk.sh" "$ARCH") || exit 1
-echo "PASS: artefacts $(basename "$APK") and $(basename "$MCP")"
+# The Hermes-side checks run the real Telegram adapter, which needs the add-on's library. A gate
+# run without one still runs every other check and fails the Telegram ones by name.
+TGAPK=${TGAPK:-$(ls -t "$BUILD_DIR-telegram"/hermes-agent-telegram-*.apk 2>/dev/null | head -1 || true)}
+HARNESS=${HARNESS:-$ROOT/scripts/unlock-harness.py}
+TG_ARGS=""
+[ -n "$TGAPK" ] && [ -f "$TGAPK" ] && TG_ARGS="-v $TGAPK:/tg.apk:ro"
+echo "PASS: artefacts $(basename "$APK") and $(basename "$MCP")${TGAPK:+ and $(basename "$TGAPK")}"
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 
 OVERLAY_ARGS=""
@@ -77,14 +93,14 @@ OVERLAY_ARGS=""
 # shellcheck disable=SC2086
 docker run --rm -i --platform "$PLATFORM" --privileged --cgroupns private --memory 2g \
 	-e ONLY="${ONLY:-}" -e IMPLEMENTED="$IMPLEMENTED" -e STAGE4="$STAGE4" -e STAGE5="$STAGE5" \
-	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
+	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" $TG_ARGS -v "$HARNESS:/harness.py:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
 set -u
 mkdir -p /var/lock /var/run /var/state /stubs /tmp/pristine
 # A booted router's /tmp is a world-writable tmpfs with the sticky bit; this image's is a
 # plain directory only root can write in. The agent writes there (a tool's scratch files).
 chmod 1777 /tmp
 apk update -q
-apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/install.log 2>&1 || { cat /tmp/install.log; echo "FAIL setup: the packages would not install"; exit 1; }
+apk add --allow-untrusted /pkg.apk /mcp.apk $([ -f /tg.apk ] && echo /tg.apk) >/tmp/install.log 2>&1 || { cat /tmp/install.log; echo "FAIL setup: the packages would not install"; exit 1; }
 # Package installation is complete; nothing below needs more than loopback.
 ip link set eth0 down 2>/dev/null || true
 # The harness leaves the root cgroup before a domain controller is enabled in it.
@@ -654,7 +670,7 @@ check_rollback_survives_reboot() {
 	# A reboot: the daemon dies mid-window and everything in /tmp goes.
 	kill -9 "$(cat /tmp/mcp.pid)"; rm -f /tmp/mcp.pid
 	sleep 1
-	find /tmp -mindepth 1 -maxdepth 1 ! -name pristine ! -name mcpcall.py ! -name 'fake*.sh' ! -name 'verdict' -exec rm -rf {} + 2>/dev/null
+	find /tmp -mindepth 1 -maxdepth 1 ! -name pristine ! -name mcpcall.py ! -name cronrun.py ! -name run-cron-job.sh ! -name 'fake*.sh' ! -name 'verdict' -exec rm -rf {} + 2>/dev/null
 	daemon_start
 	sleep 1
 	[ "$(desc)" = baseline-gate ] || fail "after the reboot the router kept the unconfirmed change: $(desc)"
@@ -667,6 +683,112 @@ check_rollback_survives_reboot() {
 	pass "snapshot and pending record under /etc/openwrt-mcp, none in /tmp; the change undone after a reboot and again after its window"
 }
 
+# ======================================================= the Hermes side: the real gateway
+
+# The gateway, with Telegram on, against the two stand-ins in scripts/unlock-harness.py.
+# What an operator writes themselves goes in config.yaml before the bridge runs (where
+# Telegram is, and the most verbose logging); everything else is what the package wrote.
+#   unlock_up <factor> [window]
+TGTOKEN='123456789:AAHgateCanaryTokenNotRealAAHgateCanary'
+harness() { python3 /harness.py "$@" 2>&1; }
+last_line() { tail -n 1 | sed 's/^\(PASS\|FAIL\): //'; }
+
+# A scheduled job, run by upstream's own scheduler code in a process of its own, with the
+# gateway's environment and the agent's user: what the gateway's cron ticker would run.
+cat > /tmp/cronrun.py <<'EOF'
+import json, os, sys
+sys.path.insert(0, "/usr/lib/hermes-agent/site-packages")
+from tools.mcp_tool_discovery import discover_mcp_tools
+discover_mcp_tools()
+from cron.scheduler import run_job
+res = run_job({"id": "gatejob", "name": "gate job", "prompt": "Change the router description.",
+               "schedule": {"kind": "once"}, "deliver": "local", "enabled": True})
+print("RESULT", json.dumps([str(x)[:120] for x in res]))
+EOF
+cat > /tmp/run-cron-job.sh <<'EOF'
+#!/bin/sh
+cd /srv/hermes
+exec python3 -I -B /usr/libexec/hermes-drop hermes env $(cat /tmp/envv) \
+	OPENWRT_MCP_TOKEN="$(cat /etc/hermes-agent/router-mcp.token)" OPENAI_API_KEY="$(cat /etc/hermes-agent/provider.key)" \
+	HERMES_OPENWRT_UNLOCK_URL=http://127.0.0.1:8730/mcp PYTHONPATH=/usr/lib/hermes-agent/site-packages \
+	python3 /tmp/cronrun.py
+EOF
+
+unlock_up() {
+	factor=$1; window=${2:-}
+	[ -f /usr/lib/hermes-agent/telegram.manifest ] || fail "the Telegram add-on is not installed, so the real adapter cannot run; build it: ./package/hermes-agent-telegram/build-in-container.sh"
+	reset; configure - "$factor"
+	uci set hermes.main.base_url=http://127.0.0.1:8742/v1
+	uci set hermes.main.model=gate-model
+	[ -z "$window" ] || uci set hermes.security.window="$window"
+	uci set hermes.telegram.enabled=1
+	uci -q delete hermes.telegram.allow_user_id || true
+	uci add_list hermes.telegram.allow_user_id=4242
+	uci commit hermes
+	printf '%s' "$TGTOKEN" > /etc/hermes-agent/telegram.token
+	chmod 600 /etc/hermes-agent/telegram.token
+	mkdir -p /srv/hermes; chmod 700 /srv/hermes
+	cat > /srv/hermes/config.yaml <<'EOF'
+telegram:
+  extra:
+    base_url: http://127.0.0.1:8741/bot
+logging:
+  level: DEBUG
+EOF
+	chown -R hermes:hermes /srv/hermes
+	rm -rf /tmp/fakes /tmp/totp.secret
+	python3 /harness.py fakes >/tmp/fakes.log 2>&1 &
+	echo $! > /tmp/fakes.pid
+	started
+	daemon_start
+	harness factor "$factor" >/tmp/harness.out || fail "$(last_line < /tmp/harness.out)"
+	sh -c 'exec env $(cat /tmp/envv) "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
+	echo $! > /tmp/svc.pid
+	harness ready >/tmp/harness.out || { tail -n 12 /tmp/svc.log; fail "$(last_line < /tmp/harness.out)"; }
+}
+
+# Stop what unlock_up started: the gateway, whatever it spawned, and the stand-ins. busybox has
+# no pkill, and a process is found by its command line.
+unlock_down() {
+	for p in /proc/[0-9]*; do
+		p=${p#/proc/}
+		[ "$p" != "$$" ] || continue
+		cmd=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null) || continue
+		case "$cmd" in
+			*"hermes_cli/main.py gateway run"*|*"/harness.py fakes"*|*"run-cron-job"*) kill -9 "$p" 2>/dev/null || true ;;
+		esac
+	done
+	rm -f /tmp/svc.pid /tmp/fakes.pid
+}
+
+# One scenario of the harness, against a gateway started for it.
+#   scenario <check> <factor> [window]
+scenario() {
+	unlock_up "$2" "${3:-}"
+	if out=$(harness "$1"); then
+		pass "$(echo "$out" | last_line)"
+	else
+		echo "$out" | tail -n 6 | grep -v '^FAIL' | cut -c1-200 >&2 || true
+		fail "$(echo "$out" | last_line)"
+	fi
+}
+
+check_pin_alone_unlocks()                                 { scenario "$CUR_NAME" pin; }
+check_code_alone_unlocks()                                { scenario "$CUR_NAME" totp; }
+check_pin_and_code_both_required()                        { scenario "$CUR_NAME" pin+totp; }
+check_pin_stored_as_slow_hash()                           { scenario "$CUR_NAME" pin; }
+check_wrong_attempts_lock_out()                           { scenario "$CUR_NAME" pin+totp; }
+check_code_works_once()                                   { scenario "$CUR_NAME" totp; }
+check_unlock_window_ends()                                { scenario "$CUR_NAME" pin 5s; }
+check_lock_closes_at_once()                               { scenario "$CUR_NAME" pin; }
+check_unlock_message_deleted_and_never_reaches_model()    { scenario "$CUR_NAME" pin+totp; }
+check_unlock_while_busy_never_reaches_model()             { scenario "$CUR_NAME" pin; }
+check_bare_code_is_an_unlock_attempt()                    { scenario "$CUR_NAME" pin+totp; }
+check_secret_in_no_log()                                  { scenario "$CUR_NAME" pin+totp; }
+check_unlock_refused_in_group()                           { scenario "$CUR_NAME" pin; }
+check_unlock_only_from_allowlist()                        { scenario "$CUR_NAME" pin; }
+check_scheduled_job_cannot_change()                       { scenario "$CUR_NAME" pin; }
+
 # ---- what this stage does not prove yet ----
 not_implemented() { fail "NOT IMPLEMENTED ($1)"; }
 
@@ -677,13 +799,14 @@ run_check() {
 	name=$1; kind=$2
 	n=$((n + 1))
 	if [ -n "${ONLY:-}" ]; then case "$SELECTED" in *" $name "*) ;; *) return 0 ;; esac; fi
-	CUR="[$n/$TOTAL] $name"
+	CUR="[$n/$TOTAL] $name"; CUR_NAME=$name
 	rm -f /tmp/verdict
 	if [ "$kind" = implemented ]; then
 		( "$name" ); rc=$?
 	else
 		( not_implemented "$kind" ); rc=$?
 	fi
+	unlock_down
 	daemon_stop
 	cp /tmp/pristine/hermes.bin /usr/bin/hermes
 	if [ "$rc" -eq 0 ] && [ -f /tmp/verdict ]; then

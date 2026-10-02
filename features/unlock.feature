@@ -29,12 +29,22 @@
 #                        is the second line here; the first is pre_gateway_dispatch.
 #   @measured 2026-10-01 Telegram Bot API, deleteMessage: bots can delete incoming
 #                        messages in private chats; in a group only as an administrator.
+#   @measured 2026-10-02 by ONLY=check_unlock_while_busy_never_reaches_model ./scripts/gate-unlock.sh,
+#                        which runs the real gateway in the 25.12 rootfs against stand-ins:
+#                        the reading above was incomplete in two ways. A message queued while
+#                        a turn runs is handed to pre_gateway_dispatch when its turn comes, and
+#                        a Telegram-native handler a plugin registers (register_telegram_handler)
+#                        runs before the adapter's own, busy or not. The plugin takes /unlock
+#                        there, so an unlock sent while the agent is busy is deleted and works
+#                        like any other; the request-level scrub stays as the last line for what
+#                        no earlier line can know is an unlock (a PIN alone on a line of a longer
+#                        message). That is why the scenario below no longer says nothing unlocks.
 #
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
-# fix. The checks that need the Hermes-side unlock command (the plugin) or the LuCI
-# Security page are listed by the gate as NOT IMPLEMENTED and fail, so the gate stays red
-# until the whole feature is built; a green run can only mean all of it is proven.
+# fix. The checks that need the LuCI Security page are listed by the gate as NOT IMPLEMENTED
+# and fail, so the gate stays red until the whole feature is built; a green run can only
+# mean all of it is proven.
 
 Feature: The agent changes the router only when its owner unlocks it
 
@@ -176,8 +186,8 @@ Feature: The agent changes the router only when its owner unlocks it
   Scenario: An unlock sent while the agent is busy still never reaches the model
     Given the agent is in the middle of answering
     When the owner sends /unlock with a PIN or code
-    Then every request to the model has that text removed before it is sent
-    And nothing unlocks, and the bot asks for /unlock again once it has answered
+    Then the bot deletes it and answers as at any other time, and the agent never sees it
+    And a PIN on a line of its own inside a longer message, which no earlier line takes, is removed from every request to the model before it is sent
     # -> check_unlock_while_busy_never_reaches_model
 
   Scenario: A bare code is treated as an unlock attempt
