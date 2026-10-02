@@ -70,14 +70,16 @@ ADDON=${ADDON:-$(ls -t "$BUILD_DIR-telegram"/hermes-agent-telegram-*.apk 2>/dev/
 	echo "FAIL: no base package. Build it: ./package/hermes-agent/build-in-container.sh $ARCH"; exit 1; }
 [ -n "$ADDON" ] && [ -f "$ADDON" ] || {
 	echo "FAIL: no add-on. Build it: ./package/hermes-agent-telegram/build-in-container.sh $ARCH"; exit 1; }
-echo "PASS: artefacts $(basename "$BASE") and $(basename "$ADDON")"
+# The base package depends on openwrt-mcp (0.21.5-r3), which is not in OpenWrt's feed.
+MCP=${MCP:-$("$ROOT/scripts/mcp-apk.sh" "$ARCH")} || exit 1
+echo "PASS: artefacts $(basename "$BASE") and $(basename "$ADDON") (with $(basename "$MCP"))"
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 
 # -i is load-bearing. Without it docker hands `sh -s` an empty stdin, the script never
 # runs, the container exits 0, and this gate reports every check passed having measured
 # nothing at all. That happened once already, in this repository.
 docker run --rm -i --platform "$PLATFORM" \
-	-v "$BASE:/base.apk:ro" -v "$ADDON:/addon.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
+	-v "$BASE:/base.apk:ro" -v "$ADDON:/addon.apk:ro" -v "$MCP:/mcp.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
 set -eu
 fail() { echo "FAIL $1: $2"; exit 1; }
 
@@ -89,7 +91,7 @@ TOKEN='123456789:AAHgateCanaryTokenNotRealAAHgateCanary'
 
 mkdir -p /var/lock /var/run /var/state
 apk update -q
-apk add --allow-untrusted /base.apk >/tmp/add.log 2>&1 || { cat /tmp/add.log; fail "setup" "the base package would not install"; }
+apk add --allow-untrusted /base.apk /mcp.apk >/tmp/add.log 2>&1 || { cat /tmp/add.log; fail "setup" "the base package would not install"; }
 
 # ---- 1. the base alone cannot talk to Telegram ----
 # The positive control is the point of this check. "import telegram fails" is also what a

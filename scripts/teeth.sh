@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -84,7 +84,7 @@ cp /tmp/shim.bak "$SITE/webbrowser.py"
 # ---- fault 2: an undeclared runtime dependency ----
 # apk would not complain: the package installs fine without ffmpeg declared, and the
 # gap only shows the first time someone sends a voice message.
-repack "python3 python3-pip ca-bundle ripgrep"
+repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp"
 expect_red "ffmpeg undeclared" check_deps_resolve
 
 # ---- fault 3: a post-install that does not enable the service ----
@@ -113,7 +113,8 @@ cp /tmp/postinstall.bak "$W/post-install"
 INIT="$W/tree/etc/init.d/hermes-agent"
 WRAP="$W/tree/usr/sbin/hermes-gateway"
 cp "$WRAP" /tmp/wrap.bak
-sed 's|^exec /usr/bin/hermes gateway run --external-supervisor$|sleep 12; exec /usr/bin/hermes gateway run --external-supervisor --toolsets file,web|' \
+# The exec goes through hermes-drop since 0.21.5-r3, so the line is matched by its tail.
+sed 's|^exec \(.*/usr/bin/hermes gateway run --external-supervisor\)$|sleep 12; exec \1 --toolsets file,web|' \
 	"$WRAP" > /tmp/wrap.new
 grep -q -- '--toolsets file,web' /tmp/wrap.new || {
 	echo "teeth: fault 4 planted nothing; the wrapper's exec line no longer reads as expected" >&2; exit 1; }

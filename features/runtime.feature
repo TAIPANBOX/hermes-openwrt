@@ -50,6 +50,17 @@
 #                        a ChatGPT subscription (gpt-5.6-luna) all answered with the same
 #                        figures while running together; 150 MB for the whole process.
 #
+#   @decided 2026-10-01  Superseding the default above: an unset profile means owner, so a
+#                        router upgraded with none set stops running its agent as root. The
+#                        agent runs as an unprivileged user, hermes, in the owner and
+#                        assistant profiles; root is the old admin, an explicit and warned
+#                        choice, and admin is accepted as another name for it. The agent
+#                        reaches the router through openwrt-mcp, whose second factor the
+#                        owner sets. What shows the agent running as hermes, the keys
+#                        staying out of its reach and the unlock itself is
+#                        features/unlock.feature; the scenarios below are the parts of that
+#                        change that read and write the gateway's own configuration.
+#
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
 # ways, and scripts/teeth-runtime.py breaks the product on purpose to prove the tests fail.
@@ -131,21 +142,44 @@ Feature: What is set on the router is what the gateway runs with
     And the file is exactly as it was
     # -> check_profile_refuses_non_list_disabled_toolsets
 
-  Scenario: no profile chosen means admin, and an unrecognised one refuses to start
+  Scenario: no profile chosen means owner, and an unrecognised one refuses to start
     Given the router's configuration names no profile at all
     When the service starts
-    Then it runs in the admin profile
-    When the router's configuration names a profile that is neither assistant nor admin
-    Then the service refuses, naming the file and the two valid values
+    Then it runs in the owner profile, and says that it is the default
+    When the profile is root, or its old name admin
+    Then the start says the agent runs as root with no unlock
+    When the router's configuration names a profile that is none of owner, assistant, root or admin
+    Then the service refuses, naming the file and the valid values
     And the package's own bridge refuses that same value directly, leaving the configuration untouched
-    # -> check_profile_defaults_to_admin_and_refuses_unknown
+    # -> check_profile_defaults_to_owner_and_refuses_unknown
+
+  Scenario: the owner profile keeps the tools and tells the agent what to do when a change is refused
+    Given the operator's own system prompt and a configuration that disables terminal and file tools
+    When the profile is owner and no second factor is configured
+    Then terminal and file tools are back, the operator's text is kept, and the agent is told a factor has to be set up first
+    When a factor is configured
+    Then the agent is told to ask its owner to send /unlock in the private chat and never to ask for a PIN or a code in a message
+    And a start that changes nothing changes nothing
+    When another profile is applied
+    Then its note replaces this one, and root's takes it out and returns the operator's text exactly
+    And a value that is no factor refuses and leaves the file alone
+    # -> check_owner_profile_keeps_tools_and_its_note_follows_the_factor
 
   Scenario: the running gateway is put back in its chosen profile at every restart, not only the first
     Given the assistant profile has been applied once
     And a chat command or a hand edit has since re-enabled one of the tools it turns off
     When the gateway execs again, the way a respawn or an in-chat restart does
     Then the tool is turned off again
+    And the gateway runs as hermes, whether the profile is passed or not
+    And in root, or its old name admin, it runs as root and the launcher is told not to second-guess that
+    And a profile that is none of them stops the wrapper
     # -> check_wrapper_reapplies_profile_at_exec
+
+  Scenario: the wrapper is root only until the credentials are read
+    Given a wrapper started as root, as procd starts it
+    When it runs its two helpers, which read and write what the agent can write
+    Then they run as the user the profile names, hermes in owner and assistant, root in root
+    # -> check_wrapper_runs_everything_after_the_credentials_as_the_agents_user
 
   Scenario: in the assistant profile the agent is told what it cannot do
     Given the operator's own system prompt
@@ -223,6 +257,14 @@ Feature: What is set on the router is what the gateway runs with
     Then it refuses
     And the configuration file is unchanged
     # -> check_mcp_url_rejection_preserves_config
+
+  Scenario: the model is never offered the tools that unlock the router, and an older entry of the package's own is kept
+    Given the package writes the router MCP connection in any profile
+    Then the entry names the unlock and lock tools as excluded
+    And upstream's own filter registers the router tools but neither of those two
+    When the operator pasted in the entry as earlier releases wrote it
+    Then it is adopted and brought up to date, not refused
+    # -> check_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape
 
   # ---- The model and its endpoint ----
 
@@ -333,6 +375,66 @@ Feature: What is set on the router is what the gateway runs with
     And the gateway and every tool it starts inherit that priority
     # -> check_gateway_runs_below_the_routers_own_work
 
+  # ---- The owner profile: no root, and the router only through openwrt-mcp ----
+
+  Scenario: a configuration file written as root goes to the data directory's owner
+    Given the data directory belongs to hermes
+    When the package's bridge is run as root
+    Then the configuration file it writes belongs to hermes and hermes can read it
+    # -> check_config_written_by_root_takes_the_data_dir_owner
+
+  Scenario: the tool that drops root gives it up for good, and refuses what it cannot do
+    When a command is run through it as hermes
+    Then its user and group ids are all hermes's, it keeps no supplementary group, and root cannot be taken back
+    And its home is the data directory, or the account's home when there is none
+    And a directory it could not enter is left for a directory it can
+    But an unknown user, a missing command, a caller that is not root and an unusable name stop it, and the command never runs
+    And a root target is a plain exec
+    # -> check_hermes_drop_gives_up_root_and_refuses_what_it_cannot_do
+
+  Scenario: the launcher run from a root shell acts as the user who owns the data directory
+    Given a data directory that belongs to hermes
+    When hermes is run from a root shell against it
+    Then it runs as hermes, so a job it creates is one the gateway can update
+    But a data directory that belongs to root, an explicit opt-out, or no data directory named leave it root
+    # -> check_launcher_runs_as_the_user_who_owns_the_data_directory
+
+  Scenario: the package's openwrt-mcp policies are ordered, owned and idempotent
+    Given an operator's own policy for another client in the same file
+    When the package sets up an agent with a second factor
+    Then its read policies come first, one tool each and one method each, and its change policy last, asking the factor for everything
+    And the operator's policy is untouched and openwrt-mcp's own parser accepts the file
+    And a second start changes neither the file nor the token
+    When the agent's token is gone
+    Then a new one is made
+    When no factor is configured
+    Then there is no change policy
+    And another agent gets its own sections and its own token, and the first is left alone
+    And a name that cannot be part of a section is refused
+    # -> check_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone
+
+  Scenario: the second factor's settings are checked at the start
+    Given the owner profile
+    When the factor is not none, pin, totp or pin and code, or the window or lockout is not a duration, or the limit is not a whole number
+    Then the service refuses, naming the setting
+    And a factor, a window, a limit and a lockout that are valid reach the gateway's environment
+    And left alone, the factor is none
+    And the assistant profile has no factor to check
+    # -> check_security_options_refuse_bad_values
+
+  Scenario: the init checks the configuration as the agent's user too
+    Given the init checks the gateway's configuration before it opens an instance
+    When the profile is owner or assistant
+    Then it runs the bridge as hermes, and as root only in the root profile
+    # -> check_init_runs_the_bridge_as_the_agents_user
+
+  Scenario: a data directory the agent cannot write in stops the start
+    Given a data directory that chown cannot give to hermes, or that the filesystem keeps root's
+    When the service starts in the owner profile
+    Then it refuses and says why
+    And a directory that can be given is handed over, and the root profile hands it to root
+    # -> check_start_refuses_a_data_dir_it_cannot_give_to_the_agent
+
   # ---- Further providers ----
 
   Scenario: several providers are offered at once, each chat on the one it picks
@@ -425,3 +527,9 @@ Feature: What is set on the router is what the gateway runs with
     When the service starts
     Then the main model from the router's configuration is back in place and the start goes ahead
     # -> check_chatgpt_login_does_not_trip_the_preflight
+
+  Scenario: the owner profile switches the unlock plugin on and the others take only that out again
+    Given the operator's own plugin lists, one of them naming the unlock plugin as disabled
+    When the owner profile is applied, and then another profile
+    Then the plugin is enabled and no longer disabled, the operator's other names stay, and the other profile removes the name only if the bridge put it there
+    # -> check_owner_profile_enables_the_unlock_plugin_and_the_others_take_it_out_again

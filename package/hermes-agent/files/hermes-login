@@ -38,20 +38,33 @@ mkdir -p "$data_dir"
 chmod 0700 "$data_dir"
 # Upstream's locales and the rest; see the file. The sign-in prints translated text.
 . /usr/lib/hermes-agent/hermes-env
+# The gateway runs as the user hermes and the tokens land in its data directory, so when
+# that directory is hermes's (and this is root, which is how rpcd and an SSH login run it)
+# the sign-in runs as hermes: tokens written here as root would be ones the gateway cannot
+# refresh. HERMES_OPENWRT_AS_ROOT=1 opts out, for the root profile's root-owned directory,
+# which needs no choice: the directory's owner is root there. The restart below stays root.
+as_agent() {
+	if [ "$(id -u)" = 0 ] && [ -z "${HERMES_OPENWRT_AS_ROOT:-}" ] \
+	   && [ "$(ls -ldn "$data_dir" | awk '{print $3}')" = "$(id -u hermes 2>/dev/null)" ]; then
+		/usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes "$@"
+	else
+		"$@"
+	fi
+}
 restart_if_running() {
 	if /etc/init.d/hermes-agent running >/dev/null 2>&1; then
 		/etc/init.d/hermes-agent restart
 	fi
 }
 if [ "${2:-}" = "--logout" ]; then
-	HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
+	as_agent env HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 		HERMES_DISABLE_LAZY_INSTALLS=1 PYTHONDONTWRITEBYTECODE=1 \
 		/usr/bin/python3 -u -c 'from types import SimpleNamespace; from hermes_cli.auth import logout_command; logout_command(SimpleNamespace(provider="openai-codex"))'
 	restart_if_running
 	echo "hermes-login: ChatGPT is signed out."
 	exit 0
 fi
-HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
+as_agent env HERMES_HOME="$data_dir" PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 	HERMES_DISABLE_LAZY_INSTALLS=1 PYTHONDONTWRITEBYTECODE=1 \
 	/usr/bin/python3 -u -c 'from hermes_cli.auth import _login_openai_codex; _login_openai_codex(None, None, force_new_login=True)'
 

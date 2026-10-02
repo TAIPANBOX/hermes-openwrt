@@ -20,6 +20,9 @@ LINE=${RELEASE%.*}
 case "$ARCH" in x86_64) IMAGE="openwrt/rootfs:x86-64-$RELEASE";; *) IMAGE="openwrt/rootfs:$ARCH-$RELEASE";; esac
 BUILD="$ROOT/build/$LINE/$ARCH"
 [ -d "$BUILD/tree" ] || { echo 'measured nothing: no built payload' >&2; exit 1; }
+# hermes-agent depends on openwrt-mcp (its owner profile pairs and configures it), so the
+# container is handed that apk the way it is handed the Telegram add-on.
+MCP=$("$ROOT/scripts/mcp-apk.sh" "$ARCH") || exit 1
 # Convenience for iterating on one test at a time: any arguments name the tests to run
 # (e.g. RuntimeTests.test_x), and the mutation tests are skipped. No arguments runs the
 # full suite followed by teeth-runtime.py, as before.
@@ -28,11 +31,11 @@ RUNTIME_TESTS="$*"
 # mounts. Its root cgroup is the disposable container, never the host namespace.
 docker run --rm -i --platform "linux/$ARCH" --privileged --cgroupns private --memory 1g \
     -e RUNTIME_TESTS="$RUNTIME_TESTS" \
-    -v "$ROOT:/src:ro" -v "$BUILD:/build:ro" -v "$BUILD-telegram:/addon:ro" "$IMAGE" sh -s <<'CONTAINER'
+    -v "$ROOT:/src:ro" -v "$BUILD:/build:ro" -v "$BUILD-telegram:/addon:ro" -v "$MCP:/openwrt-mcp.apk:ro" "$IMAGE" sh -s <<'CONTAINER'
 set -eu
 mkdir -p /var/lock /var/run /var/state /etc/hermes-agent
 apk update -q
-apk add --allow-untrusted /build/hermes-agent-[0-9]*.apk /addon/hermes-agent-telegram-*.apk >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; }
+apk add --allow-untrusted /build/hermes-agent-[0-9]*.apk /addon/hermes-agent-telegram-*.apk /openwrt-mcp.apk >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; }
 # Package installation is complete; runtime proofs may reach loopback only.
 ip link set eth0 down
 # Move the harness out of the parent before enabling a domain controller.
@@ -46,6 +49,11 @@ cp /etc/init.d/hermes-agent /tmp/product/hermes-agent.init
 cp /usr/libexec/hermes-set-toolsets /tmp/product/set-toolsets.py
 cp /usr/libexec/hermes-memory /tmp/product/memory-limit.py
 cp /usr/libexec/hermes-runtime-check /tmp/product/runtime-check.py
+# What the owner profile added; the tests use the installed copies of these three, and the
+# teeth mutate those, but they are kept here with the rest so the mutation harness finds them.
+cp /usr/libexec/hermes-drop /tmp/product/hermes-drop
+cp /usr/bin/hermes /tmp/product/hermes-launcher
+cp /usr/lib/hermes-agent/hermes-profile /tmp/product/hermes-profile
 # Only from r9 on; a missing helper fails its own test rather than the whole gate.
 [ -e /usr/sbin/hermes-login ] && cp /usr/sbin/hermes-login /tmp/product/hermes-login || true
 export PRODUCT_FILES=/tmp/product

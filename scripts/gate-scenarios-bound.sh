@@ -27,7 +27,7 @@ cd "$ROOT"
 #
 # A feature file may name more than one gate, and the set compared below is then the
 # UNION of what they run. Since 24.10 was dropped (2026-09-25) every feature has one.
-PAIRS='features/telegram.feature:scripts/gate-telegram.sh features/feed.feature:scripts/gate-relabel.sh features/runtime.feature:scripts/gate-runtime.sh features/luci.feature:scripts/gate-luci.sh features/routers.feature:scripts/gate-named-routers.sh features/upstream.feature:scripts/gate-upstream.sh'
+PAIRS='features/telegram.feature:scripts/gate-telegram.sh features/feed.feature:scripts/gate-relabel.sh features/runtime.feature:scripts/gate-runtime.sh features/luci.feature:scripts/gate-luci.sh features/routers.feature:scripts/gate-named-routers.sh features/upstream.feature:scripts/gate-upstream.sh features/unlock.feature:scripts/gate-unlock.sh'
 
 rc=0
 for pair in $PAIRS; do

@@ -46,6 +46,9 @@ BUILD_DIR="$ROOT/build/$LINE/$ARCH"
 # not one character, before even reaching the message that says what is missing.
 # `|| true` keeps an empty result from being an error in its own right.
 pick() { f=$(ls -t $1 2>/dev/null | head -1); [ -n "$f" ] && echo "$f"; true; }
+# hermes-agent depends on openwrt-mcp (0.21.5-r3), which OpenWrt's feed does not have, so the
+# preview is handed the one the gates install; without it `apk add` of the agent fails.
+MCP=${MCP:-$("$ROOT/scripts/mcp-apk.sh" "$ARCH")} || exit 1
 AGENT=${AGENT:-$(pick "$BUILD_DIR/hermes-agent-[0-9]*.apk")}
 ADDON=${ADDON:-$(pick "$BUILD_DIR-telegram/hermes-agent-telegram-*.apk")}
 LUCI=${LUCI:-$(pick "$ROOT/build/luci-app-hermes-apk/luci-app-hermes-*.apk")}
@@ -58,7 +61,7 @@ for pair in "agent:$AGENT" "telegram:$ADDON" "luci:$LUCI"; do
 		echo "  ./package/luci-app-hermes/build.sh" >&2
 		exit 1; }
 done
-echo "==> $(basename "$AGENT"), $(basename "$ADDON"), $(basename "$LUCI")"
+echo "==> $(basename "$MCP"), $(basename "$AGENT"), $(basename "$ADDON"), $(basename "$LUCI")"
 
 docker rm -f "$NAME" "$NAME-prep" >/dev/null 2>&1 || true
 # The image from the previous run too. `docker commit` below re-tags $NAME:latest, and a
@@ -69,13 +72,13 @@ docker rmi -f "$NAME:latest" >/dev/null 2>&1 || true
 
 echo "==> preparing the rootfs"
 docker run --name "$NAME-prep" -i --platform "linux/$ARCH" \
-	-v "$AGENT:/a.apk:ro" -v "$ADDON:/t.apk:ro" -v "$LUCI:/l.apk:ro" \
+	-v "$MCP:/m.apk:ro" -v "$AGENT:/a.apk:ro" -v "$ADDON:/t.apk:ro" -v "$LUCI:/l.apk:ro" \
 	"$IMAGE" /bin/sh -s <<PREP
 set -eu
 mkdir -p /var/lock /var/run /var/state
 apk update -q
 apk add -q luci luci-base uhttpd uhttpd-mod-ubus rpcd rpcd-mod-file rpcd-mod-luci curl
-apk add -q --allow-untrusted /a.apk /t.apk /l.apk
+apk add -q --allow-untrusted /m.apk /a.apk /t.apk /l.apk
 
 # A password, because LuCI refuses to log in against an empty one and then says nothing
 # useful about why.
@@ -97,6 +100,12 @@ printf 'sk-preview-not-a-real-key' > /etc/hermes-agent/provider.key
 printf '123456789:AAHpreviewTokenNotRealAAHpreviewToken' > /etc/hermes-agent/telegram.token
 printf 'preview-not-a-real-token' > /etc/hermes-agent/router-mcp.token
 chmod 600 /etc/hermes-agent/provider.key /etc/hermes-agent/telegram.token /etc/hermes-agent/router-mcp.token
+
+# The Security page offers its controls once the agent has been started in the owner profile, which
+# is what pairs it with openwrt-mcp as hermes-main. Nothing starts the agent in this preview, so the
+# client is paired here, as the agent's own first start would. No PIN and no phone: the page is as a
+# new owner finds it, and adding a phone shows its QR code.
+openwrt-mcp pair hermes-main >/dev/null
 
 # See the header. netifd would take eth0 into br-lan and the published port would die
 # about a second after init starts.
@@ -135,5 +144,6 @@ done
 echo
 echo "==> ready, on 127.0.0.1 only. Log in like any router, by hand:"
 echo "     http://127.0.0.1:$PORT/cgi-bin/luci/admin/services/hermes"
+echo "   (the Security tab is at .../hermes/security; served over plain HTTP, so it says so)"
 echo "   username root, password $PASS"
 echo "   stop it with: docker rm -f $NAME && docker rmi $NAME:latest"

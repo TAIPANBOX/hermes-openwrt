@@ -72,6 +72,21 @@ jobs:
       - name: build the LuCI app
         run: ./package/luci-app-hermes/build.sh
 
+      # hermes-agent depends on openwrt-mcp (0.21.5-r3), which OpenWrt's feed does not have, so
+      # every gate that installs it is handed an apk built from the companion's branch with that
+      # repository's own mkapk.sh. Pinned to the commit (on branch feat/owner-unlock), not the
+      # branch name, so a later push there cannot change what this build tests.
+      - uses: actions/checkout@v4
+        with:
+          repository: TAIPANBOX/openwrt-mcp
+          ref: 461ce9e88b3add5e0eee1b28cb8730e2d13ed8ab
+          path: openwrt-mcp-src
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: openwrt-mcp-src/go.mod
+      - name: build the openwrt-mcp apk the gates install beside hermes-agent
+        run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh ${{ matrix.arch }}
+
       - name: it installs, runs, and keeps the key out of sight
         run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh
 

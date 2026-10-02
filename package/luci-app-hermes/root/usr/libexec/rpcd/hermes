@@ -3,7 +3,7 @@
 #
 # LuCI's JavaScript runs in the browser and cannot touch a root-only file, which is
 # exactly where the API keys have to live. This is the narrow bridge across that gap,
-# and it is deliberately narrow: three methods, nothing a caller sends is ever passed to
+# and it is deliberately narrow: a few methods, nothing a caller sends is ever passed to
 # a shell, and one rule shapes the whole file.
 #
 #   A secret goes IN through this interface and never comes back out.
@@ -18,12 +18,35 @@
 # password field from the server, so there is nothing on screen to leak in the first
 # place.
 #
+# The Security page (LuCI r13) holds to the same rule for two things that are not keys but
+# are credentials all the same: the owner's PIN, and the secret of the phone that gives
+# the owner's second factor. Neither is kept here. The PIN goes to `openwrt-mcp pin set` on
+# its standard input, never in an argument, and is hashed there; the phone's secret is made
+# by `openwrt-mcp mfa enrol --pending`, comes back once to the call that asked for it, and
+# is kept only in openwrt-mcp's own store until a current code activates it. No method
+# reads either back: security_status answers facts (is a PIN set, is a phone enrolled).
+#
 # Every method is a function rather than a case branch. `local` is only valid inside a
 # function in POSIX sh and busybox enforces it: the same code inline answers `list`
 # correctly, installs cleanly, and then dies with "local: not in a function" on the
 # first real call, which is a late and confusing place to learn it.
 
 . /usr/share/libubox/jshn.sh
+
+# One field of the message rpcd put on this script's standard input, which is the caller's own
+# words and so, for set_secret, set_pin and enrol_activate, a key, a PIN or a code.
+#
+# jshn's json_load hands the whole message to a `jshn` process as an ARGUMENT, which any account
+# on the router can read from /proc while it runs, and json_get_var exports each field it reads,
+# so every program this script starts afterwards would carry the value in its environment. This
+# does neither: the message is a plain shell variable, echo is the shell's own, and the one
+# program that sees the message is jsonfilter, on a pipe. Nothing here is ever exported.
+# (Replies are another matter: they are built with jshn only where they hold no secret, and the
+# one that does, enrol_start, is written with printf.)
+MSG=
+msg_get() { # <field>
+	echo "$MSG" | jsonfilter -e "@.$1" 2>/dev/null
+}
 
 CONF_DIR=/etc/hermes-agent
 INIT=/etc/init.d/hermes-agent
@@ -229,6 +252,274 @@ method_chatgpt_logout() {
 	json_dump
 }
 
+# ---- the Security page --------------------------------------------------------------------
+#
+# The owner profile's second factor, set up from the browser. The agent's client at openwrt-mcp
+# is hermes-main (the init pairs it at its first start), and everything about its PIN and its
+# phone is openwrt-mcp's: this file asks it, through its own command line, and keeps nothing.
+# What it does keep is `hermes.security`, which the init turns into openwrt-mcp's change policy
+# at every start, so choosing a factor writes that section and lets the reload trigger do the
+# rest.
+#
+# It applies to the owner profile only. In root and assistant there is no change policy for a
+# PIN to guard, so every call here refuses, whatever the page shows.
+SEC_CLIENT=hermes-main
+MCP_BIN=/usr/bin/openwrt-mcp
+RELOAD=/sbin/reload_config
+# What the init accepts for a window and a lockout (hermes-agent.init), so nothing is saved here
+# that the service would then refuse to start on.
+SEC_DURATION='^([0-9]+(\.[0-9]+)?(s|m|h))+$|^[0-9]+(\.[0-9]+)?d$'
+
+sec_profile() {
+	case "$(uci -q get hermes.main.profile)" in
+		''|owner)   echo owner ;;
+		root|admin) echo root ;;
+		assistant)  echo assistant ;;
+		*)          echo invalid ;;
+	esac
+}
+
+sec_conf() { # <option> <default>
+	local v
+	v=$(uci -q get "hermes.security.$1")
+	[ -n "$v" ] && echo "$v" || echo "$2"
+}
+
+# What openwrt-mcp says about this one client: facts, from its own `status --json` (which never
+# carries a secret, and which is asked for no audit rows). Anything that goes wrong is "not
+# answering" and every fact reads false, so a page built on it offers nothing rather than guess.
+MCP_OK=0 PAIRED=0 PIN_SET=0 TOTP_ENROLLED=0 TOTP_PENDING=0
+sec_mcp_facts() {
+	local out v
+	MCP_OK=0; PAIRED=0; PIN_SET=0; TOTP_ENROLLED=0; TOTP_PENDING=0
+	[ -x "$MCP_BIN" ] || return 1
+	out=$("$MCP_BIN" status --json --audit 0 2>/dev/null) || return 1
+	[ -n "$(echo "$out" | jsonfilter -e '@.version' 2>/dev/null)" ] || return 1
+	MCP_OK=1
+	[ "$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].name" 2>/dev/null)" = "$SEC_CLIENT" ] || return 0
+	PAIRED=1
+	v=$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].mfa.pin_set" 2>/dev/null);        [ "$v" = true ] && PIN_SET=1
+	v=$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].mfa.totp_enrolled" 2>/dev/null);  [ "$v" = true ] && TOTP_ENROLLED=1
+	v=$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].mfa.totp_pending" 2>/dev/null);   [ "$v" = true ] && TOTP_PENDING=1
+	return 0
+}
+
+# Whether a factor can be honoured by what exists. The page offers only these, and set_factor
+# refuses the rest, so the owner cannot choose a factor that no unlock could ever satisfy.
+sec_factor_ready() { # <factor> (after sec_mcp_facts)
+	case "$1" in
+		none)     return 0 ;;
+		pin)      [ "$PIN_SET" = 1 ] ;;
+		totp)     [ "$TOTP_ENROLLED" = 1 ] ;;
+		pin+totp) [ "$PIN_SET" = 1 ] && [ "$TOTP_ENROLLED" = 1 ] ;;
+		*)        return 1 ;;
+	esac
+}
+
+sec_refuse() {
+	json_init; json_add_boolean "ok" 0; json_add_string "error" "$1"; json_dump
+}
+
+# The refusals every write shares, in the order that matters: not the owner profile, openwrt-mcp
+# not answering, the agent's client not paired yet. Answers and returns 1 when one applies.
+sec_gate() {
+	if [ "$(sec_profile)" != owner ]; then
+		sec_refuse "this applies to the owner profile only; the agent runs in another profile"; return 1
+	fi
+	if ! sec_mcp_facts; then
+		sec_refuse "openwrt-mcp is not answering; it is installed with hermes-agent and has to be running"; return 1
+	fi
+	if [ "$PAIRED" != 1 ]; then
+		sec_refuse "the agent has no client at openwrt-mcp yet: enable the service on the Settings tab once, so that it is paired"; return 1
+	fi
+	return 0
+}
+
+method_security_status() {
+	local profile factor shown ready maxf
+	profile=$(sec_profile)
+	sec_mcp_facts
+	factor=$(sec_conf factor none)
+	case "$factor" in none|pin|totp|pin+totp) shown=$factor ;; *) shown=invalid ;; esac
+	ready=0; [ "$MCP_OK" = 1 ] && sec_factor_ready "$shown" && ready=1
+	maxf=$(sec_conf max_failures 5)
+	case "$maxf" in ''|*[!0-9]*) maxf=0 ;; esac
+
+	json_init
+	json_add_string  "profile" "$profile"
+	json_add_boolean "applies" "$([ "$profile" = owner ] && echo 1 || echo 0)"
+	json_add_boolean "mcp_ok" "$MCP_OK"
+	json_add_boolean "paired" "$PAIRED"
+	json_add_string  "factor" "$shown"
+	json_add_boolean "factor_ready" "$ready"
+	json_add_string  "window" "$(sec_conf window 15m)"
+	json_add_int     "max_failures" "$maxf"
+	json_add_string  "lockout" "$(sec_conf lockout 15m)"
+	json_add_boolean "pin_set" "$PIN_SET"
+	json_add_boolean "totp_enrolled" "$TOTP_ENROLLED"
+	json_add_boolean "totp_pending" "$TOTP_PENDING"
+	json_dump
+}
+
+# The PIN goes to openwrt-mcp on its standard input and nowhere else: not an argument, which
+# any process on the router could read from /proc, not a file, not the reply. `echo` is the
+# shell's own builtin, so it starts no process, and what it is given has been checked to be
+# digits, so it cannot be taken for an option.
+method_set_pin() {
+	local pin again
+	read -r MSG
+	pin=$(msg_get pin)
+	again=$(msg_get again)
+	MSG=
+	sec_gate || return 0
+	case "$pin" in ''|*[!0-9]*) sec_refuse "a PIN is 4 to 8 digits and nothing else"; return 0 ;; esac
+	if [ "${#pin}" -lt 4 ] || [ "${#pin}" -gt 8 ]; then
+		sec_refuse "a PIN is 4 to 8 digits and nothing else"; return 0
+	fi
+	if [ "$pin" != "$again" ]; then
+		sec_refuse "the two PINs are not the same"; return 0
+	fi
+	if ! echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" >/dev/null 2>&1; then
+		sec_refuse "openwrt-mcp did not store the PIN"; return 0
+	fi
+	pin=; again=
+	sec_mcp_facts
+	if [ "$PIN_SET" != 1 ]; then
+		sec_refuse "openwrt-mcp took the PIN but does not report it as set"; return 0
+	fi
+	json_init; json_add_boolean "ok" 1; json_add_boolean "pin_set" 1; json_dump
+}
+
+method_clear_pin() {
+	local factor
+	read -r MSG; MSG=
+	sec_gate || return 0
+	factor=$(sec_conf factor none)
+	case "$factor" in
+		pin|pin+totp)
+			sec_refuse "the factor in force ($factor) asks for the PIN: choose another factor first, or nothing could unlock"
+			return 0 ;;
+	esac
+	if ! "$MCP_BIN" pin clear "$SEC_CLIENT" >/dev/null 2>&1; then
+		sec_refuse "openwrt-mcp did not clear the PIN"; return 0
+	fi
+	json_init; json_add_boolean "ok" 1; json_add_boolean "pin_set" 0; json_dump
+}
+
+# A phone is added in two steps. This is the first: openwrt-mcp makes a secret and keeps it
+# apart, pending, so that the phone in force (if any) is not replaced by a scan that may not
+# have worked. The secret, the otpauth address and the QR that carry it come back in this
+# reply, to the call that asked, and no other call can ask again: asking again makes a new
+# secret and drops the pending one.
+method_enrol_start() {
+	local out uri secret png
+	read -r MSG; MSG=
+	sec_gate || return 0
+	if ! out=$("$MCP_BIN" mfa enrol "$SEC_CLIENT" --pending --json 2>/dev/null); then
+		sec_refuse "openwrt-mcp could not start the enrolment"; return 0
+	fi
+	uri=$(echo "$out" | jsonfilter -e '@.uri' 2>/dev/null)
+	secret=$(echo "$out" | jsonfilter -e '@.secret' 2>/dev/null)
+	png=$(echo "$out" | jsonfilter -e '@.qr_png_base64' 2>/dev/null)
+	out=
+	case "$uri" in otpauth://totp/*) ;; *) sec_refuse "openwrt-mcp answered the enrolment without an otpauth address"; return 0 ;; esac
+	if [ -z "$secret" ] || [ -z "$png" ]; then
+		sec_refuse "openwrt-mcp answered the enrolment without a QR"; return 0
+	fi
+	# What is printed must be what was made: refuse anything that would need escaping rather than
+	# escape it. A base32 secret, a base64 picture and an otpauth address never do.
+	case "$uri$secret$png" in *'"'*|*'\'*|*'
+'*) sec_refuse "openwrt-mcp answered the enrolment in a shape this page does not take"; return 0 ;; esac
+	# printf is the shell's own, and jshn is not used: a jshn reply is serialised by a process that
+	# carries it in its environment, and this is the one reply that holds a secret.
+	printf '{ "ok": true, "uri": "%s", "secret": "%s", "qr_png_base64": "%s" }\n' "$uri" "$secret" "$png"
+}
+
+# The second step: the phone's current code proves the scan worked, and only then does the new
+# secret replace the one in force. A wrong code leaves everything as it was.
+method_enrol_activate() {
+	local code res
+	read -r MSG
+	code=$(msg_get code)
+	MSG=
+	sec_gate || return 0
+	case "$code" in
+		[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+		*) sec_refuse "a code is the six digits the app shows"; return 0 ;;
+	esac
+	if ! res=$("$MCP_BIN" mfa activate "$SEC_CLIENT" "$code" 2>&1); then
+		case "$res" in
+			*"no pending"*) sec_refuse "no phone is being added: start again" ;;
+			*) sec_refuse "that code is not valid right now, so the phone is still only being added: check the code again, and the phone's clock" ;;
+		esac
+		return 0
+	fi
+	sec_mcp_facts
+	if [ "$TOTP_ENROLLED" != 1 ]; then
+		sec_refuse "openwrt-mcp took the code but does not report the phone as enrolled"; return 0
+	fi
+	json_init; json_add_boolean "ok" 1; json_add_boolean "totp_enrolled" 1; json_dump
+}
+
+# hermes.security is written so that what is committed is this and nothing a LuCI session has
+# staged in the meantime (a plain `uci commit hermes` takes the lot). Then the same thing LuCI's own apply does: /sbin/reload_config, which tells procd that
+# the config changed, and the init's reload trigger restarts the service, which writes
+# openwrt-mcp's change policy from it. Detached, like the sign-in: rpcd waits for this script's
+# output to end, and the restart is not what the caller is waiting for.
+method_set_factor() {
+	local factor window maxf lockout d ok
+	read -r MSG
+	factor=$(msg_get factor)
+	window=$(msg_get window)
+	maxf=$(msg_get max_failures)
+	lockout=$(msg_get lockout)
+	MSG=
+	sec_gate || return 0
+	case "$factor" in none|pin|totp|pin+totp) ;; *) sec_refuse "the factor is none, pin, totp or pin+totp"; return 0 ;; esac
+	echo "$window" | grep -Eq "$SEC_DURATION" || { sec_refuse "the window is a duration such as 15m, 1h or 1d"; return 0; }
+	echo "$lockout" | grep -Eq "$SEC_DURATION" || { sec_refuse "the lockout is a duration such as 15m, 1h or 1d"; return 0; }
+	case "$maxf" in ''|*[!0-9]*) sec_refuse "wrong tries allowed is a whole number from 1 to 99"; return 0 ;; esac
+	if [ "${#maxf}" -gt 2 ] || [ "$maxf" -lt 1 ]; then
+		sec_refuse "wrong tries allowed is a whole number from 1 to 99"; return 0
+	fi
+	if ! sec_factor_ready "$factor"; then
+		case "$factor" in
+			pin)      sec_refuse "no PIN is set, so pin could never be satisfied: set one first" ;;
+			totp)     sec_refuse "no phone is enrolled (one still being added does not count): activate it first" ;;
+			*)        sec_refuse "pin+totp needs both a PIN and an enrolled phone, and one of them is missing" ;;
+		esac
+		return 0
+	fi
+	d=$(mktemp -d /tmp/hermes-security.XXXXXX) || { sec_refuse "no room to write the configuration"; return 0; }
+	mkdir "$d/c" "$d/s"
+	ok=1
+	# The change is made to a copy under another package name, and the copy put back. Another name,
+	# because uci reads every staged change of a package of that name from /tmp/.uci whatever save
+	# directory it is given (-t, -P: tried on 25.12.4, both commit them), and a commit here must not
+	# take what another LuCI session has staged but not applied.
+	cp /etc/config/hermes "$d/c/hermes_sec" || ok=0
+	if [ "$ok" = 1 ]; then
+		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security=security             || ok=0
+		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.factor="$factor"     || ok=0
+		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.window="$window"     || ok=0
+		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.max_failures="$maxf" || ok=0
+		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.lockout="$lockout"   || ok=0
+		uci -q -c "$d/c" -t "$d/s" commit hermes_sec                            || ok=0
+	fi
+	if [ "$ok" = 1 ]; then
+		# Written beside the config and moved over it, so a reader never sees half of it.
+		cp "$d/c/hermes_sec" /etc/config/.hermes.security && chmod 0644 /etc/config/.hermes.security \
+			&& mv -f /etc/config/.hermes.security /etc/config/hermes || ok=0
+	fi
+	rm -rf "$d"
+	if [ "$ok" != 1 ]; then
+		rm -f /etc/config/.hermes.security
+		sec_refuse "could not write /etc/config/hermes"; return 0
+	fi
+	[ -x "$RELOAD" ] && ( setsid "$RELOAD" > /dev/null 2>&1 < /dev/null & ) > /dev/null 2>&1
+	json_init; json_add_boolean "ok" 1; json_add_string "factor" "$factor"; json_dump
+}
+
 method_logs() {
 	local lines input
 	read -r input
@@ -246,11 +537,11 @@ method_logs() {
 }
 
 method_set_secret() {
-	local name value path svc write_ok input
-	read -r input
-	json_load "$input" 2>/dev/null
-	json_get_var name name
-	json_get_var value value
+	local name value path svc write_ok
+	read -r MSG
+	name=$(msg_get name)
+	value=$(msg_get value)
+	MSG=
 
 	if ! path=$(secret_path "$name"); then
 		json_init; json_add_boolean "ok" 0
@@ -328,6 +619,24 @@ list)
 	json_add_object "chatgpt_login";        json_close_object
 	json_add_object "chatgpt_login_status"; json_close_object
 	json_add_object "chatgpt_logout";       json_close_object
+	# The Security page. Typed, so rpcd refuses a PIN sent as a number before the method is
+	# entered, and a count sent as text.
+	json_add_object "security_status";      json_close_object
+	json_add_object "set_pin"
+		json_add_string "pin" ""
+		json_add_string "again" ""
+	json_close_object
+	json_add_object "clear_pin";            json_close_object
+	json_add_object "enrol_start";          json_close_object
+	json_add_object "enrol_activate"
+		json_add_string "code" ""
+	json_close_object
+	json_add_object "set_factor"
+		json_add_string "factor" ""
+		json_add_string "window" ""
+		json_add_int    "max_failures" 0
+		json_add_string "lockout" ""
+	json_close_object
 	json_dump
 	;;
 call)
@@ -338,6 +647,12 @@ call)
 		chatgpt_login)        method_chatgpt_login ;;
 		chatgpt_login_status) method_chatgpt_login_status ;;
 		chatgpt_logout)       method_chatgpt_logout ;;
+		security_status)      method_security_status ;;
+		set_pin)              method_set_pin ;;
+		clear_pin)            method_clear_pin ;;
+		enrol_start)          method_enrol_start ;;
+		enrol_activate)       method_enrol_activate ;;
+		set_factor)           method_set_factor ;;
 		*) json_init; json_add_string "error" "unknown method"; json_dump ;;
 	esac
 	;;

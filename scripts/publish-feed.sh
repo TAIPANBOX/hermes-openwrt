@@ -70,6 +70,9 @@ if [ "$SKIP_BUILD" != 1 ]; then
 	echo "==> building 25.12"
 	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 	EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent-telegram/build-in-container.sh aarch64_generic
+	# hermes-agent depends on openwrt-mcp; the feed carries it for both labels.
+	./scripts/build-openwrt-mcp.sh aarch64_generic
+	./scripts/build-openwrt-mcp.sh aarch64_cortex-a53
 	./package/luci-app-hermes/build.sh
 fi
 

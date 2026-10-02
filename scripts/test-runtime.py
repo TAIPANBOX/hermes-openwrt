@@ -6,8 +6,10 @@
 import importlib.util
 import json
 import os
+import pwd
 import random
 import shlex
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -23,11 +25,18 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = Path(os.environ.get("PRODUCT_FILES", str(ROOT / "package/hermes-agent/files")))
 
 
+DROP = ["python3", "-I", "-B", "/usr/libexec/hermes-drop"]
+
+
 class RuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
+        # The data directory belongs to the user the agent runs as (owner is the default
+        # profile), as the init leaves it: the wrapper runs its helpers and the gateway
+        # as that user, so a directory root made would be one it cannot write in.
+        shutil.chown(self.home, "hermes", "hermes")
         self.env = dict(os.environ, HERMES_HOME=str(self.home),
                         HERMES_DISABLE_LAZY_INSTALLS="1", PYTHONDONTWRITEBYTECODE="1")
 
@@ -89,8 +98,11 @@ class RuntimeTests(unittest.TestCase):
 
     def test_mcp_identical_manual_entry_is_adopted(self):
         url = "http://127.0.0.1:8730/mcp"
+        # The entry as the package writes it since r3, with the unlock tools hidden from the
+        # model; the earlier shape, without that key, is adopted too (next test).
         manual = {"mcp_servers": {"openwrt": {"url": url,
-                  "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}}}
+                  "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"},
+                  "tools": {"exclude": ["mfa_unlock", "mfa_lock"]}}}}
         (self.home / "config.yaml").write_text(yaml.safe_dump(manual))
         result = self.configure(mcp=url)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -734,21 +746,19 @@ procd_close_service
                 self.assertIn("agent", result.stderr)
                 self.assertEqual((self.home / "config.yaml").read_text(), content)
 
-    def test_profile_defaults_to_admin_and_refuses_unknown(self):
-        # It sets profile=root below; leave UCI as the next test expects it.
+    def test_profile_defaults_to_owner_and_refuses_unknown(self):
+        # Every start leaves UCI as the next test expects it.
         self.addCleanup(subprocess.run, ["sh", "-c", "uci -q delete hermes.main.profile; uci commit hermes"])
-        # No `profile` option at all (e.g. a router upgraded from before this
-        # feature existed) must default to admin, the same as the shipped config's
-        # own default value, independent of it. The default was assistant for a few
-        # hours on 2026-09-24; a live bot showed that without openwrt-mcp it cannot
-        # reach the router at all, so admin became the default and assistant opt-in.
-        script = f'''
+
+        def start(profile):
+            setup = "uci -q delete hermes.main.profile" if profile is None else f"uci set hermes.main.profile={profile}"
+            script = f'''
 mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
 printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
 uci set hermes.main.enabled=1
 uci set hermes.main.mem_max_mb=0
 uci set hermes.main.data_dir={shlex.quote(str(self.home))}
-uci -q delete hermes.main.profile
+{setup}
 uci commit hermes
 . /lib/functions.sh
 . /lib/functions/procd.sh
@@ -759,40 +769,42 @@ procd_open_service hermes-agent /etc/init.d/hermes-agent
 start_service || exit 1
 procd_close_service
 '''
-        result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        parsed = json.loads(result.stdout)
-        self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_PROFILE"], "admin")
+            return subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
 
-        refuse_script = f'''
-mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
-printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
-uci set hermes.main.enabled=1
-uci set hermes.main.mem_max_mb=0
-uci set hermes.main.data_dir={shlex.quote(str(self.home))}
-uci set hermes.main.profile=root
-uci commit hermes
-. /lib/functions.sh
-. /lib/functions/procd.sh
-initscript=/etc/init.d/hermes-agent
-. {shlex.quote(str(FILES / "hermes-agent.init"))}
-_procd_ubus_call() {{ json_dump; }}
-procd_open_service hermes-agent /etc/init.d/hermes-agent
-start_service
-exit $?
-'''
-        refused = subprocess.run(["sh", "-c", refuse_script], text=True, check=False, capture_output=True)
+        # No `profile` option at all (a router whose file never had one) is the owner
+        # profile: the agent runs as hermes, and the start says it is the default. It was
+        # admin, running as root, until 0.21.5-r3, and assistant for a few hours on
+        # 2026-09-24 before that.
+        unset = start(None)
+        self.assertEqual(unset.returncode, 0, unset.stderr)
+        self.assertEqual(json.loads(unset.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_PROFILE"], "owner")
+        self.assertIn("profile 'owner'", unset.stderr)
+        self.assertIn("none is set", unset.stderr)
+        for chosen, canonical in (("owner", "owner"), ("assistant", "assistant"), ("root", "root"), ("admin", "root")):
+            with self.subTest(profile=chosen):
+                result = start(chosen)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                env = json.loads(result.stdout)["instances"]["instance1"]["env"]
+                self.assertEqual(env["HERMES_OPENWRT_PROFILE"], canonical)
+                if canonical == "root":
+                    # What running as root allows, said at every start.
+                    self.assertIn("runs as root", result.stderr)
+                    self.assertIn("no unlock", result.stderr)
+                if chosen == "admin":
+                    self.assertIn("old name of 'root'", result.stderr)
+        refused = start("superuser")
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn("hermes.main.profile", refused.stderr)
-        self.assertIn("assistant", refused.stderr)
-        self.assertIn("admin", refused.stderr)
-        self.assertIn("root", refused.stderr)
+        for name in ("owner", "assistant", "root", "superuser"):
+            self.assertIn(name, refused.stderr)
 
         # The bridge itself refuses the same value directly, config untouched.
         (self.home / "config.yaml").write_text("model: unchanged\n")
-        bridge_result = self.configure(profile="root")
+        bridge_result = self.configure(profile="superuser")
         self.assertNotEqual(bridge_result.returncode, 0)
         self.assertEqual((self.home / "config.yaml").read_text(), "model: unchanged\n")
+        for accepted in ("owner", "root", "admin"):
+            self.assertEqual(self.configure(profile=accepted).returncode, 0, accepted)
 
     def test_wrapper_reapplies_profile_at_exec(self):
         # Mirrors test_wrapper_reapplies_uci_after_model_switch: a chat command or
@@ -807,7 +819,11 @@ exit $?
         cli = Path("/usr/bin/hermes")
         original = cli.read_bytes()
         self.addCleanup(cli.write_bytes, original)
-        cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        # The stand-in also says who it runs as: the profile decides that, and so does the
+        # default when none is passed.
+        cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; "
+                       "print(json.dumps(dict(os.environ, GATE_UID=str(os.getuid()))))'\n")
+        hermes_uid = str(pwd.getpwnam("hermes").pw_uid)
         key = self.home / "key"
         key.write_text("provider-runtime-canary")
         env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="",
@@ -817,10 +833,11 @@ exit $?
                                 env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["code_execution", "file", "terminal"])
+        self.assertEqual(json.loads(result.stdout)["GATE_UID"], hermes_uid)
 
         # Unset entirely -- an older procd env, or a service-list edge case --
-        # must default to admin here too, the same as the init's own config_get
-        # default: the governed names come out, the operator's entry stays.
+        # must default to owner here too, the same as the init's own default: the
+        # governed names come out, the operator's entry stays, and it is not root.
         tampered2 = self.config()
         tampered2["agent"]["disabled_toolsets"] = ["code_execution", "browser"]
         (self.home / "config.yaml").write_text(yaml.safe_dump(tampered2))
@@ -829,6 +846,58 @@ exit $?
                                  env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result2.returncode, 0, result2.stderr)
         self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["browser"])
+        self.assertEqual(json.loads(result2.stdout)["GATE_UID"], hermes_uid)
+        self.assertNotIn("HERMES_OPENWRT_AS_ROOT", json.loads(result2.stdout))
+        # root, and its old name, run as root and tell the launcher not to second-guess that.
+        for name in ("root", "admin"):
+            with self.subTest(profile=name):
+                rooted = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                        env=dict(env, HERMES_OPENWRT_PROFILE=name), check=False,
+                                        capture_output=True, text=True)
+                self.assertEqual(rooted.returncode, 0, rooted.stderr)
+                child = json.loads(rooted.stdout)
+                self.assertEqual(child["GATE_UID"], "0")
+                self.assertEqual(child["HERMES_OPENWRT_AS_ROOT"], "1")
+        # A profile that is not one stops the wrapper rather than guess.
+        refused = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                 env=dict(env, HERMES_OPENWRT_PROFILE="superuser"), check=False,
+                                 capture_output=True, text=True)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("unknown profile", refused.stderr)
+
+    def test_wrapper_runs_everything_after_the_credentials_as_the_agents_user(self):
+        # The wrapper is root because it has to read the key files and apply the memory
+        # ceiling. Its two helpers read and write what the agent can write, and run
+        # upstream's own code over it, so they run as the agent's user too, never as root.
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        recorded = {}
+        for name in ("hermes-set-toolsets", "hermes-runtime-check"):
+            helper = Path("/usr/libexec") / name
+            original = helper.read_bytes()
+            self.addCleanup(helper.write_bytes, original)
+            marker = self.home / f"{name}.uid"
+            recorded[name] = marker
+            helper.write_text(f"import os\nopen({str(marker)!r}, 'w').write(str(os.getuid()))\n")
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        cli.write_text("#!/bin/sh\nexit 0\n")
+        key = self.home / "key"
+        key.write_text("provider-runtime-canary")
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="",
+                   HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model")
+        hermes_uid = str(pwd.getpwnam("hermes").pw_uid)
+        for profile, want in (("owner", hermes_uid), ("assistant", hermes_uid), ("root", "0")):
+            with self.subTest(profile=profile):
+                for marker in recorded.values():
+                    marker.unlink(missing_ok=True)
+                result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                                        env=dict(env, HERMES_OPENWRT_PROFILE=profile), check=False,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for name, marker in recorded.items():
+                    self.assertEqual(marker.read_text().strip(), want, f"{name} ran as the wrong user")
 
     def test_assistant_profile_tells_the_agent_what_it_cannot_do(self):
         # 2026-09-24, a Telegram bot on a test router in the assistant profile: asked
@@ -901,6 +970,404 @@ exit $?
         self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_MAX_TURNS"], "20")
 
 
+    # ---- The owner profile: no root, and the router only through openwrt-mcp ----
+
+    def bridge(self, profile, factor=None, mcp="", tools="file,terminal,memory"):
+        env = dict(self.env)
+        if factor is not None:
+            env["HERMES_OPENWRT_FACTOR"] = factor
+        args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), tools, mcp,
+                "http://127.0.0.1:9/v1", "runtime-model", profile]
+        return subprocess.run(args, env=env, check=False, capture_output=True, text=True)
+
+    def test_owner_profile_enables_the_unlock_plugin_and_the_others_take_it_out_again(self):
+        # The unlock plugin is the control that keeps the owner's PIN from the model, so the
+        # owner profile switches it on whatever the operator's lists say, and the operator's
+        # own names stay. The other profiles take out only what this bridge put there.
+        (self.home / "config.yaml").write_text(yaml.safe_dump(
+            {"plugins": {"enabled": ["kept"], "disabled": ["openwrt-unlock", "other"]}}))
+        self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        plugins = self.config()["plugins"]
+        self.assertEqual(plugins["enabled"], ["kept", "openwrt-unlock"])
+        self.assertEqual(plugins["disabled"], ["other"])
+        self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        self.assertEqual(self.config()["plugins"]["enabled"], ["kept", "openwrt-unlock"], "listed twice")
+        for other in ("assistant", "root"):
+            self.assertEqual(self.bridge(other).returncode, 0)
+            self.assertEqual(self.config()["plugins"]["enabled"], ["kept"], other)
+            self.assertNotIn("_openwrt_unlock_managed", self.config())
+            self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        # a name the operator listed themselves, with no marker from this bridge, is theirs
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"plugins": {"enabled": ["openwrt-unlock"]}}))
+        self.assertEqual(self.bridge("assistant").returncode, 0)
+        self.assertEqual(self.config()["plugins"]["enabled"], ["openwrt-unlock"])
+
+    def test_owner_profile_keeps_tools_and_its_note_follows_the_factor(self):
+        # owner runs as hermes with every selected tool, like admin did; what it tells the
+        # agent depends on whether a second factor is set up, and neither note touches the
+        # operator's own prompt.
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"agent": {
+            "system_prompt": "Be brief.", "disabled_toolsets": ["browser", "file", "terminal", "code_execution"]}}))
+        result = self.bridge("owner")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        agent = self.config()["agent"]
+        self.assertEqual(agent["disabled_toolsets"], ["browser"])
+        prompt = agent["system_prompt"]
+        self.assertTrue(prompt.startswith("Be brief.\n\n[hermes-openwrt: owner profile]\n"), prompt)
+        self.assertIn("LuCI", prompt)
+        self.assertNotIn("/unlock", prompt)
+        check = subprocess.run(["python3", "-c", (
+            "import json, yaml; from hermes_cli.config import get_config_path; "
+            "from hermes_cli.tools_config import _get_platform_tools; import model_tools; "
+            "config = yaml.safe_load(get_config_path().read_text()); "
+            "enabled = sorted(_get_platform_tools(config, 'telegram')); "
+            "defs = model_tools.get_tool_definitions(enabled_toolsets=enabled, "
+            "disabled_toolsets=config['agent'].get('disabled_toolsets') or [], quiet_mode=True); "
+            "print(json.dumps(sorted(d['function']['name'] for d in defs)))")],
+            env=self.env, check=False, capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stderr)
+        names = json.loads(check.stdout.strip().splitlines()[-1])
+        self.assertIn("terminal", names)
+        self.assertIn("read_file", names)
+        for factor in ("pin", "totp", "pin+totp"):
+            with self.subTest(factor=factor):
+                self.assertEqual(self.bridge("owner", factor).returncode, 0)
+                prompt = self.config()["agent"]["system_prompt"]
+                self.assertTrue(prompt.startswith("Be brief.\n\n"), prompt)
+                self.assertEqual(prompt.count("[hermes-openwrt: owner profile]"), 1)
+                self.assertIn("send /unlock in the private chat", prompt)
+                self.assertIn("Never ask the owner for a PIN or a code in a message", prompt)
+                self.assertNotIn("LuCI", prompt)
+        before = (self.home / "config.yaml").read_bytes()
+        self.assertEqual(self.bridge("owner", "pin+totp").returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_bytes(), before)
+        # Another profile replaces the note, root takes it out, the operator's text comes back.
+        self.assertEqual(self.bridge("assistant").returncode, 0)
+        prompt = self.config()["agent"]["system_prompt"]
+        self.assertNotIn("owner profile", prompt)
+        self.assertIn("no terminal", prompt)
+        self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["browser", "code_execution", "file", "terminal"])
+        self.assertEqual(self.bridge("root").returncode, 0)
+        self.assertEqual(self.config()["agent"]["system_prompt"], "Be brief.")
+        self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["browser"])
+        # A factor that is not one refuses and leaves the file alone.
+        before = (self.home / "config.yaml").read_bytes()
+        self.assertNotEqual(self.bridge("owner", "sms").returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_bytes(), before)
+
+    def test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape(self):
+        # The owner proves who they are through openwrt-mcp's mfa_unlock; a model offered it
+        # would be asking for a PIN. Upstream's own filter decides what registers.
+        url = "http://127.0.0.1:8730/mcp"
+        for profile in ("owner", "assistant", "root"):
+            with self.subTest(profile=profile):
+                (self.home / "config.yaml").unlink(missing_ok=True)
+                self.assertEqual(self.bridge(profile, mcp=url).returncode, 0)
+                self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"],
+                                 {"exclude": ["mfa_unlock", "mfa_lock"]})
+        code = ("import yaml; from hermes_cli.config import get_config_path; "
+                "from tools.mcp_tool_registration import _make_tool_filter; "
+                "entry = yaml.safe_load(get_config_path().read_text())['mcp_servers']['openwrt']; "
+                "keep = _make_tool_filter('openwrt', entry); "
+                "print(keep('ubus_call'), keep('uci_apply'), keep('mfa_unlock'), keep('mfa_lock'))")
+        check = subprocess.run(["python3", "-c", code], env=self.env, check=False, capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stderr)
+        self.assertEqual(check.stdout.strip().splitlines()[-1], "True True False False")
+        # The entry as releases before the unlock wrote it, pasted by hand, is the package's
+        # own shape: adopted and brought up to date, not refused.
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"mcp_servers": {"openwrt": {
+            "url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}}}))
+        result = self.bridge("owner", mcp=url)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"], {"exclude": ["mfa_unlock", "mfa_lock"]})
+        self.assertTrue(self.config().get("_openwrt_mcp_managed"))
+
+    def test_config_written_by_root_takes_the_data_dir_owner(self):
+        # A root-owned config.yaml is one the gateway, which is hermes, cannot update.
+        self.assertEqual(self.configure().returncode, 0)
+        hermes = pwd.getpwnam("hermes")
+        stat = (self.home / "config.yaml").stat()
+        self.assertEqual((stat.st_uid, stat.st_gid), (hermes.pw_uid, hermes.pw_gid))
+        read = subprocess.run(DROP + ["hermes", "python3", "-c", f"print(len(open('{self.home}/config.yaml').read()))"],
+                              check=False, capture_output=True, text=True)
+        self.assertEqual(read.returncode, 0, read.stderr)
+
+    def test_hermes_drop_gives_up_root_and_refuses_what_it_cannot_do(self):
+        hermes = pwd.getpwnam("hermes")
+        probe = ("import os\nprint(os.getresuid(), os.getresgid(), os.getgroups())\n"
+                 "print(os.environ['HOME'], os.environ['USER'], os.environ['LOGNAME'], os.getcwd())\n"
+                 "try:\n    os.setuid(0)\nexcept OSError:\n    print('setuid(0) refused')\n")
+        inaccessible = tempfile.mkdtemp(prefix="drop-cwd-")
+        self.addCleanup(shutil.rmtree, inaccessible, True)
+        os.chmod(inaccessible, 0o700)
+        ids = f"({hermes.pw_uid}, {hermes.pw_uid}, {hermes.pw_uid}) ({hermes.pw_gid}, {hermes.pw_gid}, {hermes.pw_gid}) []"
+        ran = subprocess.run(DROP + ["hermes", "python3", "-c", probe], cwd=inaccessible, env=self.env,
+                             check=False, capture_output=True, text=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        lines = ran.stdout.strip().splitlines()
+        self.assertEqual(lines[0], ids)
+        # HOME is the data directory when HERMES_HOME names one; the directory root was in,
+        # which the new user cannot enter, is left for it.
+        self.assertEqual(lines[1], f"{self.home} hermes hermes {self.home}")
+        self.assertEqual(lines[2], "setuid(0) refused")
+        away = subprocess.run(DROP + ["hermes", "python3", "-c", "import os; print(os.environ['HOME'])"],
+                              env=dict(self.env, HERMES_HOME="/no/such/directory"), check=False,
+                              capture_output=True, text=True)
+        self.assertEqual(away.stdout.strip(), hermes.pw_dir)
+        # A root target is a plain exec: nothing is lowered.
+        plain = subprocess.run(DROP + ["root", "python3", "-c", "import os; print(os.getuid())"],
+                               check=False, capture_output=True, text=True)
+        self.assertEqual(plain.stdout.strip(), "0")
+        # What it will not do, and that the command then never runs. An account that is root
+        # under another name is not a drop either.
+        passwd = Path("/etc/passwd")
+        saved = passwd.read_bytes()
+        self.addCleanup(passwd.write_bytes, saved)
+        with passwd.open("a") as stream:
+            stream.write("rootalias:x:0:0:alias:/root:/bin/sh\n")
+        marker = self.home / "ran"
+        for argv, status, words in ((["no-such-user", "touch", str(marker)], 1, "no user"),
+                                    (["rootalias", "touch", str(marker)], 1, "not a drop"),
+                                    (["hermes"], 2, "usage")):
+            with self.subTest(argv=argv):
+                refused = subprocess.run(DROP + argv, check=False, capture_output=True, text=True)
+                self.assertEqual(refused.returncode, status)
+                self.assertIn(words, refused.stderr)
+                self.assertFalse(marker.exists())
+        missing = subprocess.run(DROP + ["hermes", "/no/such/command"], check=False, capture_output=True, text=True)
+        self.assertEqual(missing.returncode, 1)
+        # Not root, so it cannot become anyone else; being the target already is fine.
+        other = subprocess.run(DROP + ["hermes"] + DROP + ["nobody", "touch", str(marker)], check=False,
+                               capture_output=True, text=True)
+        self.assertEqual(other.returncode, 1)
+        self.assertIn("not root", other.stderr)
+        self.assertFalse(marker.exists())
+        same = subprocess.run(DROP + ["hermes"] + DROP + ["hermes", "id", "-u"], check=False,
+                              capture_output=True, text=True)
+        self.assertEqual(same.stdout.strip(), str(hermes.pw_uid))
+
+    def test_launcher_runs_as_the_user_who_owns_the_data_directory(self):
+        # `HERMES_HOME=/srv/hermes hermes cron create ...` over SSH is root, and the gateway is
+        # hermes: left as root it would write files the gateway cannot update. The launcher
+        # puts upstream's entry point in front of a stand-in that says who runs it.
+        main = Path("/usr/lib/hermes-agent/site-packages/hermes_cli/main.py")
+        original = main.read_bytes()
+        self.addCleanup(main.write_bytes, original)
+        main.write_text("import os\nprint(os.getuid(), os.environ.get('HOME'))\n")
+        hermes = pwd.getpwnam("hermes")
+        rootdir = Path(tempfile.mkdtemp(prefix="launcher-root-"))
+        self.addCleanup(shutil.rmtree, rootdir, True)
+
+        def run(home, as_user=None, **extra):
+            env = {k: v for k, v in self.env.items() if k != "HERMES_HOME"}
+            if home is not None:
+                env["HERMES_HOME"] = str(home)
+            env.update(extra)
+            command = ["/usr/bin/hermes"]
+            if as_user:
+                command = DROP + [as_user] + command
+            return subprocess.run(command, env=env, check=False, capture_output=True, text=True, cwd="/")
+
+        owned = run(self.home)
+        self.assertEqual(owned.stdout.strip(), f"{hermes.pw_uid} {self.home}", owned.stderr)
+        self.assertEqual(run(rootdir).stdout.split()[0], "0")
+        self.assertEqual(run(self.home, HERMES_OPENWRT_AS_ROOT="1").stdout.split()[0], "0")
+        self.assertEqual(run(self.home, as_user="hermes").stdout.split()[0], str(hermes.pw_uid))
+        # No directory named and none at ~/.hermes: nothing says hermes, so it stays root.
+        self.assertEqual(run(None, HOME=str(rootdir)).stdout.split()[0], "0")
+
+    def test_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone(self):
+        config = Path("/etc/config/openwrt-mcp")
+        original = config.read_bytes() if config.exists() else None
+
+        def restore():
+            if original is None:
+                config.unlink(missing_ok=True)
+            else:
+                config.write_bytes(original)
+        self.addCleanup(restore)
+        self.addCleanup(subprocess.run, ["openwrt-mcp", "unpair", "hermes-unit"], capture_output=True)
+        config.write_text("config server\n\toption listen '127.0.0.1:8730'\n\n"
+                          "config policy 'mine'\n\toption client 'someone-else'\n\tlist tools 'logread'\n")
+        token = self.home / "unit.token"
+        token.unlink(missing_ok=True)
+
+        def agent(factor, name="unit", window="20m", token_file=None):
+            script = (f". /lib/functions.sh; . {shlex.quote(str(FILES / 'hermes-agent.init'))}; "
+                      f"hermes_mcp_agent {name} {shlex.quote(str(token_file or token))} {factor} {window} 3 1h")
+            return subprocess.run(["sh", "-c", script], check=False, capture_output=True, text=True)
+
+        def show():
+            return subprocess.run(["uci", "-q", "show", "openwrt-mcp"], check=True, capture_output=True,
+                                  text=True).stdout.splitlines()
+
+        def sections(lines):
+            return [line.split("=")[0].split(".")[1] for line in lines if line.endswith("=policy")]
+
+        def section(lines, name):
+            return {line.split(".", 2)[2].split("=", 1)[0]: line.split("=", 1)[1] for line in lines
+                    if line.startswith(f"openwrt-mcp.{name}.")}
+        mine = [line for line in show() if line.startswith("openwrt-mcp.mine")]
+        result = agent("pin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = show()
+        # openwrt-mcp takes the first policy of a client that covers a call, so the reads come
+        # first, one tool each, and the change policy, which wants the factor, last.
+        self.assertEqual(sections(lines), ["mine", "hermes_unit_read_ubus", "hermes_unit_read_uci",
+                                           "hermes_unit_read_log", "hermes_unit_change"])
+        self.assertEqual([line for line in lines if line.startswith("openwrt-mcp.mine")], mine)
+        for name, tool in (("read_ubus", "ubus_call"), ("read_uci", "uci_get"), ("read_log", "logread")):
+            body = section(lines, f"hermes_unit_{name}")
+            self.assertEqual(body["client"], "'hermes-unit'")
+            self.assertEqual(body["tools"], f"'{tool}'")
+            self.assertNotIn("mfa_tools", body)
+        ubus = section(lines, "hermes_unit_read_ubus")["scopes"].replace("'", "").split()
+        for scope in ubus:
+            # One method each, never a whole object: system.* would take in system.reboot.
+            self.assertFalse(scope.endswith("*"), scope)
+        self.assertNotIn("system.reboot", ubus)
+        uci = section(lines, "hermes_unit_read_uci")["scopes"].replace("'", "").split()
+        self.assertFalse([scope for scope in uci if scope.startswith("wireless")], uci)
+        self.assertNotIn("network", uci)
+        self.assertNotIn("network.*", uci)
+        change = section(lines, "hermes_unit_change")
+        self.assertEqual(change["tools"], "'ubus_call' 'uci_apply' 'uci_confirm'")
+        self.assertEqual((change["scopes"], change["mfa_tools"], change["mfa_factor"]), ("'*'", "'*'", "'pin'"))
+        self.assertEqual((change["mfa_window"], change["mfa_max_failures"], change["mfa_lockout"]),
+                         ("'20m'", "'3'", "'1h'"))
+        # openwrt-mcp's own parser accepts what was written.
+        policies = subprocess.run(["openwrt-mcp", "policies"], check=False, capture_output=True, text=True)
+        self.assertEqual(policies.returncode, 0, policies.stderr)
+        self.assertIn("hermes-unit", policies.stdout)
+        # The token: root-only, made once, and a start that changes nothing writes nothing.
+        self.assertEqual(token.stat().st_mode & 0o777, 0o600)
+        first = token.read_bytes()
+        self.assertTrue(first.strip())
+        before, inode = config.read_bytes(), config.stat().st_ino
+        self.assertEqual(agent("pin").returncode, 0)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertEqual(config.stat().st_ino, inode, "the file was written again though nothing changed")
+        self.assertEqual(token.read_bytes(), first)
+        # A token that went missing is replaced, not kept as something nobody holds.
+        token.unlink()
+        self.assertEqual(agent("pin").returncode, 0)
+        self.assertNotEqual(token.read_bytes(), first)
+        # No factor: no change policy at all, so a change finds no policy that grants it.
+        self.assertEqual(agent("none").returncode, 0)
+        lines = show()
+        self.assertEqual(sections(lines), ["mine", "hermes_unit_read_ubus", "hermes_unit_read_uci",
+                                           "hermes_unit_read_log"])
+        self.assertEqual(subprocess.run(["openwrt-mcp", "policies"], check=False, capture_output=True).returncode, 0)
+        # Another agent is another set of sections and another client, and the first is left.
+        self.addCleanup(subprocess.run, ["openwrt-mcp", "unpair", "hermes-second"], capture_output=True)
+        second_token = self.home / "second.token"
+        second = agent("pin", name="second", token_file=second_token)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(sections(show()), ["mine", "hermes_unit_read_ubus", "hermes_unit_read_uci",
+                                            "hermes_unit_read_log", "hermes_second_read_ubus",
+                                            "hermes_second_read_uci", "hermes_second_read_log",
+                                            "hermes_second_change"])
+        self.assertNotEqual(second_token.read_bytes(), token.read_bytes())
+        # A name that cannot be part of a section name is refused, writing nothing.
+        before = config.read_bytes()
+        self.assertNotEqual(agent("pin", name="Bad-Name").returncode, 0)
+        self.assertEqual(config.read_bytes(), before)
+
+    def _start(self, uci, data_dir=None, path=None):
+        """The init's own start_service as root, after some UCI lines; the CompletedProcess."""
+        script = f'''
+mkdir -p /etc/hermes-agent /var/lock /var/run /var/state
+printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
+uci set hermes.main.enabled=1
+uci set hermes.main.mem_max_mb=0
+uci set hermes.main.data_dir={shlex.quote(str(data_dir or self.home))}
+uci -q delete hermes.main.profile
+uci -q delete hermes.security
+uci set hermes.telegram.enabled=0
+{uci}
+uci commit hermes
+. /lib/functions.sh
+. /lib/functions/procd.sh
+initscript=/etc/init.d/hermes-agent
+. {shlex.quote(str(FILES / "hermes-agent.init"))}
+_procd_ubus_call() {{ json_dump; }}
+procd_open_service hermes-agent /etc/init.d/hermes-agent
+start_service || exit 1
+procd_close_service
+'''
+        self.addCleanup(subprocess.run, ["sh", "-c", "uci -q delete hermes.security; uci commit hermes"])
+        env = dict(os.environ, PATH=path + ":" + os.environ["PATH"]) if path else None
+        return subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True, env=env)
+
+    def test_security_options_refuse_bad_values(self):
+        good = self._start("uci set hermes.security=security\nuci set hermes.security.factor=pin+totp\n"
+                           "uci set hermes.security.window=1h30m\nuci set hermes.security.max_failures=3\n"
+                           "uci set hermes.security.lockout=2d")
+        self.assertEqual(good.returncode, 0, good.stderr)
+        self.assertEqual(json.loads(good.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_FACTOR"], "pin+totp")
+        for option, value in (("factor", "sms"), ("window", "15"), ("window", "soon"), ("lockout", "-5m"),
+                              ("max_failures", "0"), ("max_failures", "five")):
+            with self.subTest(option=option, value=value):
+                result = self._start(f"uci set hermes.security=security\nuci set hermes.security.{option}={value}")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("hermes.security", result.stderr)
+        # Left alone, nothing is configured: the factor is none.
+        unset = self._start("")
+        self.assertEqual(json.loads(unset.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_FACTOR"], "none")
+        # And only the owner profile has one.
+        assistant = self._start("uci set hermes.main.profile=assistant\nuci set hermes.security=security\n"
+                                "uci set hermes.security.factor=sms")
+        self.assertEqual(assistant.returncode, 0, assistant.stderr)
+
+    def test_init_runs_the_bridge_as_the_agents_user(self):
+        # The init checks the configuration before it opens an instance, by running the
+        # same bridge the wrapper runs, and for the same reason as the wrapper's: it writes
+        # and reads what the agent can write, so it is run as the agent's user.
+        helper = Path("/usr/libexec/hermes-set-toolsets")
+        original = helper.read_bytes()
+        self.addCleanup(helper.write_bytes, original)
+        marker = self.home / "bridge.uid"
+        helper.write_text(f"import os\nopen({str(marker)!r}, 'w').write(str(os.getuid()))\n")
+        for profile, want in (("owner", str(pwd.getpwnam("hermes").pw_uid)), ("assistant", str(pwd.getpwnam("hermes").pw_uid)),
+                              ("root", "0")):
+            with self.subTest(profile=profile):
+                marker.unlink(missing_ok=True)
+                result = self._start(f"uci set hermes.main.profile={profile}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(marker.read_text().strip(), want)
+
+    def test_start_refuses_a_data_dir_it_cannot_give_to_the_agent(self):
+        # The agent has to be able to write where its data is. A directory chown cannot give
+        # away (a read-only mount) or whose ownership the filesystem ignores (FAT) would
+        # otherwise start a gateway that dies on its first write.
+        plain = self.home / "plain"
+        plain.mkdir()
+        stubs = Path(tempfile.mkdtemp(prefix="stub-chown-"))
+        self.addCleanup(shutil.rmtree, stubs, True)
+        (stubs / "chown").write_text("#!/bin/sh\nexit 0\n")
+        (stubs / "chown").chmod(0o755)
+        ignored = self._start("", data_dir=plain, path=str(stubs))
+        self.assertNotEqual(ignored.returncode, 0)
+        self.assertIn("cannot write in", ignored.stderr)
+        self.assertIn("Unix ownership", ignored.stderr)
+        mount = self.home / "ro"
+        mount.mkdir()
+        subprocess.run(["mount", "-t", "tmpfs", "-o", "ro,size=1m", "tmpfs", str(mount)], check=True)
+        self.addCleanup(subprocess.run, ["umount", str(mount)])
+        locked = self._start("", data_dir=mount)
+        self.assertNotEqual(locked.returncode, 0)
+        self.assertIn("cannot give", locked.stderr)
+        # With a chown that works, the same kind of directory is handed over and starts.
+        fine = self.home / "fine"
+        fine.mkdir()
+        started = self._start("", data_dir=fine)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertEqual(fine.stat().st_uid, pwd.getpwnam("hermes").pw_uid)
+        # The root profile hands it to root instead, and asks nothing of hermes.
+        started_root = self._start("uci set hermes.main.profile=root", data_dir=fine)
+        self.assertEqual(started_root.returncode, 0, started_root.stderr)
+        self.assertEqual(fine.stat().st_uid, 0)
+
     # ---- Further providers: UCI sections, offered by /model per chat ----
 
     PROVIDERS = ("claude|Anthropic|https://api.anthropic.com/v1|/etc/hermes-agent/claude.key|claude-haiku-4-5;"
@@ -911,11 +1378,13 @@ exit $?
         args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", "", endpoint, "runtime-model"]
         return subprocess.run(args, env=env, text=True, check=False, capture_output=True)
 
-    def upstream(self, code, **extra):
+    def upstream(self, code, as_agent=False, **extra):
         # Upstream's own resolvers, run the way the gateway runs them, in a subprocess
-        # with the keys the wrapper would have exported.
+        # with the keys the wrapper would have exported. as_agent runs them as the user the
+        # agent runs as, for what the agent itself would have written into its data directory.
         env = dict(self.env, OPENAI_API_KEY="main-key-canary", **extra)
-        return subprocess.run(["python3", "-c", code], env=env, check=False, capture_output=True, text=True)
+        command = (DROP + ["hermes"] if as_agent else []) + ["python3", "-c", code]
+        return subprocess.run(command, env=env, check=False, capture_output=True, text=True)
 
     def test_extra_providers_reach_upstream(self):
         # 2026-09-25: three agents at once on three providers, asked for on the router.
@@ -1211,14 +1680,30 @@ start_service; echo "start=$?"
         self.assertTrue(helper.exists(), "hermes-login is not installed")
         self.addCleanup(subprocess.run, ["sh", "-c", "uci set hermes.main.data_dir=/srv/hermes; uci commit hermes"])
         subprocess.run(["sh", "-c", f"uci set hermes.main.data_dir={shlex.quote(str(self.home))}; uci commit hermes"], check=True)
+        # Who the sign-in's own python runs as is recorded by a sitecustomize in the package's
+        # private site-packages, which only an interpreter started with that on its path (the
+        # sign-in's, not hermes-drop's isolated one) imports.
+        site = Path("/usr/lib/hermes-agent/site-packages/sitecustomize.py")
+        self.assertFalse(site.exists())
+        self.addCleanup(site.unlink, True)
+        who = self.home / "signin.uid"
+        site.write_text("import os\nf = os.environ.get('GATE_UID_FILE')\n"
+                        "if f:\n    open(f, 'a').write(str(os.getuid()) + '\\n')\n")
+        # Written as the agent writes it: the sign-in runs as the user who owns the data
+        # directory, so the tokens it files are that user's.
         saved = self.upstream("from hermes_cli.auth import _save_codex_tokens\n"
-                              "_save_codex_tokens({'access_token': 'codex-access-canary', 'refresh_token': 'codex-refresh-canary'}, None)\n")
+                              "_save_codex_tokens({'access_token': 'codex-access-canary', 'refresh_token': 'codex-refresh-canary'}, None)\n",
+                              as_agent=True)
         self.assertEqual(saved.returncode, 0, saved.stderr)
         self.assertIn("codex-access-canary", (self.home / "auth.json").read_text())
-        out = subprocess.run(["sh", str(helper), "chatgpt", "--logout"], check=False, capture_output=True, text=True)
+        who.unlink(missing_ok=True)
+        out = subprocess.run(["sh", str(helper), "chatgpt", "--logout"], check=False, capture_output=True, text=True,
+                             env=dict(os.environ, GATE_UID_FILE=str(who)))
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertNotIn("codex-access-canary", (self.home / "auth.json").read_text())
         self.assertNotIn("codex-access-canary", out.stdout + out.stderr)
+        # And it ran as the agent's user, not as the root shell that started it.
+        self.assertEqual(who.read_text().split(), [str(pwd.getpwnam("hermes").pw_uid)])
 
     def test_chatgpt_login_does_not_trip_the_preflight(self):
         # hermes-login stores the subscription's tokens with upstream's own saver and

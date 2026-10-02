@@ -1,7 +1,9 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Seventeen faults, each a change somebody could plausibly make to the rpcd backend or its
+# Thirty-one faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
+# the pages. Faults 19 to 31 are LuCI r13's, for the Security page and the PIN and phone behind it.
+# The original eighteen: each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
 # page's ubus object rather than inside it; fault 5 measures the free space on the data
@@ -30,6 +32,12 @@ PROVIDERS="$WORK/tree/www/luci-static/resources/view/hermes/providers.js"
 FLASH="$WORK/tree/www/luci-static/resources/hermes/flash.js"
 SRC_PROVIDERS="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/providers.js"
 SRC_FLASH="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/hermes/flash.js"
+SETTINGS="$WORK/tree/www/luci-static/resources/view/hermes/settings.js"
+SRC_SETTINGS="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/settings.js"
+SECURITY="$WORK/tree/www/luci-static/resources/view/hermes/security.js"
+SRC_SECURITY="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/view/hermes/security.js"
+SRC_ACL="$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json"
+SRC_RPCD="$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes"
 
 [ -d "$WORK/tree" ] || { echo "teeth-luci: no tree at $WORK/tree; build the LuCI package first:"
 	echo "  ./package/luci-app-hermes/build.sh"
@@ -42,7 +50,7 @@ SRC_FLASH="$ROOT/package/luci-app-hermes/htdocs/luci-static/resources/hermes/fla
 # behind for the next run to mistake for the original.
 for pair in "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json:$ACL" \
             "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes:$RPCD" \
-            "$SRC_PROVIDERS:$PROVIDERS" "$SRC_FLASH:$FLASH"; do
+            "$SRC_PROVIDERS:$PROVIDERS" "$SRC_FLASH:$FLASH" "$SRC_SECURITY:$SECURITY"; do
 	src=${pair%%:*}; tree=${pair##*:}
 	cmp -s "$src" "$tree" || {
 		echo "teeth-luci: the build tree's $(basename "$tree") differs from the repository's." >&2
@@ -58,7 +66,8 @@ cleanup() {
 	cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD" 2>/dev/null || true
 	cp "$SRC_PROVIDERS" "$PROVIDERS" 2>/dev/null || true
 	cp "$SRC_FLASH" "$FLASH" 2>/dev/null || true
-	chmod 0644 "$ACL" "$PROVIDERS" "$FLASH" 2>/dev/null || true
+	cp "$SRC_SECURITY" "$SECURITY" 2>/dev/null || true
+	chmod 0644 "$ACL" "$PROVIDERS" "$FLASH" "$SECURITY" 2>/dev/null || true
 	chmod 0755 "$RPCD" 2>/dev/null || true
 	# The mutant is a package a feed builder would otherwise collect from this
 	# directory and sign. It does not outlive this script.
@@ -107,8 +116,12 @@ expect_red() {
 # ---- fault 1: service.list is granted again ----
 # The narrow read ACL is the whole point of the check; re-adding the grant is the exact
 # regression a careless merge of an older acl.d file would reintroduce.
-sed 's/"hermes": \[ "status", "logs" \]/"hermes": [ "status", "logs" ], "service": [ "list" ]/' \
-	"$ACL" > /tmp/acl.new && cp /tmp/acl.new "$ACL"
+sed 's/"hermes": \[ "status", "logs", "security_status" \]/"hermes": [ "status", "logs", "security_status" ], "service": [ "list" ]/' \
+	"$ACL" > /tmp/acl.new
+grep -q '"service": \[ "list" \]' /tmp/acl.new || {
+	echo "teeth-luci: fault 1 planted nothing; the read grant in the ACL no longer reads as expected" >&2
+	exit 1; }
+cp /tmp/acl.new "$ACL"
 repack_luci
 expect_red "service.list re-added to the read ACL" check_read_acl_is_narrow
 # Restored here, not only in the exit trap: fault 2 and fault 3 repackage the SAME
@@ -135,7 +148,7 @@ cp "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$RPCD"
 # key file itself to any session with read access, while the ubus grants still read
 # exactly status and logs. Both faults land on check_read_acl_is_narrow on purpose, one
 # for each side of the same boundary.
-sed 's|"comment": "status reports only whether a key is PRESENT, never its value or length",|&  "file": { "/etc/hermes-agent/*": [ "read" ] },|' \
+sed 's|"comment": "status reports only whether a key is PRESENT, never its value or length; security_status[^"]*",|&  "file": { "/etc/hermes-agent/*": [ "read" ] },|' \
 	"$ACL" > /tmp/acl.new
 grep -q '"/etc/hermes-agent/\*": \[ "read" \]' /tmp/acl.new || {
 	echo "teeth-luci: fault 4 planted nothing; the read comment in the ACL no longer reads as expected" >&2
@@ -267,6 +280,100 @@ repack_luci
 expect_red "\"Saved\" beside a key that did not save" check_saved_when_only_a_key_changed
 cp "$SRC_FLASH" "$FLASH"
 
+# ---- fault 18: the profile field puts the agent back to root on save ----
+# The field writes hermes.main.profile on every save; defaulting it to the root profile
+# would undo the package's own default the first time somebody saved the page.
+plant "$SETTINGS" "o.default = 'owner';" "o.default = 'root';" "fault 18"
+repack_luci
+expect_red "the profile field defaulting to root" check_profile_field_defaults_to_owner
+cp "$SRC_SETTINGS" "$SETTINGS"
+
+# ---- fault 19: the status says a PIN is set whatever openwrt-mcp holds ----
+plant "$RPCD" 'json_add_boolean "pin_set" "$PIN_SET"' 'json_add_boolean "pin_set" "1"' "fault 19"
+repack_luci
+expect_red "the status reporting a PIN that is not there" check_security_status_reports_facts_only
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 20: a factor chosen without what it needs ----
+# The owner who picks PIN before setting one is refused every unlock by their own router.
+plant "$RPCD" 'if ! sec_factor_ready "$factor"; then' 'if false; then' "fault 20"
+repack_luci
+expect_red "a factor accepted with what it needs missing" check_security_factor_never_outruns_what_exists
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 21: the commit takes another page's staged changes ----
+# A plain `uci commit hermes` after the write, which is how the first version of set_factor did it.
+plant "$RPCD" 'rm -rf "$d"' 'rm -rf "$d"; uci -q commit hermes' "fault 21"
+repack_luci
+expect_red "set_factor committing another page's staged changes" check_security_factor_never_outruns_what_exists
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 22: the Security calls answer in every profile ----
+plant "$RPCD" 'if [ "$(sec_profile)" != owner ]; then' 'if false; then' "fault 22"
+repack_luci
+expect_red "the Security calls answering outside the owner profile" check_security_refused_outside_the_owner_profile
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 23: a call the page makes, left out of the permissions ----
+# LuCI then answers "Access denied" on a page that renders fine.
+plant "$ACL" '"enrol_activate", "set_factor" ],' '"enrol_activate" ],' "fault 23"
+repack_luci
+expect_red "set_factor left out of the write permission" check_security_page_calls_are_granted
+cp "$SRC_ACL" "$ACL"
+
+# ---- fault 24: the PIN field filled in with a mask ----
+# The usual way a field comes to be prefilled: "so that it shows a PIN is set".
+plant "$SECURITY" "'id': 'hermes-sec-pin', 'class': 'cbi-input-password', 'value': ''," \
+	"'id': 'hermes-sec-pin', 'class': 'cbi-input-password', 'value': st.pin_set ? '********' : ''," "fault 24"
+repack_luci
+expect_red "the PIN field prefilled" check_security_pin_fields_never_prefilled
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 25: a PIN left in its fields once it is sent ----
+plant "$SECURITY" 'wipePin();' 'void 0;' "fault 25"
+repack_luci
+expect_red "the PIN left in its fields after it is sent" check_security_pin_fields_never_prefilled
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 26: the QR still on a page that was left ----
+plant "$SECURITY" "window.addEventListener('pagehide', function () { held = null; codeIn = null; paint(); });" 'void 0;' "fault 26"
+repack_luci
+expect_red "the QR kept when the page is left" check_security_qr_shown_once
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 27: the secret kept in the tab's storage ----
+# So that it survives the reload: the message mechanism the other pages use is the obvious place.
+plant "$SECURITY" 'held = { secret: r.secret, png: r.qr_png_base64 };' "held = { secret: r.secret, png: r.qr_png_base64 }; flash.keep(r.secret, 'info');" "fault 27"
+repack_luci
+expect_red "the phone's secret kept in the tab's storage" check_security_qr_shown_once
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 28: a choice open that has no PIN behind it ----
+plant "$SECURITY" "if (!ok) attrs.disabled = 'disabled';" 'void 0;' "fault 28"
+repack_luci
+expect_red "every factor open whatever exists" check_security_factor_needs_its_prerequisite
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 29: Save letting a disabled choice through ----
+plant "$SECURITY" 'if (!allowed(f, st)) return fail(' 'if (false) return fail(' "fault 29"
+repack_luci
+expect_red "Save sending a factor the router could not honour" check_security_factor_needs_its_prerequisite
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 30: the page offering its controls outside the owner profile ----
+plant "$SECURITY" 'else if (st.applies !== true)' 'else if (false)' "fault 30"
+repack_luci
+expect_red "the page offering controls in the root profile" check_security_page_offers_nothing_it_cannot_do
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 31: a key read with jshn's own loader ----
+# What set_secret did until LuCI r13: json_load puts the whole message, the key included, on a
+# `jshn` command line, and json_get_var exports it to every program started afterwards.
+plant "$RPCD" 'value=$(msg_get value)' 'json_load "$MSG"; json_get_var value value' "fault 31"
+repack_luci
+expect_red "a key read with json_load" check_secret_never_returned
+cp "$SRC_RPCD" "$RPCD"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -274,4 +381,4 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-echo "teeth-luci: 17 faults on 12 checks, green restored"
+echo "teeth-luci: 31 faults on 22 checks, green restored"

@@ -2,16 +2,17 @@
 	"luci-app-hermes": {
 		"description": "Manage the Hermes Agent service",
 		"read": {
-			"comment": "status reports only whether a key is PRESENT, never its value or length",
+			"comment": "status reports only whether a key is PRESENT, never its value or length; security_status reports facts about the owner's PIN and phone (is one set, is one enrolled), never a PIN, a secret or a QR",
 			"ubus": {
-				"hermes": [ "status", "logs" ]
+				"hermes": [ "status", "logs", "security_status" ]
 			},
 			"uci": [ "hermes" ]
 		},
 		"write": {
-			"comment": "set_secret writes a key into a root-only file; there is no matching read, by design",
+			"comment": "set_secret writes a key into a root-only file; there is no matching read, by design. set_pin and enrol_start take a PIN and return a phone's secret and QR, once, to the call that asked; they are write-only for the same reason",
 			"ubus": {
-				"hermes": [ "set_secret", "chatgpt_login", "chatgpt_login_status", "chatgpt_logout" ],
+				"hermes": [ "set_secret", "chatgpt_login", "chatgpt_login_status", "chatgpt_logout",
+				            "set_pin", "clear_pin", "enrol_start", "enrol_activate", "set_factor" ],
 				"luci": [ "setInitAction" ]
 			},
 			"uci": [ "hermes" ]

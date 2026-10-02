@@ -29,6 +29,27 @@ its ephemeral system prompt; the operator's own text around it is kept, and admi
 removes only the block. The cap comes from UCI through HERMES_OPENWRT_MAX_TURNS into
 agent.max_turns, which the gateway turns into its per-turn iteration budget.
 
+@decided 2026-10-01, superseding the default above: four profile names. owner is the
+default, wherever none is set, existing routers included: the agent runs as the
+unprivileged user hermes with terminal, code and file tools on, and changes the router
+only through openwrt-mcp, which refuses a change until the owner unlocks it. assistant is
+as before. root is the old admin: every selected tool, as root, an explicit and warned
+choice. admin is accepted as another name for root. owner, root and admin leave
+agent.disabled_toolsets the way admin did; assistant fills it. owner's note in
+agent.system_prompt says what the unlock needs and depends on HERMES_OPENWRT_FACTOR (the
+init passes hermes.security.factor): with none the agent is told a factor has to be set
+up first. The package-written mcp_servers.openwrt entry carries tools.exclude, so the
+model is never offered openwrt-mcp's unlock or lock tools in any profile (upstream's
+tools/mcp_tool_registration.py reads that key).
+
+@decided 2026-10-01 (the unlock plugin): in the owner profile the bridge also enables the
+plugin openwrt-unlock, which ships in the package's own site-packages and takes /unlock and
+/lock in Telegram (its own header says how). It adds the name to plugins.enabled, keeping
+every name the operator listed, and takes it out of plugins.disabled, which would otherwise
+win over the list and leave the owner's PIN to the model: in this profile that is not the
+operator's to turn off, because the unlock is the control. The other profiles remove the name
+again, but only when this bridge was what added it (the _openwrt_unlock_managed marker).
+
 @decided 2026-09-25: more than one provider on one router. Every chat starts on the
 UCI main model; the others are offered by /model and switch that chat only.
 
@@ -55,19 +76,53 @@ from urllib.parse import urlsplit
 # deterministic to read and to test.
 GOVERNED = ("code_execution", "file", "terminal")
 
-# What the assistant profile tells the agent. Without it a live Telegram bot asked
-# for the router's uptime looped on the memory tool for 90 model calls before it
-# gave up (2026-09-24). Delimited, so admin can take out exactly this and nothing
-# of the operator's own prompt.
-NOTE_OPEN = "[hermes-openwrt: assistant profile]"
-NOTE_CLOSE = "[/hermes-openwrt: assistant profile]"
-NOTE = (NOTE_OPEN + "\n"
-        "You run on an OpenWrt router in its assistant profile. You have no terminal, "
-        "code execution or file tools, so you cannot read or change this router yourself. "
-        "When you are asked about the router, say so at once instead of trying other tools, "
-        "and say that the owner can allow it by setting hermes.main.profile to admin or by "
-        "connecting an MCP server such as openwrt-mcp.\n"
-        + NOTE_CLOSE)
+# What a profile tells the agent about itself. Without it a live Telegram bot asked for
+# the router's uptime looped on the memory tool for 90 model calls before it gave up
+# (2026-09-24). Each note is a delimited block, so a profile can take out exactly its own
+# and nothing of the operator's own prompt.
+def _markers(kind: str):
+    return f"[hermes-openwrt: {kind} profile]", f"[/hermes-openwrt: {kind} profile]"
+
+
+NOTE_KINDS = ("assistant", "owner")
+
+ASSISTANT_NOTE = ("You run on an OpenWrt router in its assistant profile. You have no terminal, "
+                  "code execution or file tools, so you cannot read or change this router yourself. "
+                  "When you are asked about the router, say so at once instead of trying other tools, "
+                  "and say that the owner can allow it by setting hermes.main.profile to owner or by "
+                  "connecting an MCP server such as openwrt-mcp.")
+
+OWNER_NOTE = ("You run on an OpenWrt router as an unprivileged user. You can read the router's "
+              "state, interfaces and log through the openwrt tools without asking anyone. Change "
+              "the router only through those tools, never by editing its files or running "
+              "commands that reconfigure it. ")
+OWNER_NOTE_LOCKED = ("A change is refused until the owner has unlocked it. When a tool answers that "
+                     "a second factor is required, tell the owner to send /unlock in the private "
+                     "chat with you, and try again once they say it is done. Never ask the owner "
+                     "for a PIN or a code in a message, and never repeat one you were given. "
+                     "The owner's PIN or code never reaches you: if one of their messages is "
+                     "replaced by a notice that it was removed, the unlock is not something you "
+                     "can see or finish. Answer what you were doing, then ask them to send "
+                     "/unlock again in the private chat.")
+OWNER_NOTE_NO_FACTOR = ("No second factor is set up on this router, so every change is refused. "
+                        "When a change is refused, tell the owner that a factor has to be set up "
+                        "in LuCI (Services -> Hermes Agent -> Security) first, and do not look for "
+                        "another way to make the change. Never ask the owner for a PIN or a code "
+                        "in a message.")
+
+FACTORS = ("none", "pin", "totp", "pin+totp")
+
+
+def _note_for(profile, factor: str):
+    """The note a profile puts in agent.system_prompt, or None when it puts none."""
+    if profile == "assistant":
+        text = ASSISTANT_NOTE
+    elif profile == "owner":
+        text = OWNER_NOTE + (OWNER_NOTE_NO_FACTOR if factor == "none" else OWNER_NOTE_LOCKED)
+    else:
+        return None
+    opening, closing = _markers(profile)
+    return opening + "\n" + text + "\n" + closing
 
 
 # Put between the operator's text and the note, and taken out with it, so the
@@ -75,17 +130,26 @@ NOTE = (NOTE_OPEN + "\n"
 NOTE_SEP = "\n\n"
 
 
+def _has_note(text: str) -> bool:
+    return any(_markers(kind)[0] in text for kind in NOTE_KINDS)
+
+
 def _without_note(text: str) -> str:
-    """The operator's own text, exactly: everything but the note and the separator
-    put before it. Only called when the note is there."""
-    start = text.find(NOTE_OPEN)
-    end = text.find(NOTE_CLOSE, start)
-    if end == -1:
-        raise ValueError("agent.system_prompt holds an unterminated profile note")
-    before, after = text[:start], text[end + len(NOTE_CLOSE):]
-    if before.endswith(NOTE_SEP):
-        before = before[:-len(NOTE_SEP)]
-    return before + after
+    """The operator's own text, exactly: everything but the notes and the separator
+    put before each. Only called when a note is there."""
+    for kind in NOTE_KINDS:
+        opening, closing = _markers(kind)
+        start = text.find(opening)
+        if start == -1:
+            continue
+        end = text.find(closing, start)
+        if end == -1:
+            raise ValueError("agent.system_prompt holds an unterminated profile note")
+        before, after = text[:start], text[end + len(closing):]
+        if before.endswith(NOTE_SEP):
+            before = before[:-len(NOTE_SEP)]
+        text = before + after
+    return text
 
 
 def _validate_endpoint(value: str, label: str) -> None:
@@ -97,6 +161,16 @@ def _validate_endpoint(value: str, label: str) -> None:
     # Also validate the port rather than persisting an unusable endpoint.
     _ = parsed.port
 
+
+PROFILES = ("owner", "assistant", "root", "admin")
+
+# The unlock plugin's name in plugins.enabled (its entry point's name, see build.sh).
+UNLOCK_PLUGIN = "openwrt-unlock"
+UNLOCK_MARKER = "_openwrt_unlock_managed"
+
+# The tools of openwrt-mcp the model is never offered, in any profile: they are how the
+# OWNER proves who they are, and a model that could call them would be asking for a PIN.
+MCP_HIDDEN = ("mfa_unlock", "mfa_lock")
 
 # What marks a `providers` entry as written by this package rather than the operator.
 KEY_ENV = re.compile(r"^HERMES_PROVIDER_[A-Z0-9_]+_KEY$")
@@ -165,8 +239,9 @@ def main() -> int:
     # for a profile. Omitted entirely, agent.disabled_toolsets is left untouched,
     # which keeps every existing caller (and test) that predates profiles unchanged.
     profile = sys.argv[6] if len(sys.argv) == 7 else None
-    if profile is not None and profile not in ("assistant", "admin"):
-        sys.stderr.write(f"hermes-config: profile must be 'assistant' or 'admin', not {profile!r}\n")
+    if profile is not None and profile not in PROFILES:
+        sys.stderr.write("hermes-config: profile must be 'owner', 'assistant' or 'root' "
+                         f"('admin' is accepted for 'root'), not {profile!r}\n")
         return 2
     try:
         import yaml
@@ -210,11 +285,14 @@ def main() -> int:
                 servers = config.setdefault("mcp_servers", {})
                 if not isinstance(servers, dict):
                     raise TypeError("mcp_servers must be a mapping")
-                expected = {"url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}
+                headers = {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}
+                expected = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN)}}
+                # The entry as releases before the unlock wrote it, without the tools key.
+                earlier = {"url": url, "headers": headers}
                 # An operator may already have pasted in exactly this entry by hand,
                 # e.g. from an earlier manual setup. Adopt it rather than refuse: only
-                # a DIFFERENT entry is a real collision.
-                if "openwrt" in servers and not owned and servers["openwrt"] != expected:
+                # a DIFFERENT entry is a real collision. The earlier shape is ours too.
+                if "openwrt" in servers and not owned and servers["openwrt"] not in (expected, earlier):
                     raise ValueError("mcp_servers.openwrt is operator-owned; rename it before enabling UCI MCP")
                 servers["openwrt"] = expected
                 config["_openwrt_mcp_managed"] = True
@@ -321,7 +399,7 @@ def main() -> int:
                 if name not in disabled:
                     disabled.append(name)
             agent_cfg["disabled_toolsets"] = disabled
-        elif profile == "admin":
+        elif profile in ("owner", "root", "admin"):
             agent_cfg = config.get("agent")
             if agent_cfg is not None:
                 if not isinstance(agent_cfg, dict):
@@ -338,11 +416,51 @@ def main() -> int:
                         # behind that now holds nothing (see _openwrt_mcp_managed).
                         agent_cfg.pop("disabled_toolsets", None)
 
-        # The profile's note in agent.system_prompt: added in assistant, taken out in
-        # admin, the operator's own text kept either way.
+        # The unlock plugin, in the owner profile. Left alone when no profile was passed (the
+        # callers that predate profiles), and taken out again by the others only when this
+        # bridge put it there.
+        if profile == "owner":
+            plugins = config.get("plugins")
+            if plugins is None:
+                plugins = config["plugins"] = {}
+            if not isinstance(plugins, dict):
+                raise ValueError("plugins must be a mapping")
+            listed = plugins.get("enabled")
+            if listed is None:
+                listed = []
+            if not isinstance(listed, list) or not all(isinstance(n, str) for n in listed):
+                raise ValueError("plugins.enabled must be a list of names")
+            if UNLOCK_PLUGIN not in listed:
+                plugins["enabled"] = list(listed) + [UNLOCK_PLUGIN]
+            denied = plugins.get("disabled")
+            if isinstance(denied, list) and UNLOCK_PLUGIN in denied:
+                kept = [n for n in denied if n != UNLOCK_PLUGIN]
+                if kept:
+                    plugins["disabled"] = kept
+                else:
+                    plugins.pop("disabled", None)
+            config[UNLOCK_MARKER] = True
+        elif profile is not None and config.get(UNLOCK_MARKER) is True:
+            plugins = config.get("plugins")
+            if isinstance(plugins, dict) and isinstance(plugins.get("enabled"), list):
+                remaining = [n for n in plugins["enabled"] if n != UNLOCK_PLUGIN]
+                if remaining:
+                    plugins["enabled"] = remaining
+                else:
+                    plugins.pop("enabled", None)
+                if not plugins:
+                    config.pop("plugins", None)
+            config.pop(UNLOCK_MARKER, None)
+
+        # The profile's note in agent.system_prompt: assistant's and owner's added, root's
+        # (it has none) taking out whichever is there, the operator's own text kept either way.
         if profile is not None:
+            factor = os.environ.get("HERMES_OPENWRT_FACTOR", "none")
+            if factor not in FACTORS:
+                raise ValueError("HERMES_OPENWRT_FACTOR must be none, pin, totp or pin+totp")
+            note = _note_for(profile, factor)
             agent_cfg = config.get("agent")
-            if agent_cfg is None and profile == "assistant":
+            if agent_cfg is None and note:
                 agent_cfg = config["agent"] = {}
             if agent_cfg is not None:
                 if not isinstance(agent_cfg, dict):
@@ -350,10 +468,10 @@ def main() -> int:
                 current = agent_cfg.get("system_prompt")
                 if current is not None and not isinstance(current, str):
                     raise ValueError("agent.system_prompt must be text")
-                noted = bool(current) and NOTE_OPEN in current
+                noted = bool(current) and _has_note(current)
                 own = _without_note(current) if noted else (current or "")
-                if profile == "assistant":
-                    agent_cfg["system_prompt"] = (own + NOTE_SEP + NOTE) if own else NOTE
+                if note:
+                    agent_cfg["system_prompt"] = (own + NOTE_SEP + note) if own else note
                 elif noted and own:
                     agent_cfg["system_prompt"] = own
                 elif noted:
@@ -382,6 +500,13 @@ def main() -> int:
                 temp = Path(stream.name)
                 stream.write(rendered)
                 stream.flush()
+                # Run as root over a directory that belongs to the agent (a person at a
+                # shell may; the wrapper and the init do not, they run this as the agent),
+                # the file goes to the directory's owner, not to root: a root-owned
+                # config.yaml is one the gateway cannot update.
+                if os.geteuid() == 0:
+                    owner = home.stat()
+                    os.fchown(stream.fileno(), owner.st_uid, owner.st_gid)
                 os.fsync(stream.fileno())
             temp.replace(path)
         finally:
