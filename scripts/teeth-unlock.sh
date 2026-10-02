@@ -1,7 +1,8 @@
 #!/bin/sh
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
-# One planted fault for each check the gate implements, twenty-seven in all. Each is a change a
+# One planted fault for each check the gate implements, and a second for the three that guard a secret
+# (thirty-three in all, over thirty-one checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -10,8 +11,8 @@
 #
 # And the three things around the faults, so that the reds above were the faults and not the
 # harness: every implemented check passes with nothing planted, a name that matches no check is
-# "measured nothing" and not a pass, and a scenario whose check does not exist yet (stage 5)
-# fails with NOT IMPLEMENTED instead of being skipped.
+# "measured nothing" and not a pass, and a scenario whose check does not exist yet fails with
+# NOT IMPLEMENTED instead of being skipped (none is left, so a name is made up for the control).
 #
 # The faults go into files copied out of the BUILT tree, never into the build tree itself, so
 # a run that goes red partway leaves nothing behind for the next build to inherit.
@@ -21,6 +22,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${ARCH:-aarch64_generic}
 LINE=${LINE:-25.12}
 TREE="$ROOT/build/$LINE/$ARCH/tree"
+# The LuCI app's own tree: the Security page's rpcd backend is what stage 5's checks run.
+LUCI_TREE="$ROOT/build/luci-app-hermes-apk/tree"
 [ -d "$TREE" ] || { echo "teeth-unlock: no build tree at $TREE; build the package first:"
 	echo "  ./package/hermes-agent/build-in-container.sh $ARCH"; exit 1; }
 
@@ -35,17 +38,22 @@ for pair in hermes-agent.init:etc/init.d/hermes-agent hermes-gateway:usr/sbin/he
 		exit 1; }
 done
 
+cmp -s "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes" "$LUCI_TREE/usr/libexec/rpcd/hermes" || {
+	echo "teeth-unlock: usr/libexec/rpcd/hermes in the LuCI build tree differs from the repository's; rebuild first:" >&2
+	echo "  ./package/luci-app-hermes/build.sh" >&2
+	exit 1; }
+
 W=$(mktemp -d "${TMPDIR:-/tmp}/teeth-unlock.XXXXXX")
 trap 'rm -rf "$W"' EXIT INT TERM
 OUT="$W/out"
 
-# plant <path in the installation> <before> <after>: copy that file out of the build tree
-# with `before` replaced by `after`, into the overlay. Exactly one occurrence, or nothing was
-# measured.
+# plant <path in the installation> <before> <after> [tree]: copy that file out of the build tree
+# (the agent's, or the LuCI app's when named) with `before` replaced by `after`, into the overlay.
+# Exactly one occurrence, or nothing was measured.
 plant() {
-	rel=$1; before=$2; after=$3
+	rel=$1; before=$2; after=$3; from=${4:-$TREE}
 	mkdir -p "$W/overlay/$(dirname "$rel")"
-	python3 - "$TREE/$rel" "$W/overlay/$rel" "$before" "$after" <<'PY'
+	python3 - "$from/$rel" "$W/overlay/$rel" "$before" "$after" <<'PY'
 import os, shutil, sys
 src, dst, before, after = sys.argv[1:5]
 text = open(src).read()
@@ -238,6 +246,48 @@ plant "$PLUGIN" '        if platform != "telegram":
             return None'
 expect_red "the gateway hook passing every message" check_edited_unlock_never_reaches_model
 
+# ---- the LuCI Security page's backend and the SSH enrolment (stage 5) ----
+# The rpcd backend is the LuCI app's own file, laid over the installation like the others.
+RPCD=usr/libexec/rpcd/hermes
+
+# ---- 29. a phone in force the moment it is asked for ----
+# enrol_start without --pending: the scan has not been proven to work, and the phone that was in
+# force is already gone.
+plant "$RPCD" 'mfa enrol "$SEC_CLIENT" --pending --json' 'mfa enrol "$SEC_CLIENT" --json' "$LUCI_TREE"
+expect_red "enrol_start without --pending" check_luci_enrol_shows_qr_and_verifies
+
+# ---- 30. the phone's address handed to a program as an argument ----
+# jsonfilter -s takes the text as an argument, which any account on the router can read from /proc.
+plant "$RPCD" "uri=\$(echo \"\$out\" | jsonfilter -e '@.uri' 2>/dev/null)" "uri=\$(jsonfilter -s \"\$out\" -e '@.uri' 2>/dev/null)" "$LUCI_TREE"
+expect_red "the phone's secret given to jsonfilter as an argument" check_luci_enrol_shows_qr_and_verifies
+
+# ---- 31. the terminal enrolment printing no QR ----
+# A stand-in for openwrt-mcp ahead of it on the PATH that drops --qr, which is what the command
+# would do if the flag were renamed under the README.
+mkdir -p "$W/overlay/usr/sbin"
+cat > "$W/overlay/usr/sbin/openwrt-mcp" <<'SHIM'
+#!/bin/sh
+if [ "$1 $2" = "mfa enrol" ]; then
+	n=$#; i=0
+	while [ "$i" -lt "$n" ]; do a=$1; shift; [ "$a" = --qr ] || set -- "$@" "$a"; i=$((i + 1)); done
+fi
+exec /usr/bin/openwrt-mcp "$@"
+SHIM
+chmod 755 "$W/overlay/usr/sbin/openwrt-mcp"
+expect_red "mfa enrol printing no QR" check_cli_enrol_prints_qr
+
+# ---- 32. the PIN left in a file ----
+# A debugging line in set_pin, the commonest way a secret gets onto flash.
+plant "$RPCD" 'if ! echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" >/dev/null 2>&1; then' \
+	'echo "$pin" > /tmp/hermes-last-pin; if ! echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" >/dev/null 2>&1; then' "$LUCI_TREE"
+expect_red "the PIN written to a file" check_luci_pin_write_only
+
+# ---- 33. the PIN read with jshn's own loader ----
+# What every rpcd backend in the tree did until LuCI r13: json_load puts the whole message on a
+# `jshn` command line and json_get_var exports what it reads to every program started afterwards.
+plant "$RPCD" 'pin=$(msg_get pin)' 'json_load "$MSG"; json_get_var pin pin' "$LUCI_TREE"
+expect_red "the PIN read with json_load and json_get_var" check_luci_pin_write_only
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -258,11 +308,11 @@ fi
 grep -q 'measured nothing' "$OUT" || { echo "TEETH FAIL: no check named, but the gate did not say it measured nothing"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: no such check -> measured nothing"
 
-# A scenario with no check behind it yet is red, not skipped.
-if ONLY=check_luci_pin_write_only ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
-	echo "TEETH FAIL: a check that is not implemented passed"; exit 1
-fi
+# A scenario with no check behind it yet is red, not skipped. Every scenario has one now, so the
+# gate is told of a name that has none.
+if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1; then
+	echo "TEETH FAIL: a check that is not implemented passed"; exit 1; fi
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-echo "teeth-unlock: 28 faults, 28 distinct checks, controls green"
+echo "teeth-unlock: 33 faults, $N distinct checks, controls green"

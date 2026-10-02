@@ -32,6 +32,21 @@
 #                        to ChatGPT" were shown just before the page reloaded and never seen.
 #   @decided 2026-09-25  All three are fixed.
 #
+#   @decided 2026-10-02  The Security page (LuCI r13), paraphrasing what the owner chose on
+#                        2026-10-01: a phone is added once in the browser, by a QR code to scan,
+#                        and the first code from the app has to be entered before the factor is
+#                        switched on; the PIN field is write-only; a PIN is 4 to 8 digits; and
+#                        each factor is optional and the owner's own choice.
+#   @claude 2026-10-02   How that is built: the page asks the rpcd backend, which asks openwrt-mcp
+#                        and keeps nothing of the PIN or the phone's secret. security_status joins
+#                        the read permission, which is a deliberate change to what invariant 11
+#                        grants: it answers facts and no secret. Everything that writes or returns
+#                        enrolment material is write-only. Where the page is not for the owner (the
+#                        root and assistant profiles), or openwrt-mcp is not answering, or the agent
+#                        has never been started, it offers nothing, and the backend refuses the
+#                        same calls. The scenarios about the QR, the PIN and the SSH enrolment are in
+#                        features/unlock.feature, bound to scripts/gate-unlock.sh.
+#
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
 # both ways, and scripts/teeth-luci.sh plants a fault for each of the three checks added
@@ -41,7 +56,13 @@
 # one for the post-upgrade script, and five for LuCI r8: the version read by running
 # Hermes, a provider deleted without its key, a message not kept across the reload, an
 # old message shown anyway, and a Save & Apply message kept before the apply went
-# through. The last three checks run the installed pages' own
+# through, and thirteen for LuCI r13's Security page: the status reporting a PIN that is
+# not there, a factor accepted without what it needs, the commit taking another page's
+# staged changes, the Security calls answering outside the owner profile, a call left out
+# of the permissions, a PIN field prefilled, a PIN left in its field, the QR kept when the
+# page is left, the secret kept in the tab's storage, a factor open without what it needs,
+# Save sending it anyway, the page offering controls outside the owner profile, and a key
+# read with jshn's loader. The checks on the pages' JavaScript run the installed pages' own
 # JavaScript (scripts/test-luci-views.mjs) against a stand-in for LuCI.
 
 Feature: The web page manages the agent and never hands a key back
@@ -102,6 +123,7 @@ Feature: The web page manages the agent and never hands a key back
     When every method the page can read is called
     Then none of the replies contains the key
     And the status still says a key is present
+    And no program the backend runs while it writes a key is given the key, in its arguments or in its environment
     # -> check_secret_never_returned
 
   Scenario: the page can tell a missing Telegram library from a missing token
@@ -112,8 +134,8 @@ Feature: The web page manages the agent and never hands a key back
     # -> check_telegram_state_reported
 
   Scenario: read-only access to the page grants its own calls and nothing else
-    Then the read permission holds the status and log calls and the page's UCI configuration
-    And no other ubus object or method, which leaves out procd's service list
+    Then the read permission holds the status and log calls, the Security page's status call, and the page's UCI configuration
+    And no other ubus object or method, which leaves out procd's service list and every call that writes a PIN or returns enrolment material
     And no file access and no other scope
     # -> check_read_acl_is_narrow
 
@@ -197,6 +219,66 @@ Feature: The web page manages the agent and never hands a key back
     Then the profile it writes is owner, the first choice offered, beside assistant and root
     And the old name admin is not offered, and a router set to admin is shown and saved as root
     # -> check_profile_field_defaults_to_owner
+
+  Scenario: the Security page tells what is in force and never a secret
+    Given the owner profile, with openwrt-mcp's client for the agent paired
+    When the page asks for the security status
+    Then it gets the profile, the factor in force and its window, failure limit and lockout, whether a PIN is set and whether a phone is enrolled or being added
+    And no other key, no PIN, no secret, no URI and no QR
+    And where openwrt-mcp has no such client, or is not installed, or the factor is not one, it says so instead of guessing
+    # -> check_security_status_reports_facts_only
+
+  Scenario: the factor can only be set to what exists
+    Given a router where only some of a PIN and a phone exist
+    When a factor that needs what is missing is chosen, or a window, a failure limit or a lockout the router would not take
+    Then the choice is refused and nothing is written, not the factor and not another page's staged changes
+    And a choice that can be honoured is written, with its settings, and the agent is told its configuration changed
+    And the PIN the factor in force asks for cannot be cleared
+    # -> check_security_factor_never_outruns_what_exists
+
+  Scenario: outside the owner profile the Security calls refuse
+    Given the profile is root, admin, assistant or nothing the service accepts
+    When a PIN is set or cleared, a phone is added or activated, or a factor is chosen
+    Then each is refused, saying the owner profile only, and nothing is written
+    # -> check_security_refused_outside_the_owner_profile
+
+  Scenario: every call the Security page makes is granted, and only the facts to a reader
+    Given the Security page's own source
+    Then each call it makes is offered by the backend and granted by the permissions
+    And the status is in the read permission and every call that writes a PIN or returns enrolment material is in the write permission alone
+    And the menu opens the page behind the app's permission
+    # -> check_security_page_calls_are_granted
+
+  Scenario: the PIN fields are never filled in from the router
+    Given a router that has a PIN set
+    When the Security page opens
+    Then it says a PIN is set and both fields are empty, and a browser is told not to fill them
+    And a PIN that is typed is sent once, the fields are emptied whatever the router answers, and it is in no message and no storage
+    And a PIN that is not 4 to 8 digits, or not typed twice the same, never leaves the page
+    # -> check_security_pin_fields_never_prefilled
+
+  Scenario: the QR of a phone being added is on the page once
+    When the owner asks to add a phone
+    Then the page shows the QR and the secret, and asks for the current code
+    And a wrong code leaves them there for another try
+    And the right code, leaving the page, or Cancel takes them off the page, and they are in no message and no storage
+    And asking again shows the new ones and none of the old
+    # -> check_security_qr_shown_once
+
+  Scenario: a factor whose prerequisite is missing cannot be chosen
+    Given a router where a PIN, a phone being added, or both are set up
+    When the factor choices are shown
+    Then each choice is open only if what it needs is in force, a phone still being added counting for nothing
+    And saving one that is not open sends nothing, and neither does a window, failure limit or lockout the router would not take
+    And Clear PIN is open only when the factor in force does not ask for the PIN
+    # -> check_security_factor_needs_its_prerequisite
+
+  Scenario: the page offers nothing it cannot do
+    Given the profile is root or assistant, or the status call fails, or openwrt-mcp does not answer, or the agent was never started
+    When the Security page opens
+    Then it offers no field and no button, and says why
+    And in the owner profile it offers them, and says that the live unlock window cannot be shown here and that /lock in Telegram closes it
+    # -> check_security_page_offers_nothing_it_cannot_do
 
   Scenario: removing the web app leaves the agent and its key alone
     When luci-app-hermes is removed

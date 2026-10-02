@@ -22,9 +22,9 @@
 # daemon's own refusal, over its own HTTP endpoint, with the token the package paired.
 #
 # This gate is red until the feature is complete. Each scenario in
-# features/unlock.feature names one check; the ones that need the LuCI Security page
-# (stage 5) print NOT IMPLEMENTED and fail, so a green run can only mean everything the
-# feature promises is proven.
+# features/unlock.feature names one check; one that is not built yet prints NOT IMPLEMENTED
+# and fails, so a green run can only mean everything the feature promises is proven. With the
+# LuCI Security page and the SSH enrolment (stage 5) there is no such check left.
 #
 # The Hermes-side half (stage 4) runs the installed gateway for real: the init's own command
 # and environment, through the wrapper that drops root, with Telegram on, the real adapter,
@@ -35,6 +35,7 @@
 # the gateway, the agent and the daemon wrote with the gateway logging at DEBUG.
 #
 #   gate-unlock.sh                  all checks
+#   LUCI=/path/luci-app-hermes.apk  another build of the LuCI app (the Security page's backend)
 #   ONLY="check_a check_b" ...      just those (the teeth use this)
 #   APK=/path/hermes-agent.apk      another build of the base package
 #   TGAPK=/path/addon.apk           another build of the Telegram add-on
@@ -43,13 +44,17 @@
 #                                   each check fails on what it asserts)
 #   OVERLAY=/dir                    files copied over the installed ones before the checks
 #                                   (teeth-unlock.sh plants its faults this way)
+#   NOT_BUILT="check_x"             names run as "not built yet": NOT IMPLEMENTED, red (teeth-unlock
+#                                   uses this to prove that a scenario with no check cannot pass)
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model'
-# What is still to be built: the LuCI Security page and the SSH enrolment (stage 5).
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+# Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
+# and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
+# added before its check is written has to be red and not skipped, and this is where it goes.
 STAGE4=''
-STAGE5='check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+STAGE5=''
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0
@@ -79,9 +84,14 @@ MCP=$("$ROOT/scripts/mcp-apk.sh" "$ARCH") || exit 1
 # run without one still runs every other check and fails the Telegram ones by name.
 TGAPK=${TGAPK:-$(ls -t "$BUILD_DIR-telegram"/hermes-agent-telegram-*.apk 2>/dev/null | head -1 || true)}
 HARNESS=${HARNESS:-$ROOT/scripts/unlock-harness.py}
+# The LuCI app is architecture-neutral, so its one build directory is unambiguous. Its rpcd
+# backend is what the Security page calls (stage 5).
+LUCI=${LUCI:-$(ls -t "$ROOT"/build/luci-app-hermes-apk/luci-app-hermes-*.apk 2>/dev/null | head -1 || true)}
+[ -n "$LUCI" ] && [ -f "$LUCI" ] || {
+	echo "FAIL: no luci-app-hermes package found. Build it: ./package/luci-app-hermes/build.sh"; exit 1; }
 TG_ARGS=""
 [ -n "$TGAPK" ] && [ -f "$TGAPK" ] && TG_ARGS="-v $TGAPK:/tg.apk:ro"
-echo "PASS: artefacts $(basename "$APK") and $(basename "$MCP")${TGAPK:+ and $(basename "$TGAPK")}"
+echo "PASS: artefacts $(basename "$APK"), $(basename "$MCP")${TGAPK:+, $(basename "$TGAPK")} and $(basename "$LUCI")"
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 
 OVERLAY_ARGS=""
@@ -92,15 +102,17 @@ OVERLAY_ARGS=""
 # the disposable container, never the host's.
 # shellcheck disable=SC2086
 docker run --rm -i --platform "$PLATFORM" --privileged --cgroupns private --memory 2g \
-	-e ONLY="${ONLY:-}" -e IMPLEMENTED="$IMPLEMENTED" -e STAGE4="$STAGE4" -e STAGE5="$STAGE5" \
-	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" $TG_ARGS -v "$HARNESS:/harness.py:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
+	-e ONLY="${ONLY:-}" -e IMPLEMENTED="$IMPLEMENTED" -e STAGE4="$STAGE4" -e STAGE5="${STAGE5:-}${NOT_BUILT:+ $NOT_BUILT}" \
+	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" -v "$LUCI:/luci.apk:ro" $TG_ARGS -v "$HARNESS:/harness.py:ro" \
+	-v "$ROOT/scripts/security-harness.py:/sec/security-harness.py:ro" -v "$ROOT/scripts/qr_decode.py:/sec/qr_decode.py:ro" \
+	-v "$ROOT/README.md:/README.md:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
 set -u
 mkdir -p /var/lock /var/run /var/state /stubs /tmp/pristine
 # A booted router's /tmp is a world-writable tmpfs with the sticky bit; this image's is a
 # plain directory only root can write in. The agent writes there (a tool's scratch files).
 chmod 1777 /tmp
 apk update -q
-apk add --allow-untrusted /pkg.apk /mcp.apk $([ -f /tg.apk ] && echo /tg.apk) >/tmp/install.log 2>&1 || { cat /tmp/install.log; echo "FAIL setup: the packages would not install"; exit 1; }
+apk add --allow-untrusted /pkg.apk /mcp.apk /luci.apk $([ -f /tg.apk ] && echo /tg.apk) >/tmp/install.log 2>&1 || { cat /tmp/install.log; echo "FAIL setup: the packages would not install"; exit 1; }
 # Package installation is complete; nothing below needs more than loopback.
 ip link set eth0 down 2>/dev/null || true
 # The harness leaves the root cgroup before a domain controller is enabled in it.
@@ -181,7 +193,7 @@ reset() {
 	# The state directory is emptied, not removed: a symlink put there (a state directory on
 	# RAM, which teeth-unlock.sh plants) is part of the system under test and must survive.
 	mkdir -p /etc/openwrt-mcp && chmod 700 /etc/openwrt-mcp
-	rm -rf /etc/openwrt-mcp/* /etc/openwrt-mcp/.[!.]* /srv/hermes /tmp/argv /tmp/envv /tmp/probe.out /tmp/start.log /tmp/openwrt-mcp-rollback-* /tmp/h
+	rm -rf /etc/openwrt-mcp/* /etc/openwrt-mcp/.[!.]* /srv/hermes /tmp/argv /tmp/envv /tmp/probe.out /tmp/start.log /tmp/openwrt-mcp-rollback-* /tmp/h /tmp/totp.secret /tmp/totp.pending /tmp/mcp-shim.log /tmp/sec.png /tmp/rpcd.log /tmp/ubusd.log
 	cp /tmp/pristine/hermes.config /etc/config/hermes
 	cp /tmp/pristine/mcp.config /etc/config/openwrt-mcp
 	cp /tmp/pristine/hermes.bin /usr/bin/hermes
@@ -755,7 +767,7 @@ unlock_down() {
 		[ "$p" != "$$" ] || continue
 		cmd=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null) || continue
 		case "$cmd" in
-			*"hermes_cli/main.py gateway run"*|*"/harness.py fakes"*|*"run-cron-job"*) kill -9 "$p" 2>/dev/null || true ;;
+			*"hermes_cli/main.py gateway run"*|*"/harness.py fakes"*|*"run-cron-job"*|*"rpcd"*|*"ubusd"*) kill -9 "$p" 2>/dev/null || true ;;
 		esac
 	done
 	rm -f /tmp/svc.pid /tmp/fakes.pid
@@ -790,6 +802,110 @@ check_unlock_refused_in_group()                           { scenario "$CUR_NAME"
 check_unlock_only_from_allowlist()                        { scenario "$CUR_NAME" pin; }
 check_scheduled_job_cannot_change()                       { scenario "$CUR_NAME" pin; }
 
+# ======================================================= the LuCI Security page, and the SSH enrolment
+
+# What the page calls: rpcd with the INSTALLED luci-app-hermes backend, on ubus, as LuCI reaches it.
+# The real openwrt-mcp is behind it; only the browser is missing, and the page's own JavaScript is
+# checked by scripts/test-luci-views.mjs. Each scenario below is scripts/security-harness.py.
+rpc_up() {
+	mkdir -p /var/run/ubus
+	ubusd >/tmp/ubusd.log 2>&1 &
+	sleep 1
+	rpcd >/tmp/rpcd.log 2>&1 &
+	i=0
+	until ubus list 2>/dev/null | grep -qx hermes; do
+		i=$((i + 1)); [ "$i" -lt 20 ] || { cat /tmp/rpcd.log; fail "rpcd did not register the hermes object"; }
+		sleep 1
+	done
+	ubus list hermes 2>/dev/null | grep -q . || fail "ubus lists no hermes object"
+	[ -x /usr/libexec/rpcd/hermes ] || fail "the luci-app-hermes backend is not installed"
+}
+
+# The harness's last line is its verdict; on a failure the lines before it say where.
+security_scenario() {
+	out=$(python3 /sec/security-harness.py "$@" 2>&1) && return 0
+	echo "$out" | tail -n 8 | grep -v '^FAIL' | cut -c1-200 >&2 || true
+	fail "$(echo "$out" | last_line)"
+}
+
+# A recorder in front of the four programs the backend can hand a message to: what each was run
+# with, and the environment it carried, appended to /tmp/shim.log, and for `openwrt-mcp pin set`
+# also a hash of what it read on standard input, never the PIN itself. Each passes everything
+# through. The real program moves to <path>.real and the runner puts it back after every check.
+RECORDED='/usr/bin/jshn /usr/bin/jsonfilter /sbin/uci /usr/bin/openwrt-mcp'
+recorders_on() {
+	: > /tmp/shim.log; : > /tmp/mcp-shim.log
+	for f in $RECORDED; do
+		mv "$f" "$f.real"
+		{
+			echo '#!/bin/sh'
+			echo "{ printf 'ARGV %s' \"\$0\"; for a in \"\$@\"; do printf ' %s' \"\$a\"; done; printf '\\n'; env; printf 'END\\n'; } >> /tmp/shim.log"
+			if [ "$f" = /usr/bin/openwrt-mcp ]; then
+				cat <<'EOF'
+if [ "$1" = pin ] && [ "$2" = set ]; then
+	in=$(cat)
+	sha=$(printf '%s\n' "$in" | sha256sum | cut -d' ' -f1)
+	printf '%s\t%s\n' "$*" "$sha" >> /tmp/mcp-shim.log
+	printf '%s\n' "$in" | /usr/bin/openwrt-mcp.real "$@"
+	exit $?
+fi
+printf '%s\t-\n' "$*" >> /tmp/mcp-shim.log
+EOF
+			fi
+			echo "exec $f.real \"\$@\""
+		} > "$f"
+		chmod 755 "$f"
+	done
+}
+recorders_off() {
+	for f in $RECORDED; do [ ! -f "$f.real" ] || mv -f "$f.real" "$f"; done
+}
+
+check_luci_enrol_shows_qr_and_verifies() {
+	reset; configure - -
+	started
+	recorders_on
+	rpc_up
+	security_scenario "$CUR_NAME"
+	summary=$(echo "$out" | last_line)
+	recorders_off
+	# What the owner does next: the agent restarts, which writes the change policy from
+	# hermes.security, and the code from the phone enrolled on the page unlocks. The second phone,
+	# which was never activated, does not.
+	started
+	daemon_start
+	[ "$(uci -q get openwrt-mcp.hermes_main_change.mfa_factor)" = totp ] || fail "the factor chosen on the page did not reach the change policy: $(uci -q get openwrt-mcp.hermes_main_change.mfa_factor)"
+	if out=$(mcp "$TOKEN" mfa_unlock "{\"code\":\"$(python3 /sec/security-harness.py code pending)\"}"); then fail "the second phone, never activated, unlocked changes: $out"; fi
+	out=$(mcp "$TOKEN" mfa_unlock "{\"code\":\"$(python3 /sec/security-harness.py code active)\"}") || fail "the code from the phone enrolled on the page did not unlock: $out"
+	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "a change was refused after that unlock: $out"
+	pass "$summary; after the restart its code opened changes and the unactivated phone's did not"
+}
+
+check_cli_enrol_prints_qr() {
+	reset; configure - -
+	started
+	security_scenario "$CUR_NAME"
+	pass "$(echo "$out" | last_line)"
+}
+
+check_luci_pin_write_only() {
+	reset; configure - -
+	started
+	recorders_on
+	rpc_up
+	security_scenario "$CUR_NAME"
+	summary=$(echo "$out" | last_line)
+	recorders_off
+	# And the PIN the page set is the PIN the daemon asks for.
+	started
+	daemon_start
+	[ "$(uci -q get openwrt-mcp.hermes_main_change.mfa_factor)" = pin ] || fail "the factor chosen on the page did not reach the change policy"
+	if out=$(mcp "$TOKEN" mfa_unlock '{"pin":"07310529"}'); then fail "a wrong PIN unlocked changes: $out"; fi
+	out=$(mcp "$TOKEN" mfa_unlock '{"pin":"07310528"}') || fail "the PIN set through the page did not unlock: $out"
+	security_scenario scan 07310528
+	pass "$summary; it then unlocked, a PIN one digit off did not, and still no file held it"
+}
+
 # ---- what this stage does not prove yet ----
 not_implemented() { fail "NOT IMPLEMENTED ($1)"; }
 
@@ -810,6 +926,7 @@ run_check() {
 	unlock_down
 	daemon_stop
 	cp /tmp/pristine/hermes.bin /usr/bin/hermes
+	recorders_off
 	if [ "$rc" -eq 0 ] && [ -f /tmp/verdict ]; then
 		passed=$((passed + 1))
 	else

@@ -40,11 +40,19 @@
 #                        no earlier line can know is an unlock (a PIN alone on a line of a longer
 #                        message). That is why the scenario below no longer says nothing unlocks.
 #
+#   @decided 2026-10-01  Setup happens once: in LuCI, with a QR code to scan, or over SSH, with
+#                        the QR code in the terminal. The first code from the app has to be
+#                        entered before the factor is switched on. The PIN field is write-only.
+#   @measured 2026-10-02 by LUCI=luci-app-hermes-0.19.0-r12.apk ONLY="check_luci_enrol_shows_qr_and_verifies
+#                        check_cli_enrol_prints_qr check_luci_pin_write_only" ./scripts/gate-unlock.sh,
+#                        which is luci-app-hermes before the Security page existed: all three red, on a ubus
+#                        "Method not found" for the first and third and, for the second, on
+#                        the README not giving the commands. Green on r13.
+#
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
-# fix. The checks that need the LuCI Security page are listed by the gate as NOT IMPLEMENTED
-# and fail, so the gate stays red until the whole feature is built; a green run can only
-# mean all of it is proven.
+# fix. A scenario whose check is not built yet is listed by the gate as NOT IMPLEMENTED and
+# fails, so a green run can only mean all of it is proven; none is left.
 
 Feature: The agent changes the router only when its owner unlocks it
 

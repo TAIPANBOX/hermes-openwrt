@@ -11,6 +11,12 @@
 # not enforced by a test decays into an intention. So the check below writes a known
 # canary through the RPC and then asserts that no method mentions it.
 #
+# Since LuCI r13 the Security page's backend is checked here too: status as facts only, the
+# factor refused unless what it needs exists, every Security call refused outside the owner
+# profile, and the page's calls held to the read and write blocks. The enrolment itself, the QR
+# decoded and the PIN followed through the router, is scripts/gate-unlock.sh, against the real
+# openwrt-mcp and the real daemon.
+#
 # What this does NOT check is the rendered page. LuCI in a bare rootfs container needs a
 # session, a theme and a ubus session object before it will render anything at all, and
 # standing that up would test the container far more than it tests this app. What is
@@ -19,7 +25,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -110,6 +116,7 @@ echo "PASS check_installs"
 for f in /www/luci-static/resources/view/hermes/overview.js \
          /www/luci-static/resources/view/hermes/settings.js \
          /www/luci-static/resources/view/hermes/providers.js \
+         /www/luci-static/resources/view/hermes/security.js \
          /www/luci-static/resources/hermes/flash.js \
          /usr/share/luci/menu.d/luci-app-hermes.json \
          /usr/share/rpcd/acl.d/luci-app-hermes.json \
@@ -237,6 +244,26 @@ for m in status logs; do
 done
 ubus call hermes status 2>/dev/null | grep -q '"provider_key_set": true' \
 	|| fail check_secret_never_returned "status does not even report the key as present"
+# And no program the backend runs while it writes one is handed the key, in its arguments or in
+# its environment. jshn's json_load puts the whole message on a `jshn` command line, which any
+# account on the router can read from /proc, and json_get_var exports what it reads to every
+# program started after it: both held the key until LuCI r13. Recorders stand in front of the
+# programs that could be handed it and write down each start, its arguments and its environment.
+for f in /usr/bin/jshn /usr/bin/jsonfilter /sbin/uci; do
+	mv "$f" "$f.real"
+	{ echo '#!/bin/sh'
+	  echo "{ printf 'ARGV %s' \"\$0\"; for a in \"\$@\"; do printf ' %s' \"\$a\"; done; printf '\\n'; env; printf 'END\\n'; } >> /tmp/shim.log"
+	  echo "exec $f.real \"\$@\""; } > "$f"
+	chmod 755 "$f"
+done
+: > /tmp/shim.log
+LEAK=sk-luci-gate-leak-canary-47213
+ubus call hermes set_secret "{\"name\":\"provider\",\"value\":\"$LEAK\"}" >/dev/null 2>&1 || fail check_secret_never_returned "set_secret failed under the recorders"
+for f in /usr/bin/jshn /usr/bin/jsonfilter /sbin/uci; do mv -f "$f.real" "$f"; done
+grep -q '^ARGV /usr/bin/jsonfilter' /tmp/shim.log || fail check_secret_never_returned "the recorders saw no program run, so the key's absence from them proves nothing"
+if grep -q "$LEAK" /tmp/shim.log; then fail check_secret_never_returned "the key was in the arguments or the environment of a program the backend ran: $(grep -B1 -m1 "$LEAK" /tmp/shim.log | head -c 160)"; fi
+rm -f /tmp/shim.log
+printf '%s' "$CANARY" > /etc/hermes-agent/provider.key
 echo "PASS check_secret_never_returned"
 
 # ---- 9. the read ACL is exactly what the pages call, and nothing else ----
@@ -276,9 +303,14 @@ t=; json_get_type t hermes 2>/dev/null || true
 [ "$t" = array ] || acl_fail "read.ubus.hermes is ${t:-missing}, want a list of methods"
 hermes_methods=; json_get_values hermes_methods hermes 2>/dev/null || true
 set -- $hermes_methods
-[ "$#" -eq 2 ] || acl_fail "read.ubus.hermes grants $# methods ($hermes_methods), want status and logs"
+# Three, since the Security page (LuCI r13): security_status answers facts only, never a secret
+# and never the QR, so it may be read by a session that cannot write. Everything that writes a
+# PIN or a secret, or returns enrolment material, is in the write block, and
+# check_security_page_calls_are_granted holds the page's own calls to that split.
+[ "$#" -eq 3 ] || acl_fail "read.ubus.hermes grants $# methods ($hermes_methods), want status, logs and security_status"
 case " $hermes_methods " in *" status "*) ;; *) acl_fail "status missing from read.ubus.hermes" ;; esac
 case " $hermes_methods " in *" logs "*) ;;   *) acl_fail "logs missing from read.ubus.hermes" ;; esac
+case " $hermes_methods " in *" security_status "*) ;; *) acl_fail "security_status missing from read.ubus.hermes" ;; esac
 json_select ..
 uci_configs=; json_get_values uci_configs uci 2>/dev/null || true
 [ "$(echo $uci_configs)" = hermes ] || acl_fail "read.uci grants \"$(echo $uci_configs)\", want hermes alone"
@@ -426,6 +458,232 @@ if command -v apk >/dev/null; then
 fi
 echo "PASS check_upgrade_restarts_rpcd"
 
+
+# ---- 17. the Security page's status: facts, and never a secret ----
+# What the page reads to say what is in force. The PIN, a phone's secret and the QR are not facts
+# about the router, they are credentials, so none of them is in this reply, and the answer follows
+# the real openwrt-mcp rather than being made up from the page's own state. Where there is nothing
+# to follow (no client, no binary, a profile this does not apply to) it says so, and offers nothing.
+sf() { fail check_security_status_reports_facts_only "$1"; }
+MCP=/usr/bin/openwrt-mcp
+# The agent's own start pairs this client; the gate pairs it directly.
+rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*
+$MCP unpair hermes-main >/dev/null 2>&1 || true
+$MCP pair hermes-main >/dev/null 2>&1 || sf "could not pair a hermes-main client to read about"
+uci set hermes.main.profile=owner; uci set hermes.security.factor=none; uci set hermes.security.window=15m
+uci set hermes.security.max_failures=5; uci set hermes.security.lockout=15m; uci commit hermes
+sec_get() { ubus call hermes security_status 2>/dev/null; }
+want() { # <json> <path> <value>
+	got=$(echo "$1" | jsonfilter -e "@.$2")
+	[ "$got" = "$3" ] || { echo "$1" | head -c 600; sf "$2 is '$got', want '$3'"; }
+}
+st=$(sec_get) || sf "the call failed"
+want "$st" profile owner; want "$st" applies true; want "$st" mcp_ok true; want "$st" paired true
+want "$st" factor none; want "$st" factor_ready true; want "$st" window 15m; want "$st" max_failures 5; want "$st" lockout 15m
+want "$st" pin_set false; want "$st" totp_enrolled false; want "$st" totp_pending false
+# Exactly these facts and no other key: a debugging field added later is the way a secret gets in.
+keys_of() { ( set +u; . /usr/share/libubox/jshn.sh; json_load "$1"; json_get_keys k; echo "$k" | tr ' ' '\n' | sort | tr '\n' ' ' ); }
+[ "$(keys_of "$st")" = "applies factor factor_ready lockout max_failures mcp_ok paired pin_set profile totp_enrolled totp_pending window " ] \
+	|| sf "the reply carries other keys than the facts: $(keys_of "$st")"
+# It follows what openwrt-mcp holds.
+SECRETPIN=73195028
+printf '%s\n' "$SECRETPIN" | $MCP pin set hermes-main >/dev/null || sf "could not set a PIN"
+st=$(sec_get); want "$st" pin_set true; want "$st" totp_enrolled false
+j=$($MCP mfa enrol hermes-main --pending --json); SECRET=$(echo "$j" | jsonfilter -e '@.secret'); URI=$(echo "$j" | jsonfilter -e '@.uri')
+st=$(sec_get); want "$st" totp_pending true; want "$st" totp_enrolled false
+$MCP mfa enrol hermes-main >/dev/null || sf "could not enrol"
+st=$(sec_get); want "$st" totp_enrolled true
+# No secret in it, whatever state it is in.
+for needle in "$SECRETPIN" "$SECRET" "$URI" 'otpauth' 'pbkdf2'; do
+	if echo "$st" | grep -q "$needle"; then sf "the status reply holds '$needle'"; fi
+done
+ubus call hermes status 2>/dev/null | grep -q "$SECRETPIN" && sf "status holds the PIN"
+# It follows UCI, and a factor that is not one is not passed off as one.
+uci set hermes.security.factor=pin; uci set hermes.security.window=1h; uci set hermes.security.max_failures=3; uci set hermes.security.lockout=2h; uci commit hermes
+st=$(sec_get); want "$st" factor pin; want "$st" window 1h; want "$st" max_failures 3; want "$st" lockout 2h; want "$st" factor_ready true
+uci set hermes.security.factor=bogus; uci commit hermes
+st=$(sec_get); want "$st" factor invalid; want "$st" factor_ready false
+# What the factor needs, not whether something is enrolled: pin+totp with the PIN gone is not ready.
+uci set hermes.security.factor=pin+totp; uci commit hermes
+st=$(sec_get); want "$st" factor_ready true
+$MCP pin clear hermes-main >/dev/null; st=$(sec_get); want "$st" factor_ready false; want "$st" pin_set false
+# No client, no answer: a PIN stored for a client that is not paired is not reported as set.
+printf '%s\n' "$SECRETPIN" | $MCP pin set hermes-main >/dev/null
+$MCP unpair hermes-main >/dev/null
+st=$(sec_get); want "$st" paired false; want "$st" pin_set false; want "$st" totp_enrolled false; want "$st" mcp_ok true
+$MCP pair hermes-main >/dev/null
+# No openwrt-mcp, no answer.
+mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.aside
+st=$(sec_get); mv /usr/bin/openwrt-mcp.aside /usr/bin/openwrt-mcp
+want "$st" mcp_ok false; want "$st" paired false; want "$st" pin_set false
+# Profiles: owner is the default and the only one this applies to; admin is root's old name.
+uci -q delete hermes.main.profile; uci commit hermes; st=$(sec_get); want "$st" profile owner; want "$st" applies true
+for pair in root:root:false admin:root:false assistant:assistant:false nonsense:invalid:false; do
+	prof=${pair%%:*}; rest=${pair#*:}; shown=${rest%%:*}; applies=${rest#*:}
+	uci set hermes.main.profile=$prof; uci commit hermes
+	st=$(sec_get); want "$st" profile "$shown"; want "$st" applies "$applies"
+done
+uci set hermes.main.profile=owner; uci commit hermes
+rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
+echo "PASS check_security_status_reports_facts_only"
+
+# ---- 18. the factor can only be set to what exists ----
+# The owner who chooses PIN with none set, or an app code before a phone is enrolled, would be
+# refused every unlock by their own router. So set_factor refuses what the page's own radio
+# buttons would not offer, and writes nothing when it refuses: not the factor, not the window,
+# not another page's staged changes along with it. Clearing the PIN a factor needs is the same
+# lock-out from the other side.
+ff() { fail check_security_factor_never_outruns_what_exists "$1"; }
+$MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || ff "could not pair"
+uci set hermes.main.profile=owner; uci set hermes.security.factor=none; uci set hermes.security.window=15m
+uci set hermes.security.max_failures=5; uci set hermes.security.lockout=15m; uci commit hermes
+# The reload trigger, observed: LuCI's own apply runs /sbin/reload_config, which tells procd the
+# config changed. There is no procd here, so a stand-in leaves a mark that it was run.
+cp /sbin/reload_config /tmp/reload_config.real
+printf '#!/bin/sh\ntouch /tmp/reload-ran\n' > /sbin/reload_config; chmod 755 /sbin/reload_config
+sf_call() { # <factor> <window> <max failures> <lockout>
+	ubus call hermes set_factor "{\"factor\":\"$1\",\"window\":\"$2\",\"max_failures\":$3,\"lockout\":\"$4\"}" 2>&1
+}
+refused() { # <what> <call output>
+	echo "$2" | grep -q '"ok": false' || { echo "$2"; ff "$1 was accepted"; }
+}
+snap() { md5sum /etc/config/hermes | cut -d' ' -f1; }
+rm -f /tmp/reload-ran; before=$(snap)
+refused "pin with no PIN set" "$(sf_call pin 15m 5 15m)"
+refused "totp with no phone" "$(sf_call totp 15m 5 15m)"
+refused "pin+totp with neither" "$(sf_call pin+totp 15m 5 15m)"
+printf '%s\n' 4821 | $MCP pin set hermes-main >/dev/null
+refused "totp with a PIN but no phone" "$(sf_call totp 15m 5 15m)"
+refused "pin+totp with a PIN but no phone" "$(sf_call pin+totp 15m 5 15m)"
+$MCP mfa enrol hermes-main --pending --json >/dev/null
+refused "totp with a phone only pending" "$(sf_call totp 15m 5 15m)"
+refused "a factor that is not one" "$(sf_call sms 15m 5 15m)"
+refused "a window without a unit" "$(sf_call pin 15 5 15m)"
+refused "an empty window" "$(sf_call pin '' 5 15m)"
+refused "a window in words" "$(sf_call pin '15 minutes' 5 15m)"
+refused "no failures allowed" "$(sf_call pin 15m 0 15m)"
+refused "a negative count" "$(sf_call pin 15m -1 15m)"
+refused "a hundred failures" "$(sf_call pin 15m 100 15m)"
+refused "a lockout in the wrong unit" "$(sf_call pin 15m 5 1x)"
+refused "an empty lockout" "$(sf_call pin 15m 5 '')"
+refused "a command in the window" "$(sf_call pin '$(id)' 5 15m)"
+refused "a second command in the window" "$(sf_call pin '15m;reboot' 5 15m)"
+sleep 1
+[ "$(snap)" = "$before" ] || ff "a refused set_factor changed /etc/config/hermes"
+[ ! -e /tmp/reload-ran ] || ff "a refused set_factor still asked procd to reload"
+[ "$(uci -q get hermes.security.factor)" = none ] || ff "the factor is $(uci -q get hermes.security.factor) after only refusals"
+# What is allowed: none always, pin with the PIN, and nothing else yet.
+out=$(sf_call pin 20m 3 1h); echo "$out" | grep -q '"ok": true' || { echo "$out"; ff "pin with a PIN set was refused"; }
+[ "$(uci -q get hermes.security.factor)" = pin ] && [ "$(uci -q get hermes.security.window)" = 20m ] \
+	&& [ "$(uci -q get hermes.security.max_failures)" = 3 ] && [ "$(uci -q get hermes.security.lockout)" = 1h ] || ff "the accepted choice is not what was asked for"
+grep -q "option factor 'pin'" /etc/config/hermes || ff "the accepted choice was not committed to /etc/config/hermes"
+i=0; while [ ! -e /tmp/reload-ran ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+[ -e /tmp/reload-ran ] || ff "an accepted choice did not ask procd to reload, so the policies would keep the old factor until a restart"
+# Activating the phone opens the rest.
+code=$(python3 - <<'PY'
+import base64, hashlib, hmac, struct, subprocess, time, json
+j = json.loads(subprocess.run(["/usr/bin/openwrt-mcp", "mfa", "enrol", "hermes-main", "--pending", "--json"], capture_output=True, text=True).stdout)
+s = j["secret"]; key = base64.b32decode(s + "=" * (-len(s) % 8))
+h = hmac.new(key, struct.pack(">Q", int(time.time() // 30)), hashlib.sha1).digest(); o = h[-1] & 15
+print("%06d" % ((struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF) % 10 ** 6))
+PY
+) || ff "could not make a code"
+$MCP mfa activate hermes-main "$code" >/dev/null || ff "could not activate the phone"
+for f in totp pin+totp none; do
+	out=$(sf_call "$f" 15m 5 15m); echo "$out" | grep -q '"ok": true' || { echo "$out"; ff "$f was refused with a PIN and an active phone"; }
+	[ "$(uci -q get hermes.security.factor)" = "$f" ] || ff "factor $f was not written"
+done
+# Another page's staged edits are not committed along with this one.
+uci set hermes.main.max_turns=33
+out=$(sf_call pin 15m 5 15m); echo "$out" | grep -q '"ok": true' || ff "set_factor refused with a LuCI edit staged"
+grep -q "max_turns '33'" /etc/config/hermes && ff "set_factor committed another page's staged change (max_turns 33) with its own"
+[ -n "$(uci changes hermes)" ] || ff "set_factor swallowed another page's staged change instead of leaving it staged"
+uci revert hermes
+# The PIN the factor needs cannot be cleared; one it does not need can.
+for f in pin pin+totp; do
+	uci set hermes.security.factor=$f; uci commit hermes
+	out=$(ubus call hermes clear_pin 2>&1); echo "$out" | grep -q '"ok": false' || { echo "$out"; ff "clear_pin was accepted with the factor $f"; }
+	[ "$(ubus call hermes security_status | jsonfilter -e '@.pin_set')" = true ] || ff "the PIN was cleared although the factor is $f"
+done
+for f in none totp; do
+	printf '%s\n' 4821 | $MCP pin set hermes-main >/dev/null
+	uci set hermes.security.factor=$f; uci commit hermes
+	out=$(ubus call hermes clear_pin 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ff "clear_pin was refused with the factor $f"; }
+	[ "$(ubus call hermes security_status | jsonfilter -e '@.pin_set')" = false ] || ff "the PIN was not cleared with the factor $f"
+done
+cp /tmp/reload_config.real /sbin/reload_config; rm -f /tmp/reload-ran /tmp/reload_config.real
+rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
+uci set hermes.security.factor=none; uci commit hermes
+echo "PASS check_security_factor_never_outruns_what_exists"
+
+# ---- 19. outside the owner profile the Security calls refuse ----
+# The page says it offers nothing there, and that is the page. The backend is what a script, an
+# old tab or a hand-made request reaches, and in the root and assistant profiles the agent has no
+# openwrt-mcp change policy to protect, so a PIN set there would be a setting that guards nothing.
+po() { fail check_security_refused_outside_the_owner_profile "$1"; }
+$MCP pair hermes-main >/dev/null 2>&1 || true
+rm -f /tmp/reload-ran; cp /sbin/reload_config /tmp/reload_config.real
+printf '#!/bin/sh\ntouch /tmp/reload-ran\n' > /sbin/reload_config; chmod 755 /sbin/reload_config
+for prof in root admin assistant nonsense; do
+	uci set hermes.main.profile=$prof; uci commit hermes
+	before=$(md5sum /etc/config/hermes | cut -d' ' -f1)
+	for call in 'set_pin {"pin":"4821","again":"4821"}' 'clear_pin' 'enrol_start' 'enrol_activate {"code":"123456"}' 'set_factor {"factor":"none","window":"15m","max_failures":5,"lockout":"15m"}'; do
+		m=${call%% *}; a=; [ "$m" = "$call" ] || a=${call#* }
+		if [ -n "$a" ]; then out=$(ubus call hermes "$m" "$a" 2>&1); else out=$(ubus call hermes "$m" 2>&1); fi
+		echo "$out" | grep -q '"ok": false' || { echo "$out" | head -c 300; po "$m was not refused in the $prof profile"; }
+		echo "$out" | grep -qi 'owner' || po "$m's refusal in the $prof profile does not say it is the owner profile only"
+	done
+	[ "$(md5sum /etc/config/hermes | cut -d' ' -f1)" = "$before" ] || po "a refused call changed /etc/config/hermes in the $prof profile"
+	[ ! -e /etc/openwrt-mcp/pin ] && [ ! -e /etc/openwrt-mcp/mfa.pending ] || po "a refused call wrote a PIN or a pending enrolment in the $prof profile"
+done
+sleep 1; [ ! -e /tmp/reload-ran ] || po "a refused call asked procd to reload"
+# The control: the same call in the owner profile is accepted, so the refusals were the profile's.
+uci set hermes.main.profile=owner; uci commit hermes
+out=$(ubus call hermes set_pin '{"pin":"4821","again":"4821"}' 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; po "set_pin was refused in the owner profile too, so the refusals above prove nothing"; }
+uci -q delete hermes.main.profile; uci commit hermes
+out=$(ubus call hermes clear_pin 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; po "with no profile set (which is owner) clear_pin was refused"; }
+cp /tmp/reload_config.real /sbin/reload_config; rm -f /tmp/reload-ran /tmp/reload_config.real
+rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
+uci set hermes.main.profile=owner; uci commit hermes
+echo "PASS check_security_refused_outside_the_owner_profile"
+
+# ---- 20. every call the Security page makes is granted, and only the facts to a reader ----
+# The page's calls are read off its own source, so a call added to it later and left out of
+# the ACL (LuCI then answers "Access denied" on a page that renders fine) or put in the wrong
+# block (a reader of the page able to start an enrolment) cannot get past this.
+ag() { fail check_security_page_calls_are_granted "$1"; }
+JS=/www/luci-static/resources/view/hermes/security.js
+[ -f "$JS" ] || ag "the Security page is not installed"
+[ "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-hermes.json -e '@["admin/services/hermes/security"].action.path')" = hermes/security ] \
+	|| ag "the menu has no Services -> Hermes Agent -> Security entry that opens hermes/security"
+[ "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-hermes.json -e '@["admin/services/hermes/security"].depends.acl[0]')" = luci-app-hermes ] \
+	|| ag "the Security menu entry is not behind the app's ACL"
+page_methods=$(sed -n "s/.*object: 'hermes', method: '\([a-z_]*\)'.*/\1/p" "$JS" | sort -u | tr '\n' ' ')
+[ -n "$page_methods" ] || ag "the page declares no call, so this measured nothing"
+set +u -f
+. /usr/share/libubox/jshn.sh
+json_load "$(/usr/libexec/rpcd/hermes list)"; json_get_keys listed_keys; listed=$listed_keys
+acl_methods() { # <read|write> -> the hermes methods that block grants
+	json_load_file /usr/share/rpcd/acl.d/luci-app-hermes.json; json_select luci-app-hermes; json_select "$1"; json_select ubus
+	m=; json_get_values m hermes 2>/dev/null || true; echo $m
+}
+READ=$(acl_methods read); WRITE=$(acl_methods write)
+set -u +f
+for m in $page_methods; do
+	case " $listed " in *" $m "*) ;; *) ag "the page calls $m, which the rpcd backend does not offer" ;; esac
+	case " $READ " in *" $m "*) inr=1 ;; *) inr=0 ;; esac
+	case " $WRITE " in *" $m "*) inw=1 ;; *) inw=0 ;; esac
+	[ $((inr + inw)) -ge 1 ] || ag "the page calls $m, which no ACL block grants"
+	case "$m" in
+		status|logs|security_status) [ "$inr" = 1 ] || ag "$m is not in the read block" ;;
+		*) [ "$inw" = 1 ] || ag "$m is not in the write block"; [ "$inr" = 0 ] || ag "$m, which writes a secret or returns enrolment material, is in the read block" ;;
+	esac
+done
+for m in set_pin clear_pin enrol_start enrol_activate set_factor; do
+	case " $page_methods " in *" $m "*) ;; *) ag "the page does not call $m" ;; esac
+done
+echo "PASS check_security_page_calls_are_granted ($(echo $page_methods | wc -w | tr -d ' ') calls read off the page)"
+
 # ---- 8. clean removal ----
 apk del luci-app-hermes >/dev/null 2>&1 || fail check_clean_removal "apk del failed"
 [ -e /usr/libexec/rpcd/hermes ] && fail check_clean_removal "the rpcd backend is still there"
@@ -444,7 +702,7 @@ CONTAINER
 # (LuCI then does not reload), and an old message is not shown.
 echo "-- the views, on the installed files --"
 docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
-	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_pin_fields_never_prefilled check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

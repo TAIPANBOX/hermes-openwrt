@@ -34,8 +34,27 @@ function textOf(n) {
 
 function E(tag, attrs, children) {
 	if (children === undefined && (typeof attrs === 'string' || Array.isArray(attrs) || attrs?.tag)) { children = attrs; attrs = {}; }
-	return { tag, attrs: attrs || {}, children: children == null ? [] : [].concat(children) };
+	const node = { tag, attrs: attrs || {}, children: children == null ? [] : [].concat(children) };
+	// What a form control carries in a browser and the page reads back: set from the attributes,
+	// and writable, so a check can type into a field the way a person does. Not enumerable, so a
+	// dump of the tree shows what the page rendered and not what was typed after.
+	for (const p of ['value', 'checked', 'disabled'])
+		Object.defineProperty(node, p, {
+			get() { return node.attrs[p] === undefined ? (p === 'value' ? '' : false) : node.attrs[p]; },
+			set(v) { node.attrs[p] = v; },
+		});
+	return node;
 }
+
+// Every node under n, nested arrays and text included, in document order.
+function walk(n, out = []) {
+	if (n == null || n === false) return out;
+	if (Array.isArray(n)) { n.forEach(c => walk(c, out)); return out; }
+	if (typeof n === 'object') { out.push(n); walk(n.children, out); }
+	return out;
+}
+const find = (n, pred) => walk(n).filter(x => x && typeof x === 'object' && pred(x));
+const byId = (n, id) => find(n, x => x.attrs?.id === id)[0];
 
 function world(replies) {
 	const w = { calls: [], notes: [], reloads: 0, polls: [], storage: new Map() };
@@ -44,7 +63,11 @@ function world(replies) {
 		setItem: (k, v) => { w.storage.set(k, String(v)); },
 		removeItem: k => { w.storage.delete(k); },
 	};
-	w.window = { sessionStorage, location: { reload: () => { w.reloads++; } }, setTimeout: (f) => f() };
+	const windowListeners = {};
+	w.window = { sessionStorage, location: { reload: () => { w.reloads++; }, protocol: 'https:' }, setTimeout: (f) => f(),
+		addEventListener: (t, f) => { (windowListeners[t] ||= []).push(f); },
+		// What the browser does when the page is left: the page's own listeners run, then it is gone.
+		fire: (t) => { for (const f of windowListeners[t] || []) f({ type: t }); } };
 	// Listeners belong to one page: a reload starts with none, as a browser does.
 	w.document = {
 		listeners: {},
@@ -61,7 +84,9 @@ function world(replies) {
 		declare: (d) => (...args) => {
 			w.calls.push({ method: `${d.object}.${d.method}`, args });
 			const r = replies[`${d.object}.${d.method}`];
-			return Promise.resolve(typeof r === 'function' ? r(...args) : (r ?? {}));
+			// A call that fails is a rejected promise, as in LuCI, never a throw at the call site.
+			try { return Promise.resolve(typeof r === 'function' ? r(...args) : (r ?? {})); }
+			catch (e) { return Promise.reject(e); }
 		},
 	};
 	// What LuCI would apply: by default one UCI change, so the apply goes through, announces
@@ -126,7 +151,7 @@ async function open(w, name) {
 	w.document.listeners = {};
 	const v = load(w, path.join(views, `${name}.js`));
 	const data = await v.load();
-	await v.render(data);
+	w.page = await v.render(data);
 	return v;
 }
 
@@ -298,6 +323,226 @@ check('check_profile_field_defaults_to_owner', async () => {
 		assert(field.values.includes(v), `the profile field does not offer '${v}'`);
 	assert(!field.values.includes('admin'), "the profile field still offers 'admin', the old name of root");
 	assert(field.values[0] === 'owner', `the first choice is '${field.values[0]}', not 'owner'`);
+});
+
+// ---- the Security page --------------------------------------------------------------------
+//
+// What the page itself decides, as against what the rpcd backend decides (gate-luci.sh, gate-unlock.sh):
+// that a PIN field is never filled in from the server, that the QR of a phone being added is on the
+// page once and then gone, that a factor the router could not honour cannot be chosen, and that
+// outside the owner profile, or with nothing to talk to, the page offers nothing.
+
+const READY = { applies: true, profile: 'owner', mcp_ok: true, paired: true, factor: 'none', factor_ready: true,
+	window: '15m', max_failures: 5, lockout: '15m', pin_set: false, totp_enrolled: false, totp_pending: false };
+const statusOf = (over) => ({ ...READY, ...over });
+const clickOf = (w, id) => { const n = byId(w.page, id); assert(n, `the page has no #${id}`); return n; };
+const press = (w, id) => clickOf(w, id).attrs.click({ currentTarget: {}, target: {} });
+const dump = (w) => JSON.stringify(w.page, (k, val) => (typeof val === 'function' ? undefined : val));
+
+check('check_security_pin_fields_never_prefilled', async () => {
+	// A PIN is set, and the page is told so: it must say so without a field holding anything.
+	const w = world({ 'hermes.security_status': statusOf({ factor: 'pin', pin_set: true }), 'hermes.set_pin': { ok: true } });
+	await open(w, 'security');
+	const pins = find(w.page, n => n.tag === 'input' && n.attrs.type === 'password');
+	assert(pins.length === 2, `the page has ${pins.length} password fields, not the PIN and its confirmation`);
+	for (const f of pins) {
+		assert(f.value === '', `a PIN field is filled in on load: "${f.value}"`);
+		assert(f.attrs.autocomplete === 'new-password', `a PIN field has autocomplete "${f.attrs.autocomplete}", which lets a browser fill it from a saved password`);
+	}
+	assert(/PIN is set/i.test(textOf(w.page)), 'the page does not say a PIN is set');
+
+	// Typing a PIN twice sends it once, clears both fields, and echoes it nowhere.
+	const PIN = '07310528';
+	const [a, b] = [byId(w.page, 'hermes-sec-pin'), byId(w.page, 'hermes-sec-pin-again')];
+	assert(a && b, 'the PIN fields are not #hermes-sec-pin and #hermes-sec-pin-again');
+	a.value = PIN; b.value = PIN;
+	await press(w, 'hermes-sec-pin-set');
+	const call = w.calls.find(c => c.method === 'hermes.set_pin');
+	assert(call && call.args[0] === PIN && call.args[1] === PIN, 'set_pin was not called with the PIN and its confirmation');
+	assert(a.value === '' && b.value === '', 'the PIN stayed in its fields after it was sent');
+	assert(!JSON.stringify([w.notes, [...w.storage.values()]]).includes(PIN), 'the PIN is in a message or in the tab\'s storage');
+	assert(!dump(w).includes(PIN), 'the PIN is in the page after it was sent');
+
+	// A PIN the router refuses is cleared too, and the reason is shown without the PIN.
+	const w2 = world({ 'hermes.security_status': statusOf(), 'hermes.set_pin': { ok: false, error: 'the router said no' } });
+	await open(w2, 'security');
+	byId(w2.page, 'hermes-sec-pin').value = PIN; byId(w2.page, 'hermes-sec-pin-again').value = PIN;
+	await press(w2, 'hermes-sec-pin-set');
+	assert(byId(w2.page, 'hermes-sec-pin').value === '' && byId(w2.page, 'hermes-sec-pin-again').value === '', 'a refused PIN stayed in its field');
+	assert(w2.notes.some(n => n.kind === 'danger' && n.text.includes('the router said no')), 'a refused PIN was not reported');
+	assert(!JSON.stringify(w2.notes).includes(PIN), 'a message repeats the PIN');
+
+	// And one that is not 4 to 8 digits, or not typed twice the same, never leaves the page.
+	for (const [x, y] of [['123', '123'], ['123456789', '123456789'], ['12ab', '12ab'], ['4821', '4822'], ['', '']]) {
+		const w3 = world({ 'hermes.security_status': statusOf(), 'hermes.set_pin': { ok: true } });
+		await open(w3, 'security');
+		byId(w3.page, 'hermes-sec-pin').value = x; byId(w3.page, 'hermes-sec-pin-again').value = y;
+		await press(w3, 'hermes-sec-pin-set');
+		assert(!w3.calls.some(c => c.method === 'hermes.set_pin'), `the PIN "${x}" / "${y}" was sent`);
+		assert(w3.notes.some(n => n.kind === 'danger'), `the PIN "${x}" / "${y}" was refused without a word`);
+	}
+});
+
+check('check_security_qr_shown_once', async () => {
+	const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', PNG = 'iVBORw0KGgoQRPNGBASE64';
+	const MORE = 'MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U', MOREPNG = 'iVBORw0KGgoSECONDPNG';
+	let started = 0;
+	const replies = () => ({
+		'hermes.security_status': statusOf(),
+		'hermes.enrol_start': () => (++started === 1
+			? { ok: true, uri: `otpauth://totp/openwrt-mcp:hermes-main@r?secret=${SECRET}`, secret: SECRET, qr_png_base64: PNG }
+			: { ok: true, uri: `otpauth://totp/openwrt-mcp:hermes-main@r?secret=${MORE}`, secret: MORE, qr_png_base64: MOREPNG }),
+		'hermes.enrol_activate': (code) => (code === '123456' ? { ok: true } : { ok: false, error: 'that code is not valid right now' }),
+	});
+	const shown = (w, secret, png) => dump(w).includes(secret) || dump(w).includes(png);
+	const nowhereElse = (w, ...needles) => {
+		const rest = JSON.stringify([w.notes, [...w.storage.values()], w.calls.filter(c => c.method !== 'hermes.enrol_start').map(c => c.args)]);
+		for (const n of needles) assert(!rest.includes(n), 'the QR material is in a message, in the tab\'s storage or in a call');
+	};
+
+	let w = world(replies());
+	await open(w, 'security');
+	assert(!shown(w, SECRET, PNG) && !find(w.page, n => n.tag === 'img').length, 'a QR is on the page before anyone asked for one');
+	await press(w, 'hermes-sec-enrol');
+	const img = find(w.page, n => n.tag === 'img')[0];
+	assert(img && String(img.attrs.src).includes(PNG), 'asking to add a phone shows no QR');
+	assert(String(img.attrs.src).startsWith('data:image/png;base64,'), 'the QR is not a data: image, so it would be fetched from somewhere');
+	assert(textOf(w.page).includes(SECRET), 'the secret is not shown for manual entry');
+	assert(byId(w.page, 'hermes-sec-code'), 'the page asks for no code');
+	nowhereElse(w, SECRET, PNG);
+
+	// a code that is wrong leaves the QR where it is, so the owner can try again from the same scan
+	byId(w.page, 'hermes-sec-code').value = '654321';
+	await press(w, 'hermes-sec-activate');
+	assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('not valid')), 'a wrong code was not reported');
+	assert(shown(w, SECRET, PNG), 'a wrong code took the QR away, so the scan cannot be tried again');
+	assert(w.reloads === 0, 'a wrong code reloaded the page');
+
+	// the right code: activated, and the QR is gone from the page, with the secret
+	byId(w.page, 'hermes-sec-code').value = '123456';
+	await press(w, 'hermes-sec-activate');
+	assert(w.calls.some(c => c.method === 'hermes.enrol_activate' && c.args[0] === '123456'), 'enrol_activate was not called with the code');
+	assert(!shown(w, SECRET, PNG), 'the QR or the secret is still on the page after the phone was activated');
+	assert(!find(w.page, n => n.tag === 'img').length, 'an image is still on the page after activation');
+	nowhereElse(w, SECRET, PNG);
+	assert(w.reloads === 1 && /phone/i.test([...w.storage.values()].join('')), 'activation did not reload the page with a message saying so');
+
+	// leaving the page without a code: gone from the page, nothing kept
+	started = 0; w = world(replies());
+	await open(w, 'security');
+	await press(w, 'hermes-sec-enrol');
+	assert(shown(w, SECRET, PNG), 'the QR did not show');
+	w.window.fire('pagehide');
+	assert(!shown(w, SECRET, PNG), 'the QR is still on the page after it was left');
+	nowhereElse(w, SECRET, PNG);
+
+	// cancelling does the same, and says the old state is in force
+	started = 0; w = world(replies());
+	await open(w, 'security');
+	await press(w, 'hermes-sec-enrol');
+	await press(w, 'hermes-sec-cancel');
+	assert(!shown(w, SECRET, PNG), 'the QR is still on the page after Cancel');
+	assert(/still in force|nothing changed/i.test(textOf(w.page) + JSON.stringify(w.notes)), 'Cancel does not say that what was in force stays in force');
+
+	// asking again shows the new material and none of the old
+	started = 0; w = world(replies());
+	await open(w, 'security');
+	await press(w, 'hermes-sec-enrol');
+	await press(w, 'hermes-sec-enrol');
+	assert(shown(w, MORE, MOREPNG), 'a second start did not show the new QR');
+	assert(!shown(w, SECRET, PNG), 'the first QR is still on the page beside the second');
+});
+
+check('check_security_factor_needs_its_prerequisite', async () => {
+	const radios = (w) => Object.fromEntries(['none', 'pin', 'totp', 'pin+totp'].map(f => [f, byId(w.page, `hermes-sec-factor-${f}`)]));
+	const cases = [
+		['nothing set up', {}, { none: 1, pin: 0, totp: 0, 'pin+totp': 0 }],
+		['a PIN', { pin_set: true }, { none: 1, pin: 1, totp: 0, 'pin+totp': 0 }],
+		['a phone', { totp_enrolled: true }, { none: 1, pin: 0, totp: 1, 'pin+totp': 0 }],
+		['a phone only being added', { totp_pending: true }, { none: 1, pin: 0, totp: 0, 'pin+totp': 0 }],
+		['a PIN and a phone being added', { pin_set: true, totp_pending: true }, { none: 1, pin: 1, totp: 0, 'pin+totp': 0 }],
+		['both', { pin_set: true, totp_enrolled: true }, { none: 1, pin: 1, totp: 1, 'pin+totp': 1 }],
+	];
+	for (const [what, over, allowed] of cases) {
+		const w = world({ 'hermes.security_status': statusOf(over), 'hermes.set_factor': { ok: true } });
+		await open(w, 'security');
+		const r = radios(w);
+		for (const f of Object.keys(allowed)) {
+			assert(r[f], `no choice for factor ${f}`);
+			assert(!r[f].disabled === !!allowed[f], `with ${what}, the choice "${f}" is ${r[f].disabled ? 'disabled' : 'open'}, want ${allowed[f] ? 'open' : 'disabled'}`);
+		}
+		// Choosing what is disabled anyway (a browser lets a script, an old tab or a stale page do it) sends nothing.
+		for (const f of Object.keys(allowed).filter(f => !allowed[f])) {
+			for (const g of Object.keys(r)) r[g].checked = (g === f);
+			await press(w, 'hermes-sec-save');
+			assert(!w.calls.some(c => c.method === 'hermes.set_factor'), `with ${what}, saving "${f}" asked the router for it`);
+		}
+	}
+
+	// What is open can be saved, with the settings next to it, as the number and the durations the backend takes.
+	const w = world({ 'hermes.security_status': statusOf({ pin_set: true, totp_enrolled: true, factor: 'none' }), 'hermes.set_factor': { ok: true } });
+	await open(w, 'security');
+	const r = radios(w);
+	for (const g of Object.keys(r)) r[g].checked = (g === 'pin+totp');
+	byId(w.page, 'hermes-sec-window').value = '30m';
+	byId(w.page, 'hermes-sec-max').value = '3';
+	byId(w.page, 'hermes-sec-lockout').value = '1h';
+	await press(w, 'hermes-sec-save');
+	const call = w.calls.find(c => c.method === 'hermes.set_factor');
+	assert(call, 'an open choice was not saved');
+	assert(JSON.stringify(call.args) === JSON.stringify(['pin+totp', '30m', 3, '1h']), `set_factor was called with ${JSON.stringify(call.args)}`);
+	assert(w.reloads === 1, 'a saved factor did not reload the page to show what is now in force');
+
+	// Settings the backend would refuse do not leave the page.
+	for (const [win, max, lock] of [['15', '5', '15m'], ['', '5', '15m'], ['15m', '0', '15m'], ['15m', 'five', '15m'], ['15m', '5', 'a day']]) {
+		const w2 = world({ 'hermes.security_status': statusOf({ pin_set: true }), 'hermes.set_factor': { ok: true } });
+		await open(w2, 'security');
+		byId(w2.page, 'hermes-sec-window').value = win; byId(w2.page, 'hermes-sec-max').value = max; byId(w2.page, 'hermes-sec-lockout').value = lock;
+		await press(w2, 'hermes-sec-save');
+		assert(!w2.calls.some(c => c.method === 'hermes.set_factor'), `window "${win}", failures "${max}", lockout "${lock}" were sent`);
+		assert(w2.notes.some(n => n.kind === 'danger'), `window "${win}", failures "${max}", lockout "${lock}" were refused without a word`);
+	}
+
+	// A PIN cannot be cleared while the factor in force asks for it: that is how the owner locks themselves out.
+	for (const [factor, may] of [['none', true], ['totp', true], ['pin', false], ['pin+totp', false]]) {
+		const w3 = world({ 'hermes.security_status': statusOf({ pin_set: true, totp_enrolled: true, factor }), 'hermes.clear_pin': { ok: true } });
+		await open(w3, 'security');
+		const clear = byId(w3.page, 'hermes-sec-pin-clear');
+		assert(clear, 'a PIN is set and the page offers no way to clear it');
+		assert(!clear.disabled === may, `with the factor ${factor} the Clear PIN button is ${clear.disabled ? 'disabled' : 'open'}`);
+	}
+	const w4 = world({ 'hermes.security_status': statusOf() });
+	await open(w4, 'security');
+	assert(!byId(w4.page, 'hermes-sec-pin-clear') || byId(w4.page, 'hermes-sec-pin-clear').disabled, 'Clear PIN is offered when no PIN is set');
+});
+
+check('check_security_page_offers_nothing_it_cannot_do', async () => {
+	const nothing = (w, why) => {
+		const controls = find(w.page, n => ['input', 'button', 'select', 'textarea'].includes(n.tag));
+		assert(!controls.length, `${why}: the page offers ${controls.length} controls (${controls.map(c => c.attrs.id || c.tag).slice(0, 3)})`);
+	};
+	for (const [why, reply, words] of [
+		['the profile is root', statusOf({ applies: false, profile: 'root' }), /owner profile/i],
+		['the profile is assistant', statusOf({ applies: false, profile: 'assistant' }), /owner profile/i],
+		['the status call failed', {}, /could not|cannot|can't/i],
+		['openwrt-mcp does not answer', statusOf({ mcp_ok: false, paired: false }), /openwrt-mcp/i],
+		['the agent was never started, so hermes-main is not paired', statusOf({ paired: false }), /start/i],
+	]) {
+		const w = world({ 'hermes.security_status': reply });
+		await open(w, 'security');
+		nothing(w, why);
+		assert(words.test(textOf(w.page)), `${why}: the page does not say why it offers nothing: "${textOf(w.page).slice(0, 120)}"`);
+	}
+	// A call that fails outright is the same as no answer.
+	const w2 = world({ 'hermes.security_status': () => { throw new Error('no such method'); } });
+	await open(w2, 'security');
+	nothing(w2, 'the status call threw');
+	// And the control: the owner profile, with everything there, is not an empty page.
+	const w3 = world({ 'hermes.security_status': statusOf() });
+	await open(w3, 'security');
+	assert(find(w3.page, n => n.tag === 'input').length >= 4 && find(w3.page, n => n.tag === 'button').length >= 3, 'the owner profile page offers nothing, so the checks above prove nothing');
+	// The page says what it cannot show.
+	assert(/\/lock/.test(textOf(w3.page)) && /window/i.test(textOf(w3.page)), 'the page does not say that the live window cannot be shown here and that /lock closes it');
 });
 
 for (const [name, fn] of Object.entries(checks)) {
