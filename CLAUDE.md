@@ -70,9 +70,30 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 10. procd respawn is bounded (`3600 5 5`): a gateway that keeps failing at start is
     retried at most five times within an hour, then left stopped, instead of being
     restarted every five seconds (gate: `scripts/gate-runtime.sh`).
-11. LuCI: the read permission is exactly `hermes` status and logs plus the `hermes` UCI
-    config, with no other ubus object or method (procd's service list included), no file
-    access and no other scope; `set_secret` writes only its fixed slot under
+11. LuCI: the read permission is exactly `hermes` status, logs and security_status plus the
+    `hermes` UCI config, with no other ubus object or method (procd's service list included),
+    no file access and no other scope. `@claude` 2026-10-02, a deliberate change at LuCI r13:
+    security_status joined the grant, which until then was status and logs. It answers
+    facts only (the profile, the factor in force and its window, failure limit and lockout,
+    whether a PIN is set, whether a phone is enrolled or being added, and whether openwrt-mcp
+    answers and has the agent's client), never a PIN, a phone's secret, an otpauth address or
+    a QR, and exactly those keys; set_pin, clear_pin, enrol_start, enrol_activate and
+    set_factor are write permission alone, since enrol_start returns the QR once to the call
+    that asked and set_pin takes a PIN. Nothing the caller sends reaches a shell and no
+    secret reaches a program's arguments or environment: the backend reads the message from
+    a pipe with jsonfilter and exports nothing, never jshn's json_load (which puts the whole
+    message on a command line) or json_get_var (which exports what it reads), and the one
+    reply that holds a secret is written with printf. That covers `set_secret` too, which
+    used json_load until LuCI r13. The PIN goes to `openwrt-mcp pin set hermes-main` on
+    standard input only. The Security calls apply to the owner profile only and refuse
+    elsewhere, refuse when the agent's client is not paired or openwrt-mcp does not answer,
+    and set_factor refuses a factor whose prerequisite does not exist (pin needs a PIN set,
+    totp an active phone, pin+totp both; a phone still being added does not count), refuses a
+    window or lockout the init would refuse, and commits `hermes.security` without another
+    LuCI session's staged changes; clear_pin refuses while the factor in force asks for the
+    PIN. The page offers what the backend would accept and nothing otherwise, never fills a
+    PIN field, and shows a phone's QR and secret once, taking them off the page when the
+    phone is activated, when the page is left or on Cancel. `set_secret` writes only its fixed slot under
     `/etc/hermes-agent`, refuses when UCI points the service at another file, and reports
     a failed write; no method returns a key. `status` reports the free space where the
     data directory lives or, before the first start, where it will be created, for the
@@ -89,8 +110,12 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     went through, and never when older than ten minutes. A Save & Apply with nothing for
     LuCI to apply (a key alone goes past UCI, and LuCI then neither announces nor reloads)
     says "Saved" at once, unless a key failed; what an unannounced apply left waiting is
-    dropped at the next one, so "Saved" is never shown twice (gate: `scripts/gate-luci.sh`,
-    `scripts/teeth-luci.sh`, `scripts/test-luci-views.mjs`).
+    dropped at the next one, so "Saved" is never shown twice (gate: `scripts/gate-luci.sh`
+    `check_read_acl_is_narrow`, `check_secret_never_returned`, `check_security_status_reports_facts_only`,
+    `check_security_factor_never_outruns_what_exists`, `check_security_refused_outside_the_owner_profile`,
+    `check_security_page_calls_are_granted` and the four `check_security_*` page checks in
+    `scripts/test-luci-views.mjs`, and `scripts/gate-unlock.sh` `check_luci_pin_write_only`;
+    teeth: `scripts/teeth-luci.sh`, `scripts/teeth-unlock.sh`).
 12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
     tools the agent may use. assistant disables terminal, code execution and file tools
     regardless of what the `toolsets` list selects; admin leaves every selected tool
@@ -222,12 +247,32 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     which includes a pasted number. A change a scheduled job asks for is refused by a
     `pre_tool_call` hook even while a window is open (upstream marks a cron run in the
     `HERMES_CRON_SESSION` context variable and in its session and task ids); a job that
-    delegates to a subagent is not proven (gate: `scripts/gate-unlock.sh`, the fifteen
+    delegates to a subagent is not proven (gate: `scripts/gate-unlock.sh`, the sixteen
     Hermes-side checks, `scripts/unlock-harness.py`; teeth: `scripts/teeth-unlock.sh`).
-    The LuCI Security page and the SSH enrolment are not built, and
-    `scripts/gate-unlock.sh` lists their three scenarios as NOT IMPLEMENTED and fails
-    until they are (gate: `scripts/gate-unlock.sh`, red by design until then; teeth:
-    `scripts/teeth-unlock.sh`, `scripts/gate-runtime.sh`, `scripts/teeth-runtime.py`).
+    `@decided 2026-10-01` (the owner's, paraphrased): setup happens once, in LuCI with a QR code
+    to scan or over SSH with the QR code in the terminal; the first code from the app must be
+    entered before the factor is switched on; the PIN field is write-only. `@claude` 2026-10-02,
+    how that is built, the last stage (LuCI r13, hermes-agent unchanged at 0.21.5-r4):
+    the owner sets a factor in LuCI, Services -> Hermes Agent -> Security, or over SSH with
+    `openwrt-mcp pin set hermes-main` and `openwrt-mcp mfa enrol hermes-main --pending --qr`
+    then `openwrt-mcp mfa activate hermes-main <code>`, which prints the QR in the terminal.
+    A phone is added in two steps: `--pending` keeps the new secret apart, and it takes the
+    place of the one in force only when a current code of its own proves the scan worked, so
+    nothing is in force before the first code is entered and a second start of the enrolment
+    leaves the first phone in force. The QR is returned once, to the call that asked, and no
+    call returns it again (invariant 11). What unlocks is the owner's choice and each factor is
+    optional, so the page offers a factor only when what it needs exists (gate:
+    `scripts/gate-unlock.sh` `check_luci_enrol_shows_qr_and_verifies`, `check_cli_enrol_prints_qr`,
+    `check_luci_pin_write_only`, against the installed luci-app-hermes and the real daemon, with a
+    QR decoder in `scripts/qr_decode.py` that checks every block's Reed-Solomon syndromes;
+    teeth: `scripts/teeth-unlock.sh`, `scripts/teeth-luci.sh`). `@claude` 2026-10-02, limits
+    named and not fixed: the six-digit code typed to activate a phone is an argument of the
+    `openwrt-mcp mfa activate` the backend runs, readable in /proc for that moment and spent
+    when it works; LuCI over plain HTTP carries the PIN and the QR unencrypted (the page says
+    so); an activation attempt is not counted by openwrt-mcp; the page needs the agent to
+    have been started once in the owner profile, since that is what pairs hermes-main; the
+    unlock window that is open cannot be shown, because openwrt-mcp keeps it in memory and a
+    separate process cannot see it.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
