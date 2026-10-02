@@ -30,8 +30,8 @@ VPS or a desktop.
   reach. Upstream asks for 2 GB of memory with browser tools, twice what these routers
   have, so browser, vision and image generation are not packaged (see [What it will not do](#what-it-will-not-do)).
 - **It does reach the internet.** Hermes's web tools search and read ordinary pages
-  without a browser (on a router this is not measured yet; the morning message below is
-  the test), and the scripts behind a scheduled job fetch plain HTTP, which is measured.
+  without a browser (on a router this is not measured yet: the one morning message that
+  should have used it ran without it), and the scripts behind a scheduled job fetch plain HTTP, which is measured.
 - **The model runs elsewhere.** The router runs the agent; a provider you choose runs
   the model, a free one included.
 
@@ -40,8 +40,8 @@ What it is good at is the network it sits in, and staying on all the time.
 | Use | What it looks like | Status |
 |---|---|---|
 | **Looking after the home network, from a phone** | In Telegram: "why is the internet slow?" The agent runs commands on the router and answers from what they printed, not from general advice. | Measured on both routers: a five-command diagnosis answered in 18 to 25 s |
-| **A watch that speaks only when something is wrong** | Every hour a script collects the router's numbers (loss and latency to the internet, DNS, free memory, flash, temperature) and the model reads them in one call. All normal, it stays silent; otherwise one message says what is wrong. | One scheduled job delivered to Telegram on 2026-10-01 in one model call; a three-day run is in progress |
-| **A morning message** | At 08:00: the weather, the exchange rate and one news item found by web search, in a few lines. | In the same three-day run |
+| **A watch that speaks only when something is wrong** | Every hour a script collects the router's numbers (loss and latency to the internet, DNS, free memory, flash, temperature) and the model reads them in one call. All normal, it stays silent; otherwise one message says what is wrong. | Ran every hour for 19 hours on a Brume 2 (2026-10-01/02), one model call per check, silent while all was normal. The one problem it saw (one ping of three lost) the model reported with Hermes's own failure marker, which a job delivering failures locally keeps silent: see [What a test chat shows](#what-a-test-chat-shows) |
+| **A morning message** | At 08:00: the weather, the exchange rate and one news item found by web search, in a few lines. | Delivered at 08:00 on 2026-10-02 in one model call; the small free model skipped the web search it was asked for, so search on a router is not measured yet |
 | **An assistant that is always on** | Reminders and lists set in plain words in a chat, with no server to keep running: the router is on anyway. | Scheduling measured as above; reminders set from a chat not yet measured |
 
 **When to choose something else.** For an agent that browses, books, or works on sites
