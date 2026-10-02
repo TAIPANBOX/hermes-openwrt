@@ -29,5 +29,12 @@
 		"order": 3,
 		"action": { "type": "view", "path": "hermes/providers" },
 		"depends": { "acl": [ "luci-app-hermes" ] }
+	},
+
+	"admin/services/hermes/security": {
+		"title": "Security",
+		"order": 4,
+		"action": { "type": "view", "path": "hermes/security" },
+		"depends": { "acl": [ "luci-app-hermes" ] }
 	}
 }

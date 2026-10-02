@@ -27,7 +27,11 @@ set -eu
 # r10: 25.12 only; the Telegram hints no longer name opkg or 24.10.
 # r11: the Providers page refuses 'uci', the main model's own entry since agent 0.21.5-r2.
 # r12: the profile field offers owner (the default), assistant and root, and shows admin as root.
-PKGREL=${PKGREL:-12}
+# r13: the Security page (Services -> Hermes Agent -> Security): a PIN with write-only fields, a
+# phone added by a QR code shown once and activated by its first code, and the factor the owner
+# unlocks with, chosen only from what exists. Six rpcd methods behind it; security_status joins the
+# read permission, which is a deliberate change to invariant 11, and the rest are write-only.
+PKGREL=${PKGREL:-13}
 VERSION=${VERSION:-0.19.0}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
@@ -85,7 +89,7 @@ docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
 	--info "license:MIT" \
 	--info "origin:luci-app-hermes" \
 	--info "url:https://github.com/TAIPANBOX/hermes-openwrt" \
-	--info "description:LuCI interface for the Hermes Agent service. Status, service control, log tail, and write-only key fields." \
+	--info "description:LuCI interface for the Hermes Agent service. Status, service control, log tail, write-only key fields, and the owner Security page." \
 	--info "depends:luci-base hermes-agent" \
 	--script "post-install:/work/post-install" \
 	--script "post-upgrade:/work/post-install" \
