@@ -16,7 +16,7 @@ printf '#!/bin/sh\necho teeth\n' > "$W/tree/usr/bin/teeth-relabel"
 chmod 0755 "$W/tree/usr/bin/teeth-relabel"
 
 mk() { # mk <out> <arch> <depends>
-	docker run --rm -i -v "$W:/work" -w /work "$ALPINE" apk mkpkg \
+	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 		--info "name:teeth-relabel" --info "version:0.0.0-r1" --info "arch:$2" \
 		--info "license:MIT" --info "origin:teeth-relabel" \
 		--info "description:teeth-relabel.sh" --info "depends:$3" \

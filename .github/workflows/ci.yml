@@ -35,14 +35,19 @@ jobs:
     # api.github.com's anonymous rate limit, which shared runner addresses hit.
     env:
       GITHUB_TOKEN: ${{ github.token }}
+    # One build, then the gates and their teeth spread over runners that each build the same
+    # tree (about four minutes) and run one share. As one sequential job it took 55 min, half of
+    # it the LuCI teeth (2026-10-02); the shards bring the slowest leg to about a quarter of that.
+    # Free for a public repository, like the runner itself.
+    name: package (${{ matrix.arch }}, ${{ matrix.suite }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # ARM only (2026-09-24): routers are what this package is for.
-          # aarch64 is what a router actually is, and the architecture the wheel bet is
-          # really about, so it is not optional.
-          - arch: aarch64_generic
+        # ARM only (2026-09-24): routers are what this package is for.
+        # aarch64 is what a router actually is, and the architecture the wheel bet is
+        # really about, so it is not optional.
+        arch: [aarch64_generic]
+        suite: [core, runtime, teeth, luci-teeth-0, luci-teeth-1, luci-teeth-2, luci-teeth-3, unlock, unlock-teeth-0, unlock-teeth-1, unlock-teeth-2, unlock-teeth-3]
     steps:
       - uses: actions/checkout@v4
 
@@ -87,28 +92,46 @@ jobs:
       - name: build the openwrt-mcp apk the gates install beside hermes-agent
         run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh ${{ matrix.arch }}
 
+      # apk mkpkg records each file's owner as found on disk, and this runner's uid 1001 became
+      # `nobody` on the router, /etc/hermes-agent included. A Mac never shows it, so it is read
+      # here, from the packages, where it happened.
+      - name: every file in every package is root's
+        if: matrix.suite == 'core'
+        run: ./scripts/gate-apk-owner.sh && ./scripts/teeth-apk-owner.sh
+
       - name: it installs, runs, and keeps the key out of sight
+        if: matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh
 
       # The pinned upstream commit, uv.lock's versions, the two parts left out, and what
       # upstream ships beside the wheel found where the package put it.
       - name: it carries the pinned upstream, as upstream locks it
+        if: matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-upstream.sh
 
       - name: and that gate has teeth
+        if: matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/teeth-upstream.sh
 
       - name: the add-on installs beside the base and neither claims the other's files
+        if: matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-telegram.sh
 
-      - name: gateway controls and their mutation tests
-        run: ARCH=${{ matrix.arch }} ./scripts/gate-runtime.sh
+      - name: and so does the add-on's gate
+        if: matrix.suite == 'core'
+        run: ARCH=${{ matrix.arch }} ./scripts/teeth-telegram.sh
+
+      - name: the relabel gate has teeth
+        if: matrix.suite == 'core'
+        run: ./scripts/teeth-relabel.sh
 
       - name: the web interface installs, registers on ubus, and gives no key back
+        if: matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-luci.sh
 
-      - name: the web interface's gate has teeth
-        run: ARCH=${{ matrix.arch }} ./scripts/teeth-luci.sh
+      - name: gateway controls and their mutation tests
+        if: matrix.suite == 'runtime'
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-runtime.sh
 
       # A gate nobody has seen go red is a gate nobody has tested. Each fault below is
       # one a real change could introduce, and each must be caught by a different check.
@@ -116,15 +139,31 @@ jobs:
       # from scratch, because a full rebuild per fault would triple the job for no extra
       # signal.
       - name: the gate has teeth
+        if: matrix.suite == 'teeth'
         run: ARCH=${{ matrix.arch }} ./scripts/teeth.sh
 
-      - name: the relabel gate has teeth
-        run: ./scripts/teeth-relabel.sh
+      # Every shard plants every fault and runs the gate for its own quarter of them, and each
+      # checks that 33 were planted, so a fault dropped from the script fails all four.
+      - name: the web interface's gate has teeth, quarter ${{ matrix.suite }}
+        if: startsWith(matrix.suite, 'luci-teeth-')
+        run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#luci-teeth-}/4 ./scripts/teeth-luci.sh
+        env:
+          MATRIX_SUITE: ${{ matrix.suite }}
 
-      - name: and so does the add-on's gate
-        run: ARCH=${{ matrix.arch }} ./scripts/teeth-telegram.sh
+      # The owner unlock: 35 checks in OpenWrt's own rootfs with all four packages, the real
+      # gateway, the real daemon and the stand-ins for Telegram and the model.
+      - name: changes wait for the owner's unlock, and the unlock never reaches the model
+        if: matrix.suite == 'unlock'
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-unlock.sh
+
+      - name: and that gate has teeth, quarter ${{ matrix.suite }}
+        if: startsWith(matrix.suite, 'unlock-teeth-')
+        run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#unlock-teeth-}/4 ./scripts/teeth-unlock.sh
+        env:
+          MATRIX_SUITE: ${{ matrix.suite }}
 
       - uses: actions/upload-artifact@v4
+        if: matrix.suite == 'core'
         with:
           name: hermes-agent-${{ matrix.arch }}
           path: |

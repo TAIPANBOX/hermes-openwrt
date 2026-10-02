@@ -77,7 +77,7 @@ trap cleanup EXIT INT TERM
 # again on the move to 0.21.5.
 . "$ROOT/package/upstream/upstream.env"
 repack_base() {
-	docker run --rm -i -v "$BW:/work" -w /work "$ALPINE" apk mkpkg \
+	docker run --rm -i -v "$BW:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 		--info "name:hermes-agent" --info "version:$HERMES_VERSION-r99" --info "arch:$ARCH" \
 		--info "license:MIT" --info "origin:hermes-agent" \
 		--info "description:deliberately broken build, teeth-telegram.sh" \
@@ -88,7 +88,7 @@ repack_base() {
 }
 
 repack_addon() {
-	docker run --rm -i -v "$AW:/work" -w /work "$ALPINE" apk mkpkg \
+	docker run --rm -i -v "$AW:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 		--info "name:hermes-agent-telegram" --info "version:0.0.0-r1" --info "arch:$ARCH" \
 		--info "license:MIT" --info "origin:hermes-agent-telegram" \
 		--info "description:deliberately broken build, teeth-telegram.sh" \

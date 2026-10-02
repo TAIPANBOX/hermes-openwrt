@@ -84,7 +84,7 @@ chmod 0755 "$WORK/post-install" "$WORK/pre-deinstall"
 # arch is noarch, not "all". OpenWrt's own package-pack.mk maps PKGARCH=all to
 # arch:noarch, and apk refuses anything whose arch is neither noarch nor the router's
 # own with a bare "error: uninstallable" that names nothing and explains less.
-docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
+docker run --rm -i -v "$WORK:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 	--info "name:luci-app-hermes" \
 	--info "version:$VERSION-r$PKGREL" \
 	--info "arch:noarch" \

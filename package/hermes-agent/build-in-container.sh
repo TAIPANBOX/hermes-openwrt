@@ -221,7 +221,7 @@ exit 0
 PRE
 chmod 0755 "$WORK/post-install" "$WORK/post-upgrade" "$WORK/pre-deinstall"
 
-docker run --rm -i -v "$WORK:/work" -w /work "$ALPINE" apk mkpkg \
+docker run --rm -i -v "$WORK:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 	--info "name:hermes-agent" \
 	--info "version:$HERMES_VERSION-r$PKGREL" \
 	--info "arch:$ARCH" \
@@ -257,7 +257,7 @@ for extra in ${EXTRA_ARCHES:-}; do
 	xout="hermes-agent-$HERMES_VERSION-r$PKGREL.apk"
 	xdir="$ROOT/build/$LINE/$extra"
 	rm -rf "$xdir"; mkdir -p "$xdir"
-	docker run --rm -i -v "$WORK:/work" -v "$xdir:/out" -w /work "$ALPINE" apk mkpkg \
+	docker run --rm -i -v "$WORK:/work" -v "$xdir:/out" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 		--info "name:hermes-agent" \
 		--info "version:$HERMES_VERSION-r$PKGREL" \
 		--info "arch:$extra" \

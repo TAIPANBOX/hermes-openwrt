@@ -49,7 +49,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 repack() {
-	docker run --rm -i -v "$W:/work" -w /work "$ALPINE" apk mkpkg \
+	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 		--info "name:hermes-agent" --info "version:0.0.0-r1" --info "arch:$ARCH" \
 		--info "license:MIT" --info "origin:hermes-agent" \
 		--info "description:deliberately broken build, teeth.sh" \

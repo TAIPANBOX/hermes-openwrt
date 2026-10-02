@@ -98,7 +98,7 @@ DEPENDS="hermes-agent>=$HERMES_VERSION hermes-agent<$(echo "$HERMES_VERSION" | a
 
 mkpkg_for() {
 	arch=$1; dest=$2
-	docker run --rm -i -v "$WORK:/work" -v "$dest:/out" -w /work "$ALPINE" apk mkpkg \
+	docker run --rm -i -v "$WORK:/work" -v "$dest:/out" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
 		--info "name:$PKG" \
 		--info "version:$HERMES_VERSION-r$PKGREL" \
 		--info "arch:$arch" \
