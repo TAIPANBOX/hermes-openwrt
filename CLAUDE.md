@@ -255,11 +255,15 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     which includes a pasted number. A change a scheduled job asks for is refused by a
     `pre_tool_call` hook even while a window is open (upstream marks a cron run in the
     `HERMES_CRON_SESSION` context variable and in its session and task ids). A job that
-    delegates to a subagent is refused too: `@measured` on a Brume 2, 2026-10-04, by a one-off
-    `hermes cron create` job with the `delegation` toolset, run by the gateway while a window
-    opened with the owner PIN was open, whose subagent called `mcp__openwrt__uci_apply` and got
-    "a scheduled job cannot change the router"; openwrt-mcp's audit log shows no apply after
-    the unlock. Not gated: no container check covers the subagent path. `@claude` 2026-10-02, 0.21.5-r5: the agent is told
+    delegates to a subagent is refused too, measured for synchronous delegation only:
+    `@measured` 2026-10-04 on a Brume 2, 0.21.5-r5, by `uci add_list hermes.main.toolsets=delegation`,
+    a window opened with the owner PIN through openwrt-mcp's `mfa_unlock`, then (as `hermes`)
+    `hermes cron create 1m "<delegate a uci_apply of system.@system[0].description to a
+    subagent>" --repeat 1 --deliver local`; the gateway ran it once, delegate_task ran the
+    batch synchronously, the subagent's `mcp__openwrt__uci_apply` got "a scheduled job cannot
+    change the router", and openwrt-mcp's audit log shows no apply after the unlock (record:
+    the private execution journal, evidence hermes-openwrt-2026-10-04-hw). Not gated:
+    no container check covers the subagent path, and async delegation is not measured. `@claude` 2026-10-02, 0.21.5-r5: the agent is told
     the window is open, because the unlock message is never shown to it and an agent that had
     asked for /unlock went on asking after it was given (seen on a Brume 2 through Telegram).
     The plugin remembers the end of a window from the daemon's own answer, and through
