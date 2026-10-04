@@ -33,8 +33,11 @@ set -eu
 # read permission, which is a deliberate change to invariant 11, and the rest are write-only.
 # r14: set_factor tells procd hermes changed even on the first reload after a boot, when
 # reload_config only records its copy.
-PKGREL=${PKGREL:-14}
-VERSION=${VERSION:-0.19.0}
+# 0.21.5-r1: the same files as 0.19.0-r14, renumbered. The version now follows the agent the page
+# ships beside, so a router shows one number for the pair; apk orders 0.21.5 above 0.19.0, so a
+# plain upgrade takes it. PKGREL starts again at 1 when the agent's version moves.
+PKGREL=${PKGREL:-1}
+VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
 WORK="$ROOT/build/luci-app-hermes-apk"
