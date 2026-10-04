@@ -1,0 +1,163 @@
+#!/bin/sh
+# hermes-usb -- keep Hermes's data directory on a USB stick, or bring it back inside.
+#
+#   hermes-usb status                       where the data directory lives, and its size
+#   hermes-usb move <partition> [--format]  copy the data to the stick, mount the stick there
+#   hermes-usb back                         copy the data back to the router's own storage
+#
+# The data directory is what Hermes writes to again and again: sessions, memory, logs, its
+# state database. The programs are written once, at install. So this moves the data, and the
+# router never depends on the stick: without it, Hermes does not start (the init says why)
+# and everything else runs as before. A router whose writable layer lives on the stick
+# (extroot) is a different, larger change, described in the README.
+#
+# Lessons this carries, each from a run on 2026-10-04:
+#   - the service's stop returns before the gateway has exited; copying then trips over its
+#     pid and socket files as they vanish. Wait for gateway.pid to go first.
+#   - a freshly made ext4 keeps writing for hours on its own (lazy inode-table init), which
+#     looks like a service wearing the stick. --format writes the tables at once instead.
+#   - a stick formatted whole has no partition 1; name the partition the stick actually has.
+set -u
+NAME=hermes-usb
+SERVICE=${HERMES_USB_SERVICE:-/etc/init.d/hermes-agent}
+MARGIN_KB=${HERMES_USB_MARGIN_KB:-65536}
+TOOLS='kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs'
+
+say()  { echo "$NAME: $*"; }
+die()  { echo "$NAME: $*" >&2; exit 1; }
+
+data_dir=$(uci -q get hermes.main.data_dir)
+[ -n "$data_dir" ] || data_dir=/srv/hermes
+case "$data_dir" in
+	/?*/?*) ;;
+	*) die "data_dir '$data_dir' is not a directory this command will move; set hermes.main.data_dir to a path such as /srv/hermes" ;;
+esac
+data_dir=${data_dir%/}
+
+mounted_dev() { awk -v d="$1" '$2 == d { print $1 }' /proc/mounts | tail -n 1; }
+uuid_of()     { block info "$1" 2>/dev/null | sed -n 's/.*UUID="\([^"]*\)".*/\1/p'; }
+type_of()     { block info "$1" 2>/dev/null | sed -n 's/.*TYPE="\([^"]*\)".*/\1/p'; }
+size_kb()     { du -sk "$1" 2>/dev/null | cut -f1; }
+tree_sums()   { ( cd "$1" && find . -xdev -type f ! -name gateway.pid ! -name gateway.sock -exec md5sum {} + | sort -k 2 ); }
+
+need_tools() {
+	missing=""
+	for p in $TOOLS; do apk info -e "$p" >/dev/null 2>&1 || missing="$missing $p"; done
+	[ -z "$missing" ] && return 0
+	echo "$NAME: these packages are needed first:$missing" >&2
+	echo "$NAME:   apk update && apk add$missing" >&2
+	echo "$NAME: nothing was changed." >&2
+	exit 2
+}
+
+stop_gateway() {
+	"$SERVICE" stop >/dev/null 2>&1
+	i=0
+	while [ -e "$1/gateway.pid" ] && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
+	[ -e "$1/gateway.pid" ] && { "$SERVICE" start >/dev/null 2>&1; die "the gateway did not stop within 60 s; nothing was moved"; }
+	return 0
+}
+
+status() {
+	dev=$(mounted_dev "$data_dir")
+	want=$(uci -q get hermes.main.data_uuid)
+	if [ -n "$dev" ]; then
+		say "$data_dir is on $dev (UUID $(uuid_of "$dev")), $(size_kb "$data_dir") KiB used, $(df -k "$data_dir" | awk 'NR == 2 { print $4 }') KiB free"
+	elif [ -n "$want" ]; then
+		say "$data_dir should be on the stick with UUID $want, and that stick is not mounted; Hermes will not start until it is"
+	else
+		say "$data_dir is on the router's own storage, $(size_kb "$data_dir") KiB used"
+	fi
+}
+
+move() {
+	part=${1:-}; fmt=${2:-}
+	[ -n "$part" ] || die "usage: hermes-usb move <partition> [--format], for example /dev/sda1 (block info lists them)"
+	[ -z "$fmt" ] || [ "$fmt" = --format ] || die "unknown option '$fmt'"
+	need_tools
+	[ -b "$part" ] || die "$part is not a block device; block info lists the partitions the router sees"
+	[ -z "$(uci -q get hermes.main.data_uuid)" ] || die "the data is on a stick already (hermes-usb status); run hermes-usb back first"
+	where=$(awk -v p="$part" '$1 == p { print $2 }' /proc/mounts | head -n 1)
+	[ -z "$where" ] || die "$part is mounted on $where; it is in use, so it was left alone. Unmount it first if it is the stick you mean."
+	[ -d "$data_dir" ] || die "$data_dir does not exist yet; start Hermes once, then move it"
+
+	t=$(type_of "$part")
+	if [ "$fmt" = --format ]; then
+		say "formatting $part as ext4 (everything on it is erased)"
+		mkfs.ext4 -F -q -L hermes-data -E lazy_itable_init=0,lazy_journal_init=0 "$part" || die "mkfs.ext4 failed on $part"
+	elif [ "$t" != ext4 ]; then
+		die "$part holds ${t:-no filesystem}, not ext4; hermes-usb move $part --format would erase it and make ext4"
+	fi
+	uuid=$(uuid_of "$part"); [ -n "$uuid" ] || die "no UUID on $part"
+
+	mnt=/tmp/hermes-usb.$$
+	mkdir -p "$mnt" && mount -t ext4 -o rw,noatime "$part" "$mnt" || die "could not mount $part"
+	need=$(( $(size_kb "$data_dir") + MARGIN_KB )); have=$(df -k "$mnt" | awk 'NR == 2 { print $4 }')
+	if [ "$have" -lt "$need" ]; then
+		umount "$mnt"; rmdir "$mnt"
+		die "$part has $have KiB free and needs $need ($data_dir plus $MARGIN_KB KiB of room); nothing was changed"
+	fi
+	if [ -n "$(ls -A "$mnt" | grep -v '^lost+found$')" ]; then
+		umount "$mnt"; rmdir "$mnt"
+		die "$part is not empty; use an empty partition, or --format to erase it"
+	fi
+
+	stop_gateway "$data_dir"
+	cp -a "$data_dir/." "$mnt/" || { umount "$mnt"; rmdir "$mnt"; "$SERVICE" start >/dev/null 2>&1; die "the copy failed; the data is still in $data_dir"; }
+	tree_sums "$data_dir" > /tmp/hermes-usb.a; tree_sums "$mnt" > /tmp/hermes-usb.b
+	if ! cmp -s /tmp/hermes-usb.a /tmp/hermes-usb.b; then
+		umount "$mnt"; rmdir "$mnt"; "$SERVICE" start >/dev/null 2>&1
+		die "the copy on $part differs from $data_dir; nothing was switched"
+	fi
+	n=$(wc -l < /tmp/hermes-usb.a); rm -f /tmp/hermes-usb.a /tmp/hermes-usb.b
+	umount "$mnt"; rmdir "$mnt"
+
+	[ -f /etc/config/fstab ] || printf "config global\n\toption anon_mount '0'\n\toption auto_mount '1'\n\toption delay_root '5'\n\toption check_fs '0'\n" > /etc/config/fstab
+	uci -q delete fstab.hermes_data
+	uci set fstab.hermes_data=mount
+	uci set fstab.hermes_data.uuid="$uuid"
+	uci set fstab.hermes_data.target="$data_dir"
+	uci set fstab.hermes_data.fstype=ext4
+	uci set fstab.hermes_data.options=rw,noatime
+	uci set fstab.hermes_data.enabled=1
+	uci commit fstab
+	uci set hermes.main.data_uuid="$uuid"; uci commit hermes
+
+	# The copy is proven; the one inside goes, so nothing writes there again by mistake.
+	find "$data_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	mount -t ext4 -o rw,noatime "$part" "$data_dir" || die "could not mount $part on $data_dir; the data is safe on the stick, run hermes-usb back after checking it"
+	[ "$(mounted_dev "$data_dir")" = "$part" ] || die "$data_dir is not on $part after mounting"
+	"$SERVICE" start >/dev/null 2>&1
+	say "moved $n files to $part (UUID $uuid), mounted on $data_dir from /etc/config/fstab; Hermes restarted"
+}
+
+back() {
+	want=$(uci -q get hermes.main.data_uuid)
+	[ -n "$want" ] || die "the data is on the router's own storage already"
+	dev=$(mounted_dev "$data_dir")
+	[ -n "$dev" ] || die "the stick with UUID $want is not mounted on $data_dir; plug it in first"
+	parent=$(dirname "$data_dir"); tmp="$parent/.hermes-usb-back.$$"
+	need=$(( $(size_kb "$data_dir") + MARGIN_KB )); have=$(df -k "$parent" | awk 'NR == 2 { print $4 }')
+	[ "$have" -ge "$need" ] || die "the router's own storage has $have KiB free under $parent and needs $need"
+	stop_gateway "$data_dir"
+	mkdir -p "$tmp" && cp -a "$data_dir/." "$tmp/" || { rm -rf "$tmp"; "$SERVICE" start >/dev/null 2>&1; die "the copy failed; the data is still on the stick"; }
+	tree_sums "$data_dir" > /tmp/hermes-usb.a; tree_sums "$tmp" > /tmp/hermes-usb.b
+	if ! cmp -s /tmp/hermes-usb.a /tmp/hermes-usb.b; then
+		rm -rf "$tmp"; "$SERVICE" start >/dev/null 2>&1; die "the copy differs from the stick; nothing was switched"
+	fi
+	n=$(wc -l < /tmp/hermes-usb.a); rm -f /tmp/hermes-usb.a /tmp/hermes-usb.b
+	umount "$data_dir" || { rm -rf "$tmp"; "$SERVICE" start >/dev/null 2>&1; die "could not unmount $data_dir"; }
+	uci -q delete fstab.hermes_data; uci commit fstab
+	uci -q delete hermes.main.data_uuid; uci commit hermes
+	rmdir "$data_dir" 2>/dev/null || rm -rf "$data_dir"
+	mv "$tmp" "$data_dir" && chmod 0700 "$data_dir"
+	"$SERVICE" start >/dev/null 2>&1
+	say "brought $n files back to $data_dir on the router's own storage; the stick ($dev) is no longer used and can be removed"
+}
+
+case "${1:-}" in
+	status) status ;;
+	move)   shift; move "$@" ;;
+	back)   back ;;
+	*) echo "usage: hermes-usb status | move <partition> [--format] | back" >&2; exit 2 ;;
+esac

@@ -49,7 +49,7 @@ jobs:
         # aarch64 is what a router actually is, and the architecture the wheel bet is
         # really about, so it is not optional.
         arch: [aarch64_generic]
-        suite: [core, runtime, teeth, luci-teeth-0, luci-teeth-1, luci-teeth-2, luci-teeth-3, unlock, unlock-teeth-0, unlock-teeth-1, unlock-teeth-2, unlock-teeth-3]
+        suite: [core, runtime, teeth, usb, luci-teeth-0, luci-teeth-1, luci-teeth-2, luci-teeth-3, unlock, unlock-teeth-0, unlock-teeth-1, unlock-teeth-2, unlock-teeth-3]
     steps:
       - uses: actions/checkout@v4
 
@@ -143,6 +143,14 @@ jobs:
       - name: the gate has teeth
         if: matrix.suite == 'teeth'
         run: ARCH=${{ matrix.arch }} ./scripts/teeth.sh
+
+      - name: hermes-usb moves the data to a stick and back, and the agent will not start without it
+        if: matrix.suite == 'usb'
+        run: ARCH=${{ matrix.arch }} ./scripts/gate-usb.sh
+
+      - name: and that gate has teeth
+        if: matrix.suite == 'usb'
+        run: ARCH=${{ matrix.arch }} ./scripts/teeth-usb.sh
 
       # Every shard plants every fault and runs the gate for its own quarter of them, and each
       # checks that 33 were planted, so a fault dropped from the script fails all four.

@@ -202,6 +202,7 @@ cp "$SRC/files/hermes-agent.init"   "$OUT/etc/init.d/hermes-agent" && chmod 0755
 # itself and check_key_not_in_procd_env.
 cp "$SRC/files/hermes-gateway"      "$OUT/usr/sbin/hermes-gateway"    && chmod 0755 "$OUT/usr/sbin/hermes-gateway"
 cp "$SRC/files/hermes-login"        "$OUT/usr/sbin/hermes-login"      && chmod 0755 "$OUT/usr/sbin/hermes-login"
+cp "$SRC/files/hermes-usb"          "$OUT/usr/sbin/hermes-usb"        && chmod 0755 "$OUT/usr/sbin/hermes-usb"
 cp "$SRC/files/hermes-agent.config" "$OUT/etc/config/hermes" && chmod 0644 "$OUT/etc/config/hermes"
 
 # Survive a firmware upgrade: sysupgrade keeps what is listed here, and losing the key

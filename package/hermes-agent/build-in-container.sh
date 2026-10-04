@@ -96,7 +96,11 @@ esac
 # asked for /unlock does not go on asking after it was given; the line goes again on /lock, a
 # lockout or the end of the window, in the history the request replays too. The config file's
 # enrolment commands are the two-step form the README gives.
-PKGREL=${PKGREL:-5}
+#
+# 0.21.5-r6: hermes-usb moves the data directory to a USB stick and back (status, move
+# <partition> [--format], back), and the init will not start when the data belongs on a stick
+# that is not mounted, rather than start empty on the router's own storage.
+PKGREL=${PKGREL:-6}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

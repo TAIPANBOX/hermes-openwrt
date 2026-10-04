@@ -332,6 +332,22 @@ start_service() {
 		fi
 	fi
 
+	# Data moved to a USB stick by hermes-usb: start only on that stick. Without it the
+	# directory underneath is the router's own storage, and an agent starting there empty
+	# would write exactly where the owner chose not to. So this stops the start and says
+	# why, before anything below can create or hand over a directory.
+	local data_uuid mdev
+	config_get data_uuid main data_uuid ''
+	if [ -n "$data_uuid" ]; then
+		mdev=$(awk -v d="${data_dir%/}" '$2 == d { print $1 }' /proc/mounts | tail -n 1)
+		if [ -z "$mdev" ] || [ "$(block info "$mdev" 2>/dev/null | sed -n 's/.*UUID="\([^"]*\)".*/\1/p')" != "$data_uuid" ]; then
+			echo "$NAME: Hermes's data is on the USB stick with UUID $data_uuid, and that stick is not" >&2
+			echo "$NAME: mounted on $data_dir. Plug it in and restart, or bring the data back inside" >&2
+			echo "$NAME: with 'hermes-usb back' once it is mounted. Not starting." >&2
+			return 1
+		fi
+	fi
+
 	# The data directory is deliberately not created on the overlay by default. If it
 	# is missing we make it, but a router whose overlay is a few megabytes should have
 	# data_dir pointed at external storage instead, and this is where that gets said.

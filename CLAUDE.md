@@ -325,6 +325,21 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `features/upstream-watch.feature`, in CI's `scenarios` job and before each daily run;
     teeth: `scripts/teeth-upstream-watch.sh`).
 
+21. `@decided 2026-10-04`: Hermes installs to the router's own storage by default, and a USB stick
+    is an option that one command sets up. `@claude` 2026-10-04, how: `hermes-usb move <partition>
+    [--format]` moves the data directory (what is written again and again; the programs are written
+    once) to an ext4 stick, waiting for gateway.pid to go before copying, comparing every file's
+    checksum before switching, mounting the stick on the data directory by UUID from
+    `/etc/config/fstab` (section `hermes_data`), recording `hermes.main.data_uuid`, and removing
+    the copy inside. It refuses, changing nothing, a partition mounted anywhere, a stick without
+    room for the data plus 64 MiB, another filesystem unless `--format` (which writes every inode
+    table at once, since a fresh ext4 otherwise writes on its own for hours), and a router without
+    the USB packages (it prints the `apk add` line). `hermes-usb back` returns the data inside and
+    removes both entries. With `data_uuid` set, the init does not start unless that stick is
+    mounted on the data directory, before it could create or hand over anything there; the router
+    itself never depends on the stick (gate: `scripts/gate-usb.sh`, bound to `features/usb.feature`;
+    teeth: `scripts/teeth-usb.sh`).
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.
