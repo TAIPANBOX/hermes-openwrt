@@ -1,8 +1,8 @@
 #!/bin/sh
 # gate-named-routers.sh -- the routers this repository is tested on, and the only routers
-# it names, are the GL.iNet Flint 2 and Brume 2 (CLAUDE.md, invariant 15). A finding made
-# on another box is described by its architecture instead. This fails on the lab's other
-# boxes, by name or by model number, anywhere in the tracked tree.
+# it names, are the GL.iNet Flint 2, Brume 2 and Beryl AX (CLAUDE.md, invariant 15). A
+# finding made on another box is described by its architecture instead. This fails on the
+# lab's other box, by name or by model number, anywhere in the tracked tree.
 #
 #   gate-named-routers.sh             the repository's tracked files
 #   gate-named-routers.sh DIR         every file under DIR (teeth-named-routers.sh uses it)
@@ -11,9 +11,10 @@ set -u
 CHECK=check_names_only_the_test_routers
 if [ "${1:-}" = "--selftest" ]; then echo "$CHECK"; exit 0; fi
 
-# The lab's other boxes. This file and its teeth are the only ones allowed to spell them,
-# so both are left out of the search.
-OTHERS='beryl|marble|mt3000|b3000'
+# The lab's other box. This file and its teeth are the only ones allowed to spell it,
+# so both are left out of the search. The Beryl AX (GL-MT3000) joined the test routers
+# on 2026-10-04, for the 512 MB case and Hermes on a USB stick.
+OTHERS='marble|b3000'
 
 LIST=$(mktemp) HITS=$(mktemp)
 trap 'rm -f "$LIST" "$LIST.kept" "$HITS"' EXIT
@@ -34,4 +35,4 @@ if [ -s "$HITS" ]; then
 	sed 's/^/  /' "$HITS"
 	exit 1
 fi
-echo "PASS: $CHECK ($n files read, none names a router but the Flint 2 and the Brume 2)"
+echo "PASS: $CHECK ($n files read, none names a router but the Flint 2, the Brume 2 and the Beryl AX)"

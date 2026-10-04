@@ -162,6 +162,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     record the router's state first, then restore it (gate:
     `scripts/gate-named-routers.sh`, teeth: `scripts/teeth-named-routers.sh`, both in
     CI's `scenarios` job; the restore is not enforced).
+    `@decided 2026-10-04`: the Beryl AX (GL-MT3000) is a third test router, for the case of
+    512 MB of memory and about 200 MB of flash, where Hermes runs from a USB stick; it may be
+    named and drawn. The lab's other box stays unnamed (gate: the same, `OTHERS` in
+    `scripts/gate-named-routers.sh`).
 16. `@decided 2026-09-25`: more than one provider on one router, working at the same time.
     Each UCI `provider` section (base_url, key_file, model, label) becomes an entry in
     upstream's `providers` map whose key_env is `HERMES_PROVIDER_<NAME>_KEY`; the wrapper
