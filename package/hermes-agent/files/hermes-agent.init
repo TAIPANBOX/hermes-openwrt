@@ -332,6 +332,16 @@ start_service() {
 		fi
 	fi
 
+	# Data moved to a USB stick by hermes-usb: start only on that stick. Without it the
+	# directory underneath is the router's own storage, and an agent starting there empty
+	# would write exactly where the owner chose not to. So this stops the start and says
+	# why, before anything below can create or hand over a directory. The gateway wrapper
+	# asks the same before every respawn, and the block hotplug script starts the service
+	# when the stick appears, so a stick that is late at boot needs no wait here.
+	. /usr/lib/hermes-agent/hermes-usb-check
+	local why
+	why=$(hermes_data_ok "$data_dir") || { echo "$NAME: $why. Not starting." >&2; return 1; }
+
 	# The data directory is deliberately not created on the overlay by default. If it
 	# is missing we make it, but a router whose overlay is a few megabytes should have
 	# data_dir pointed at external storage instead, and this is where that gets said.

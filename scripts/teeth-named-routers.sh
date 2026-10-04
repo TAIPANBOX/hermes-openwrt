@@ -18,14 +18,14 @@ expect() {
 }
 
 mkdir -p "$T/clean/docs" "$T/by-name" "$T/by-model" "$T/empty"
-printf 'Measured on the Flint 2 and the Brume 2, both aarch64_cortex-a53.\n' > "$T/clean/README.md"
-printf '<svg><text>GL-MT6000 and GL-MT2500</text></svg>\n' > "$T/clean/docs/boxes.svg"
+printf 'Measured on the Flint 2, the Brume 2 and the Beryl AX, all aarch64_cortex-a53.\n' > "$T/clean/README.md"
+printf '<svg><text>GL-MT6000, GL-MT2500 and GL-MT3000</text></svg>\n' > "$T/clean/docs/boxes.svg"
 cp -R "$T/clean/." "$T/by-name/"
-printf '# Found on a %s AX on 2026-09-15.\n' 'Beryl' >> "$T/by-name/README.md"
+printf '# Found on a %s on 2026-09-15.\n' 'Marble' >> "$T/by-name/README.md"
 cp -R "$T/clean/." "$T/by-model/"
 printf 'profile glinet_gl-%s\n' 'b3000' > "$T/by-model/notes.txt"
 
-expect "the two test routers pass" 0 "$T/clean" "PASS: check_names_only_the_test_routers"
+expect "the three test routers pass" 0 "$T/clean" "PASS: check_names_only_the_test_routers"
 expect "a box named by name fails" 1 "$T/by-name" "README.md:2:"
 expect "a box named by model number fails" 1 "$T/by-model" "notes.txt:1:"
 expect "nothing to read refuses" 1 "$T/empty" "measured nothing"

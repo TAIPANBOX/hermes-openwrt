@@ -1,0 +1,86 @@
+# hermes-usb-check -- sourced by the init, the gateway wrapper, the hermes launcher, hermes-login,
+# hermes-usb and the block hotplug script: one answer to "may Hermes use its data directory now?".
+#
+# The only record that the data lives on a stick is the fstab section hermes_data, which
+# hermes-usb writes in one commit and removes in one commit. A section that exists means "on a
+# stick", whatever else has been done to it: one disabled (LuCI's Mount Points page has a tick
+# for it) or stripped of its UUID is refused, never read as "the data is inside".
+#
+#   hermes_data_stick     the stick's UUID when the section exists, "?" when it exists without
+#                         one, nothing when the data is on the router's storage
+#   hermes_data_ok DIR    0 when DIR may be used now; otherwise prints why and returns 1
+#
+# What is mounted on DIR is read from /proc/self/mountinfo, the last line whose mount point is
+# DIR exactly: that is the mount on top. A stick on a parent of DIR, or hidden under another
+# mount on DIR, does not pass for the stick being there.
+#
+# While hermes-usb is moving the data, nothing else may start on it: its lock holds its pid.
+# A copy hermes-usb set aside and never finished with (a power cut in the middle) is named, and
+# nothing starts until someone has looked at it.
+
+HERMES_USB_LOCK=/var/lock/hermes-usb.lock
+
+hermes_data_stick() {
+	uci -q get fstab.hermes_data >/dev/null 2>&1 || return 0
+	_hs_uuid=$(uci -q get fstab.hermes_data.uuid)
+	echo "${_hs_uuid:-?}"
+	return 0
+}
+
+# the source of the top mount on $1, or nothing
+hermes_mount_source() {
+	awk -v d="$1" '{ for (i = 7; i <= NF; i++) if ($i == "-") { src = $(i + 2); break } if ($5 == d) last = src } END { print last }' /proc/self/mountinfo 2>/dev/null
+}
+
+hermes_data_leftovers() {  # what an interrupted hermes-usb left beside DIR
+	for _hl in "$1.hermes-usb-inside" "$(dirname "$1")/.hermes-usb-back"; do
+		[ -e "$_hl" ] && echo "$_hl"
+	done
+	return 0
+}
+
+hermes_data_ok() {
+	_hd_dir=$1
+	while case "$_hd_dir" in */) true ;; *) false ;; esac; do _hd_dir=${_hd_dir%/}; done
+	if [ -z "${HERMES_USB_SELF:-}" ] && [ -d "$HERMES_USB_LOCK" ]; then
+		_hd_pid=$(cat "$HERMES_USB_LOCK/pid" 2>/dev/null)
+		if [ -n "$_hd_pid" ] && grep -q hermes-usb "/proc/$_hd_pid/cmdline" 2>/dev/null; then
+			echo "hermes-usb (pid $_hd_pid) is moving Hermes's data right now; start Hermes when it has finished"
+			return 1
+		fi
+	fi
+	_hd_left=$(hermes_data_leftovers "$_hd_dir")
+	if [ -n "$_hd_left" ]; then
+		echo "an interrupted hermes-usb left a copy of Hermes's data at $(echo $_hd_left); check it against $_hd_dir, keep the right one in $_hd_dir, and remove the other, before Hermes starts"
+		return 1
+	fi
+	_hd_uuid=$(hermes_data_stick)
+	[ -n "$_hd_uuid" ] || return 0
+	if [ "$_hd_uuid" = "?" ]; then
+		echo "the fstab section hermes_data, which says Hermes's data is on a USB stick, names no UUID; put its UUID back, or bring the data inside with 'hermes-usb back' or give the stick up with 'hermes-usb forget --yes'"
+		return 1
+	fi
+	if [ "$(uci -q get fstab.hermes_data.enabled)" = 0 ]; then
+		echo "Hermes's data is on the USB stick with UUID $_hd_uuid, and its fstab section is disabled, so the stick is not mounted at boot; enable it again (uci set fstab.hermes_data.enabled=1; uci commit fstab)"
+		return 1
+	fi
+	_hd_target=$(uci -q get fstab.hermes_data.target)
+	if [ "$_hd_target" != "$_hd_dir" ]; then
+		echo "Hermes's data is on the USB stick with UUID $_hd_uuid, set to mount on $_hd_target, but the data directory is now $_hd_dir; set hermes.main.data_dir back to $_hd_target"
+		return 1
+	fi
+	if ! command -v block >/dev/null 2>&1; then
+		echo "Hermes's data is on the USB stick with UUID $_hd_uuid, and block-mount, which mounts it, is not installed: apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs"
+		return 1
+	fi
+	_hd_dev=$(hermes_mount_source "$_hd_dir")
+	if [ -z "$_hd_dev" ]; then
+		echo "Hermes's data is on the USB stick with UUID $_hd_uuid, and that stick is not mounted on $_hd_dir; plug it in (Hermes starts when it is mounted), or run 'hermes-usb back' with it mounted to bring the data inside, or 'hermes-usb forget --yes' if the stick is lost"
+		return 1
+	fi
+	if [ "$(block info "$_hd_dev" 2>/dev/null | sed -n 's/.*UUID="\([^"]*\)".*/\1/p')" != "$_hd_uuid" ]; then
+		echo "$_hd_dir has $_hd_dev mounted, not the USB stick with Hermes's data (UUID $_hd_uuid)"
+		return 1
+	fi
+	return 0
+}

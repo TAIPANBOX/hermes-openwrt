@@ -162,6 +162,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     record the router's state first, then restore it (gate:
     `scripts/gate-named-routers.sh`, teeth: `scripts/teeth-named-routers.sh`, both in
     CI's `scenarios` job; the restore is not enforced).
+    `@decided 2026-10-04`: the Beryl AX (GL-MT3000) is a third test router, for the case of
+    512 MB of memory and about 200 MB of free flash, where Hermes runs from a USB stick; it may be
+    named and drawn. The lab's other box stays unnamed (gate: the same, `OTHERS` in
+    `scripts/gate-named-routers.sh`).
 16. `@decided 2026-09-25`: more than one provider on one router, working at the same time.
     Each UCI `provider` section (base_url, key_file, model, label) becomes an entry in
     upstream's `providers` map whose key_env is `HERMES_PROVIDER_<NAME>_KEY`; the wrapper
@@ -324,6 +328,61 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/gate-upstream-watch.sh` against a stand-in `gh`, bound to
     `features/upstream-watch.feature`, in CI's `scenarios` job and before each daily run;
     teeth: `scripts/teeth-upstream-watch.sh`).
+
+21. `@decided 2026-10-04`: Hermes installs to the router's own storage by default, and a USB stick
+    is an option that one command sets up. `@claude` 2026-10-04, how: `hermes-usb move <partition>
+    [--format]` moves the data directory (what is written again and again; the programs are written
+    once) to an ext4 partition of a USB disk with nothing on that disk mounted. The one record that
+    the data is on a stick is the fstab section `hermes_data`, written in one commit once the stick
+    is mounted and checked, removed in one commit once the data is back inside; a section that
+    exists means "on a stick", so one disabled or without a UUID is refused, never read as "inside".
+    One check, `/usr/lib/hermes-agent/hermes-usb-check`, reads it, the top mount on the data
+    directory from `/proc/self/mountinfo`, hermes-usb's lock (with its pid) and the copies an
+    interrupted run leaves under fixed names; the init, the gateway wrapper procd respawns, the
+    `hermes` launcher run as root when `HERMES_HOME` is the stick's directory, hermes-login and
+    `/etc/hotplug.d/block/90-hermes-usb` all ask it: without the stick nothing of Hermes starts or
+    writes inside; the stick's own arrival starts an enabled service, its departure stops it, other
+    devices change nothing. Before copying, hermes-usb waits for the gateway's process (read from
+    upstream's JSON pid record) and for the service's group to hold no process (read, not sized); it
+    switches only when every file's checksum and the file count match; it never moves into a
+    directory that exists, sets the inside copy aside until the stick is mounted and checked, and
+    puts everything back when a step fails. Every commit of the record is read back from
+    `/etc/config/fstab` itself, not through uci's view of fstab, which includes changes waiting in
+    `/tmp/.uci`: `@measured` 2026-10-04 in `openwrt/rootfs:aarch64_generic-25.12.4`, a `uci commit
+    fstab` onto a full tmpfs bound over `/etc/config` returned 0 and left the file 0 bytes. So it
+    needs 256 KiB free there first, refuses while someone else's fstab changes wait uncommitted
+    (checked again after the copy, which can take minutes), commits only with a copy of the file
+    in RAM, and reads the result with uci itself (a copy under another package name, so the
+    changes waiting for fstab in `/tmp/.uci` play no part, and refused while a change waits there
+    under the copy's own name): a commit that did not land, the record not as asked, any other section changed,
+    or a file uci cannot parse, a file cut off inside a value included, or left empty where it held
+    more than the record, is undone
+    (the change reverted, the file put back from that copy by a rename) before switching anything;
+    `back` whose record removal does not land says so and leaves Hermes refusing to start inside;
+    when the file could not be put back either, each command says so and names the copy it kept
+    in `/tmp`, under a name of its own. It refuses to move a directory another process has a file or
+    its working directory or root in (a path with spaces and a file deleted while open included),
+    and a root shell's `hermes` asks for the data directory however
+    its path is spelled, so hermes-usb's lock binds it too. It refuses, changing nothing, a device not on USB, a
+    whole disk, a disk with a partition mounted, a data directory that is a mount point, reached
+    through a symbolic link, on another filesystem, named in the fstab or in a system tree, a stick
+    too small (before `--format` erases it), another filesystem unless `--format` (every inode table
+    written at once, no blocks reserved for root), and a router without the USB packages (it prints
+    the `apk add` line). `back` takes the data only from its own stick, keeps what lay underneath
+    the mount point, and removes the fstab section last; `forget --yes` gives up a stick that is not
+    mounted (partly gated: `scripts/gate-usb.sh`, bound to `features/usb.feature`, teeth
+    `scripts/teeth-usb.sh`; not gated: a disk held by another device and a partition in use as
+    swap, which a loop device cannot show, the moment of a power cut itself, INT and TERM, and
+    hermes-login's own wait for the sign-in, during which the stick is not asked again, and a
+    command the user `hermes` runs by hand, since that user cannot read a device's UUID; in the root
+    profile the gateway, running as root, writes under the empty mount point in the seconds
+    between the stick going and the stop; two hermes-usb runs started at the same moment over a
+    stale lock; a process that opens the data directory after the check and before the switch, or
+    maps a file in it without keeping it open; a process whose root directory is in it, which is
+    looked for and not gated; a power cut while the file is put back; another `uci commit fstab`,
+    from LuCI or a shell, landing in the moment between the copy and the read-back, which is then
+    taken for a failed commit and put back over; a deletion of the record staged in uci and not
+    committed, which the start check reads as done).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

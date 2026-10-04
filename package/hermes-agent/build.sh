@@ -145,6 +145,9 @@ cp "$SRC/files/hermes-drop.py" "$OUT/usr/libexec/hermes-drop"
 chmod 0755 "$OUT/usr/libexec/hermes-drop"
 # Which profile is which account; sourced by the init and the wrapper, so it is said once.
 cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
+cp "$SRC/files/hermes-usb-check" "$OUT/usr/lib/hermes-agent/hermes-usb-check" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-usb-check"
+mkdir -p "$OUT/etc/hotplug.d/block"
+cp "$SRC/files/hermes-usb.hotplug" "$OUT/etc/hotplug.d/block/90-hermes-usb" && chmod 0644 "$OUT/etc/hotplug.d/block/90-hermes-usb"
 
 # The Hermes-side unlock plugin. It goes in the private site-packages, beside the libraries and
 # owned by root like them, so the agent (which runs as hermes) cannot rewrite the code that
@@ -176,6 +179,22 @@ cat > "$OUT/usr/bin/hermes" <<'LAUNCHER'
 SITE=/usr/lib/hermes-agent/site-packages
 # Where upstream's skills, locales and MCP catalogue live; see the file itself.
 . /usr/lib/hermes-agent/hermes-env
+# Hermes's data on a USB stick (hermes-usb): a command pointed at the data directory from a root
+# shell, as the README's `HERMES_HOME=/srv/hermes hermes cron create ...` is, refuses rather than
+# write under the empty mount point of a stick that is not there, or into a directory hermes-usb
+# is moving right now. The path is compared as the kernel resolves it, so /srv//hermes or
+# /srv/hermes/ is the same directory. Only root asks: the user hermes cannot read a device's UUID,
+# and the gateway, which runs this as hermes, was asked by its wrapper, as root, a moment before
+# (a Brume 2 showed it on 2026-10-04, when the gateway refused its own stick).
+. /usr/lib/hermes-agent/hermes-usb-check
+if [ "$(id -u)" = 0 ] && [ -n "${HERMES_HOME:-}" ]; then
+	h=$(readlink -f "$HERMES_HOME" 2>/dev/null) || h=""
+	[ -n "$h" ] || { h=$HERMES_HOME; while case "$h" in */) true ;; *) false ;; esac; do h=${h%/}; done; }
+	d=$(uci -q get hermes.main.data_dir 2>/dev/null); [ -n "$d" ] || d=/srv/hermes
+	if [ "$h" = "${d%/}" ] || [ "$h" = "$(uci -q get fstab.hermes_data.target 2>/dev/null)" ]; then
+		why=$(hermes_data_ok "$h") || { echo "hermes: $why" >&2; exit 1; }
+	fi
+fi
 # The gateway runs as the user hermes (the owner and assistant profiles), so what it keeps in
 # its data directory belongs to that user. A command run from a root shell against that
 # directory, `HERMES_HOME=/srv/hermes hermes cron create ...` over SSH, would leave files
@@ -202,6 +221,7 @@ cp "$SRC/files/hermes-agent.init"   "$OUT/etc/init.d/hermes-agent" && chmod 0755
 # itself and check_key_not_in_procd_env.
 cp "$SRC/files/hermes-gateway"      "$OUT/usr/sbin/hermes-gateway"    && chmod 0755 "$OUT/usr/sbin/hermes-gateway"
 cp "$SRC/files/hermes-login"        "$OUT/usr/sbin/hermes-login"      && chmod 0755 "$OUT/usr/sbin/hermes-login"
+cp "$SRC/files/hermes-usb"          "$OUT/usr/sbin/hermes-usb"        && chmod 0755 "$OUT/usr/sbin/hermes-usb"
 cp "$SRC/files/hermes-agent.config" "$OUT/etc/config/hermes" && chmod 0644 "$OUT/etc/config/hermes"
 
 # Survive a firmware upgrade: sysupgrade keeps what is listed here, and losing the key
