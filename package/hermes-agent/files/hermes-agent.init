@@ -339,8 +339,20 @@ start_service() {
 	local data_uuid mdev
 	config_get data_uuid main data_uuid ''
 	if [ -n "$data_uuid" ]; then
-		mdev=$(awk -v d="${data_dir%/}" '$2 == d { print $1 }' /proc/mounts | tail -n 1)
-		if [ -z "$mdev" ] || [ "$(block info "$mdev" 2>/dev/null | sed -n 's/.*UUID="\([^"]*\)".*/\1/p')" != "$data_uuid" ]; then
+		command -v block >/dev/null 2>&1 || {
+			echo "$NAME: Hermes's data is on a USB stick (UUID $data_uuid), and block-mount, which mounts it," >&2
+			echo "$NAME: is not installed: apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs. Not starting." >&2
+			return 1; }
+		# At boot a stick can enumerate a little after this script runs; give it up to 20 s
+		# then, and none later, when a missing stick is simply missing.
+		on_stick() {
+			mdev=$(awk -v d="${data_dir%/}" '$2 == d { print $1 }' /proc/mounts | tail -n 1)
+			[ -n "$mdev" ] && [ "$(block info "$mdev" 2>/dev/null | sed -n 's/.*UUID="\([^"]*\)".*/\1/p')" = "$data_uuid" ]
+		}
+		if ! on_stick && [ "$(cut -d. -f1 /proc/uptime)" -lt 180 ]; then
+			w=0; while [ "$w" -lt 20 ] && ! on_stick; do block mount >/dev/null 2>&1; sleep 1; w=$((w + 1)); done
+		fi
+		if ! on_stick; then
 			echo "$NAME: Hermes's data is on the USB stick with UUID $data_uuid, and that stick is not" >&2
 			echo "$NAME: mounted on $data_dir. Plug it in and restart, or bring the data back inside" >&2
 			echo "$NAME: with 'hermes-usb back' once it is mounted. Not starting." >&2

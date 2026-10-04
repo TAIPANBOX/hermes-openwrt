@@ -163,7 +163,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/gate-named-routers.sh`, teeth: `scripts/teeth-named-routers.sh`, both in
     CI's `scenarios` job; the restore is not enforced).
     `@decided 2026-10-04`: the Beryl AX (GL-MT3000) is a third test router, for the case of
-    512 MB of memory and about 200 MB of flash, where Hermes runs from a USB stick; it may be
+    512 MB of memory and about 200 MB of free flash, where Hermes runs from a USB stick; it may be
     named and drawn. The lab's other box stays unnamed (gate: the same, `OTHERS` in
     `scripts/gate-named-routers.sh`).
 16. `@decided 2026-09-25`: more than one provider on one router, working at the same time.
@@ -332,15 +332,20 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 21. `@decided 2026-10-04`: Hermes installs to the router's own storage by default, and a USB stick
     is an option that one command sets up. `@claude` 2026-10-04, how: `hermes-usb move <partition>
     [--format]` moves the data directory (what is written again and again; the programs are written
-    once) to an ext4 stick, waiting for gateway.pid to go before copying, comparing every file's
-    checksum before switching, mounting the stick on the data directory by UUID from
-    `/etc/config/fstab` (section `hermes_data`), recording `hermes.main.data_uuid`, and removing
-    the copy inside. It refuses, changing nothing, a partition mounted anywhere, a stick without
-    room for the data plus 64 MiB, another filesystem unless `--format` (which writes every inode
-    table at once, since a fresh ext4 otherwise writes on its own for hours), and a router without
-    the USB packages (it prints the `apk add` line). `hermes-usb back` returns the data inside and
-    removes both entries. With `data_uuid` set, the init does not start unless that stick is
-    mounted on the data directory, before it could create or hand over anything there; the router
+    once) to an ext4 partition on a USB disk with nothing on that disk mounted. Before copying it
+    waits for the gateway's process (the pid file is upstream's JSON record, removed before the
+    gateway's last write) and for the service's group to hold no process (read, not sized: cgroup
+    files report size 0). It switches only when every file's checksum and the file count match,
+    mounts the stick by UUID from `/etc/config/fstab` (section `hermes_data`), records
+    `hermes.main.data_uuid`, and removes the copy inside. It refuses, changing nothing, a device not
+    on USB, a disk with anything mounted or held, a data directory that is a mount point, a
+    symbolic link or named in the fstab already, a system tree as data directory, a stick without
+    room for the data plus 64 MiB (checked before `--format` erases anything), another filesystem
+    unless `--format` (which writes every inode table at once), and a router without the USB
+    packages (it prints the `apk add` line). `hermes-usb back` takes the data back only from the
+    stick it belongs on, puts it in place, and only then clears both entries. With `data_uuid` set,
+    the init starts only when that stick is mounted on the data directory, waiting up to 20 s for it
+    in the first three minutes after boot, and names block-mount when it is missing; the router
     itself never depends on the stick (gate: `scripts/gate-usb.sh`, bound to `features/usb.feature`;
     teeth: `scripts/teeth-usb.sh`).
 
