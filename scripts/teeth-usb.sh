@@ -47,6 +47,8 @@ H=check_move_refuses_a_data_dir_set_up_by_hand
 S=check_missing_stick_stops_the_start
 P=check_stick_coming_and_going
 I=check_interrupted_or_running_move_starts_nothing
+R=check_stick_record_proven_on_flash
+W=check_move_refuses_while_another_process_uses_the_data
 
 # the waits
 plant "no wait for the gateway" $M usb \
@@ -95,12 +97,29 @@ plant "move beside a copy an interrupted move left" $I usb \
 	'	left=$(hermes_data_leftovers "$data_dir"); [ -z "$left" ] || die' '	left=""; true || die'
 # back
 plant "back leaves the fstab entry" $B usb \
-	'	uci -q delete fstab.hermes_data; uci commit fstab
-	unlock; restart' '	unlock; restart'
+	'	uci -q delete fstab.hermes_data
+	commit_fstab "" || die "the data is back' '	commit_fstab "" || die "the data is back'
 plant "back deletes what is underneath" $B usb \
 	'		mv "$target" "$under" || { remount; die "could not set aside what lies under $target; the stick is mounted again, nothing was switched"; }' '		rm -rf "$target"'
 plant "a failed back leaves the stick unmounted" check_failed_back_puts_the_stick_back usb \
 	'		remount; die "could not put the copy in place' '		die "could not put the copy in place'
+# the stick's record on flash
+plant "someone else's waiting fstab changes committed with the record" $R usb \
+	'	[ -z "$(uci -q changes fstab)" ] || die' '	true || die'
+plant "no room checked where /etc/config lives" $R usb \
+	'	num "$have" && [ "$have" -ge "$CONF_ROOM_KB" ] || die' '	true || die'
+plant "a commit taken at its word, not read back from the file" $R usb \
+	'	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && return 0' '	return 0'
+plant "a commit that did not land left waiting in /tmp/.uci" $R usb \
+	'	uci -q revert fstab
+	if ! cmp' '	if ! cmp'
+plant "back says the stick can go while flash still expects it" $R usb \
+	'	commit_fstab "" || die "the data is back' '	commit_fstab "" || true "the data is back'
+# other users of the data directory
+plant "a process with a file open in the data directory ignored" $W usb \
+	'	[ -z "$u" ] || die "process $u has files open' '	true || die "process $u has files open'
+plant "a working directory in the data directory not counted" $W usb \
+	'		/ -> / {' '		/ -> / && $(NF - 2) !~ /cwd$/ {'
 # forget
 plant "forget without --yes" check_lost_stick_forgotten usb \
 	'	[ "${1:-}" = --yes ] || die "forget gives up' '	true || die "forget gives up'
@@ -118,7 +137,11 @@ plant "a section without a UUID read as the data inside" $S lib \
 plant "a running move's lock ignored" $I lib \
 	'	if [ -z "${HERMES_USB_SELF:-}" ] && [ -d "$HERMES_USB_LOCK" ]; then' '	if false; then'
 plant "a stale lock taken for a running move" $I lib \
-	'		if [ -n "$_hd_pid" ] && [ -d "/proc/$_hd_pid" ]; then' '		if true; then'
+	'		if [ -n "$_hd_pid" ] && grep -q hermes-usb "/proc/$_hd_pid/cmdline" 2>/dev/null; then' '		if true; then'
+plant "a lock holding another program's pid taken for a move" $I lib \
+	'grep -q hermes-usb "/proc/$_hd_pid/cmdline" 2>/dev/null' '[ -d "/proc/$_hd_pid" ]'
+plant "the copy an interrupted back left ignored" $I lib \
+	'"$(dirname "$1")/.hermes-usb-back"' '"$(dirname "$1")/.nothing-here"'
 plant "a copy an interrupted move left ignored" $I lib \
 	'	if [ -n "$_hd_left" ]; then' '	if false; then'
 # the callers
@@ -131,7 +154,13 @@ plant "hermes-login does not ask" $S login \
 plant "the launcher asks as hermes too (it cannot read a UUID)" $M launcher \
 	'if [ "$(id -u)" = 0 ] && [ -n "${HERMES_HOME:-}" ]' 'if [ -n "${HERMES_HOME:-}" ]'
 plant "the launcher does not ask" $S launcher \
-	'	why=$(hermes_data_ok "${HERMES_HOME%/}") || { echo "hermes: $why" >&2; exit 1; }' '	:'
+	'		why=$(hermes_data_ok "$h") || { echo "hermes: $why" >&2; exit 1; }' '		:'
+plant "the launcher, run as root, refuses the stick of record" $M launcher \
+	'		why=$(hermes_data_ok "$h") || {' '		why=refused; false || {'
+plant "the launcher asks only for the stick's directory, not the data inside" $W launcher \
+	'	if [ "$h" = "${d%/}" ] || [' '	if false || ['
+plant "the launcher compares the path as spelled" $W launcher \
+	'	h=$(readlink -f "$HERMES_HOME" 2>/dev/null) || h=""' '	h=""'
 # hotplug
 plant "the stick's arrival starts nothing" $P plug \
 	'		"$SERVICE" start' '		:'

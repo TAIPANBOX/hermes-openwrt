@@ -179,14 +179,21 @@ cat > "$OUT/usr/bin/hermes" <<'LAUNCHER'
 SITE=/usr/lib/hermes-agent/site-packages
 # Where upstream's skills, locales and MCP catalogue live; see the file itself.
 . /usr/lib/hermes-agent/hermes-env
-# Hermes's data on a USB stick (hermes-usb): a command pointed at that directory from a root shell,
-# as the README's `HERMES_HOME=/srv/hermes hermes cron create ...` is, refuses rather than write
-# under the empty mount point of a stick that is not there. Only root asks: the user hermes cannot
-# read a device's UUID, and the gateway, which runs this as hermes, was asked by its wrapper, as
-# root, a moment before (a Brume 2 showed it on 2026-10-04, when the gateway refused its own stick).
+# Hermes's data on a USB stick (hermes-usb): a command pointed at the data directory from a root
+# shell, as the README's `HERMES_HOME=/srv/hermes hermes cron create ...` is, refuses rather than
+# write under the empty mount point of a stick that is not there, or into a directory hermes-usb
+# is moving right now. The path is compared as the kernel resolves it, so /srv//hermes or
+# /srv/hermes/ is the same directory. Only root asks: the user hermes cannot read a device's UUID,
+# and the gateway, which runs this as hermes, was asked by its wrapper, as root, a moment before
+# (a Brume 2 showed it on 2026-10-04, when the gateway refused its own stick).
 . /usr/lib/hermes-agent/hermes-usb-check
-if [ "$(id -u)" = 0 ] && [ -n "${HERMES_HOME:-}" ] && [ "${HERMES_HOME%/}" = "$(uci -q get fstab.hermes_data.target 2>/dev/null)" ]; then
-	why=$(hermes_data_ok "${HERMES_HOME%/}") || { echo "hermes: $why" >&2; exit 1; }
+if [ "$(id -u)" = 0 ] && [ -n "${HERMES_HOME:-}" ]; then
+	h=$(readlink -f "$HERMES_HOME" 2>/dev/null) || h=""
+	[ -n "$h" ] || { h=$HERMES_HOME; while case "$h" in */) true ;; *) false ;; esac; do h=${h%/}; done; }
+	d=$(uci -q get hermes.main.data_dir 2>/dev/null); [ -n "$d" ] || d=/srv/hermes
+	if [ "$h" = "${d%/}" ] || [ "$h" = "$(uci -q get fstab.hermes_data.target 2>/dev/null)" ]; then
+		why=$(hermes_data_ok "$h") || { echo "hermes: $why" >&2; exit 1; }
+	fi
 fi
 # The gateway runs as the user hermes (the owner and assistant profiles), so what it keeps in
 # its data directory belongs to that user. A command run from a root shell against that

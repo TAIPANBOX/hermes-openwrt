@@ -44,7 +44,7 @@ hermes_data_ok() {
 	while case "$_hd_dir" in */) true ;; *) false ;; esac; do _hd_dir=${_hd_dir%/}; done
 	if [ -z "${HERMES_USB_SELF:-}" ] && [ -d "$HERMES_USB_LOCK" ]; then
 		_hd_pid=$(cat "$HERMES_USB_LOCK/pid" 2>/dev/null)
-		if [ -n "$_hd_pid" ] && [ -d "/proc/$_hd_pid" ]; then
+		if [ -n "$_hd_pid" ] && grep -q hermes-usb "/proc/$_hd_pid/cmdline" 2>/dev/null; then
 			echo "hermes-usb (pid $_hd_pid) is moving Hermes's data right now; start Hermes when it has finished"
 			return 1
 		fi

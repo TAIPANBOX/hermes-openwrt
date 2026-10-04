@@ -31,9 +31,16 @@
 #     the stick is mounted where it belongs and checked. A copy set aside keeps a fixed name, so
 #     a power cut in the middle leaves it where hermes-usb-check finds it and names it, and no
 #     later run can mistake it for its own.
-#   - while it runs, its lock (holding its pid) keeps the init, the wrapper and the hotplug
-#     script from starting Hermes on a directory that is half moved.
+#   - while it runs, its lock (holding its pid) keeps the init, the wrapper, the hotplug
+#     script, hermes-login and a root shell's hermes from starting on a directory that is half
+#     moved, and a process already using the directory stops it before anything is copied.
+#   - `uci commit` on a full filesystem returned 0 and left /etc/config/fstab empty (OpenWrt
+#     25.12.4), and uci's own reads include changes still waiting in /tmp/.uci. So the room is
+#     checked first, someone else's waiting changes are refused rather than committed with the
+#     record, and every commit is read back from the file itself; one that did not land is
+#     undone, the file restored from a copy in RAM, and nothing is switched.
 set -u
+cd /
 trap '' HUP PIPE
 NAME=hermes-usb
 SERVICE=${HERMES_USB_SERVICE:-/etc/init.d/hermes-agent}
@@ -56,14 +63,14 @@ cleanup() {
 	[ -n "$mnt" ] && { umount "$mnt" 2>/dev/null; rmdir "$mnt" 2>/dev/null; }
 	unlock
 	[ "$stopped" = 1 ] && restart
-	rm -f "/tmp/hermes-usb.$$.a" "/tmp/hermes-usb.$$.b"
+	rm -f "/tmp/hermes-usb.$$.a" "/tmp/hermes-usb.$$.b" "/tmp/hermes-usb.$$.fstab"
 }
 trap cleanup EXIT
 trap 'exit 1' INT TERM
 lock() {
 	if ! mkdir "$HERMES_USB_LOCK" 2>/dev/null; then
 		p=$(cat "$HERMES_USB_LOCK/pid" 2>/dev/null)
-		[ -n "$p" ] && [ -d "/proc/$p" ] && die "another hermes-usb (pid $p) is running"
+		[ -n "$p" ] && grep -q hermes-usb "/proc/$p/cmdline" 2>/dev/null && die "another hermes-usb (pid $p) is running"
 		rm -rf "$HERMES_USB_LOCK"; mkdir "$HERMES_USB_LOCK" 2>/dev/null || die "cannot take $HERMES_USB_LOCK"
 	fi
 	echo $$ > "$HERMES_USB_LOCK/pid"; locked=1
@@ -74,6 +81,51 @@ uuid_of()     { block info "$1" 2>/dev/null | sed -n 's/.*UUID="\([^"]*\)".*/\1/
 type_of()     { block info "$1" 2>/dev/null | sed -n 's/.*TYPE="\([^"]*\)".*/\1/p'; }
 size_kb()     { du -sk "$1" 2>/dev/null | cut -f1; }
 free_kb()     { df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'; }
+# a process other than this one with its working directory or an open file in $1: "pid command"
+dir_user() {
+	ls -l /proc/[0-9]*/cwd /proc/[0-9]*/fd 2>/dev/null | awk -v d="$1" -v me="$$" '
+		/^\/proc\/[0-9]+\/fd:$/ { split($0, a, "/"); pid = a[3]; next }
+		/ -> / {
+			who = pid; t = $NF
+			if ($(NF - 2) ~ /^\/proc\/[0-9]+\/cwd$/) { split($(NF - 2), a, "/"); who = a[3] }
+			if (who != me && (t == d || index(t, d "/") == 1)) { print who; exit }
+		}' | while read -r u; do echo "$u ($(tr '\0' ' ' < "/proc/$u/cmdline" 2>/dev/null | cut -c 1-60))"; done
+}
+nobody_else_in() {
+	u=$(dir_user "$1")
+	[ -z "$u" ] || die "process $u has files open in $1; stop it first. Nothing was moved"
+}
+
+# /etc/config/fstab as it is on flash: the hermes_data section's uuid and target, read from the
+# file, since uci's own reads include changes still waiting in /tmp/.uci
+flash_record() {
+	awk -v q="'" '
+		function v(x) { gsub(q, "", x); gsub(/"/, "", x); return x }
+		$1 == "config" { in_s = (v($3) == "hermes_data"); if (in_s) seen = 1; next }
+		in_s && $1 == "option" && ($2 == "uuid" || $2 == "target") { o[$2] = v($3) }
+		END { if (seen) print o["uuid"] " " o["target"] }' /etc/config/fstab 2>/dev/null
+}
+CONF_ROOM_KB=256
+fstab_writable() {
+	[ -z "$(uci -q changes fstab)" ] || die "/etc/config/fstab has changes waiting to be committed (uci changes fstab); commit or revert them first, so this command commits only its own. Nothing was changed"
+	have=$(free_kb /etc/config)
+	num "$have" && [ "$have" -ge "$CONF_ROOM_KB" ] || die "the router's own storage has ${have:-an unknown amount of} KiB free where /etc/config lives; recording the stick needs $CONF_ROOM_KB, and a full one can leave /etc/config/fstab empty. Nothing was changed"
+}
+# One commit of fstab, read back from the file: $1 what flash_record must then say ("" for no
+# section). A commit that did not land is undone: the waiting change dropped, the file as it was.
+commit_fstab() {
+	saved=/tmp/hermes-usb.$$.fstab
+	cp /etc/config/fstab "$saved" 2>/dev/null || : > "$saved"
+	uci commit fstab; rc=$?; sync
+	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && return 0
+	uci -q revert fstab
+	if ! cmp -s "$saved" /etc/config/fstab; then
+		cp "$saved" /etc/config/fstab 2>/dev/null && sync && cmp -s "$saved" /etc/config/fstab \
+			|| { cp "$saved" /tmp/hermes-usb.fstab.saved; echo "$NAME: /etc/config/fstab could not be put back as it was; its earlier content is in /tmp/hermes-usb.fstab.saved (RAM: copy it somewhere safe)" >&2; }
+	fi
+	return 1
+}
+
 files_in()    { find "$1" -xdev -type f ! -name gateway.pid ! -name gateway.sock | wc -l; }
 tree_sums()   { ( cd "$1" && find . -xdev -type f ! -name gateway.pid ! -name gateway.sock -exec md5sum {} + | sort -k 2 ); }
 
@@ -190,6 +242,7 @@ move() {
 	s=$(uci -q show fstab | grep -F -e ".target='$data_dir'" | head -n 1 | sed 's/^fstab\.\([^.]*\)\..*/\1/')
 	[ -z "$s" ] || die "/etc/config/fstab section '$s' already mounts something on $data_dir; remove it first"
 	check_device "$part"
+	fstab_writable
 
 	need=$(( $(size_kb "$data_dir") + MARGIN_KB ))
 	t=$(type_of "$part"); formatted=""
@@ -213,6 +266,7 @@ move() {
 	[ -z "$(ls -A "$mnt" | grep -v '^lost+found$')" ] || die "$part is not empty; use an empty partition, or --format to erase it"
 
 	stop_gateway "$data_dir"
+	nobody_else_in "$data_dir"
 	cp -a "$data_dir/." "$mnt/" && same_tree "$data_dir" "$mnt" \
 		|| die "the copy on $part does not match $data_dir; nothing was switched, the data is still in $data_dir"
 	n=$(files_in "$data_dir")
@@ -221,14 +275,14 @@ move() {
 
 	# The inside copy is set aside under a fixed name, not deleted, until the stick is on
 	# $data_dir and checked.
-	owner=$(ls -ld "$data_dir" | awk '{ print $3 }')
+	owner=$(ls -ld "$data_dir" | awk '{ print $3 ":" $4 }')
 	aside="$data_dir.hermes-usb-inside"
 	mv "$data_dir" "$aside" || die "could not set $data_dir aside; nothing was switched"
 	mkdir -m 0700 "$data_dir" || { put_back "$aside" "$data_dir"; die "could not make the mount point $data_dir; nothing was switched"; }
 	if ! mount -t ext4 -o rw,noatime "$part" "$data_dir"; then
 		put_back "$aside" "$data_dir"; die "could not mount $part on $data_dir; nothing was switched, the data is still in $data_dir"
 	fi
-	chown "$owner:$owner" "$data_dir" 2>/dev/null
+	chown "$owner" "$data_dir" 2>/dev/null
 	[ -f /etc/config/fstab ] || printf "config global\n\toption anon_mount '0'\n\toption auto_mount '1'\n\toption delay_root '5'\n\toption check_fs '0'\n" > /etc/config/fstab
 	uci -q delete fstab.hermes_data
 	uci set fstab.hermes_data=mount
@@ -237,9 +291,14 @@ move() {
 	uci set fstab.hermes_data.fstype=ext4
 	uci set fstab.hermes_data.options=rw,noatime
 	uci set fstab.hermes_data.enabled=1
-	uci commit fstab
-	if ! why=$(hermes_stick_on "$data_dir" "$uuid"); then
-		uci -q delete fstab.hermes_data; uci commit fstab
+	why=""
+	if ! commit_fstab "$uuid $data_dir"; then
+		why="the stick's record did not reach /etc/config/fstab (is the router's own storage full or read-only?)"
+	elif ! why=$(hermes_stick_on "$data_dir" "$uuid"); then
+		uci -q delete fstab.hermes_data
+		commit_fstab "" || why="$why, and its record could not be removed from /etc/config/fstab again: remove section hermes_data by hand"
+	fi
+	if [ -n "$why" ]; then
 		umount "$data_dir" || die "after mounting, $why, and $data_dir would not unmount; the data is safe in $aside"
 		put_back "$aside" "$data_dir"
 		die "after mounting, $why; nothing was switched, the data is still in $data_dir"
@@ -265,13 +324,16 @@ back() {
 	[ -n "$uuid" ] || die "the data is on the router's own storage already"
 	target=$(uci -q get fstab.hermes_data.target)
 	why=$(hermes_data_ok "$target") || die "$why"
+	fstab_writable
 	dev=$(hermes_mount_source "$target")
 	parent=$(dirname "$target"); tmp="$parent/.hermes-usb-back"
 	need=$(( $(size_kb "$target") + MARGIN_KB )); have=$(free_kb "$parent")
 	num "$have" && [ "$have" -ge "$need" ] || die "the router's own storage has ${have:-an unknown amount of} KiB free under $parent and needs $need"
 	stop_gateway "$target"
+	nobody_else_in "$target"
 	{ mkdir -m 0700 "$tmp" && cp -a "$target/." "$tmp/" && same_tree "$target" "$tmp"; } \
 		|| { rm -rf "$tmp"; die "the copy does not match the stick; nothing was switched"; }
+	rm -rf "$tmp/lost+found"
 	n=$(files_in "$tmp")
 	umount "$target" || { rm -rf "$tmp"; die "could not unmount $target; nothing was switched"; }
 	[ -z "$(hermes_mount_source "$target")" ] || { rm -rf "$tmp"; die "$target is still a mount point after unmounting; nothing was switched"; }
@@ -290,7 +352,8 @@ back() {
 		remount; die "could not put the copy in place; the stick is mounted on $target again, nothing was switched"
 	fi
 	# only now does the router stop expecting the stick: one commit
-	uci -q delete fstab.hermes_data; uci commit fstab
+	uci -q delete fstab.hermes_data
+	commit_fstab "" || die "the data is back in $target, but the stick's record could not be removed from /etc/config/fstab (is the router's own storage full or read-only?), so the router still expects the stick and Hermes does not start. Make room, then: uci delete fstab.hermes_data; uci commit fstab. Keep the stick: it still holds the same data"
 	unlock; restart
 	say "brought $n files back to $target on the router's own storage; the stick ($dev) is no longer used and can be removed${under:+. What lay underneath the mount point is kept in $under}"
 }
@@ -302,9 +365,12 @@ forget() {
 	[ -n "$uuid" ] || die "no stick is on record; there is nothing to forget"
 	target=$(uci -q get fstab.hermes_data.target)
 	[ -z "$(hermes_mount_source "$target")" ] || die "a stick is mounted on $target; run 'hermes-usb back' to bring its data inside, or unmount it first to give it up"
-	uci -q delete fstab.hermes_data; uci commit fstab
+	fstab_writable
+	uci -q delete fstab.hermes_data
+	commit_fstab "" || die "the stick's record could not be removed from /etc/config/fstab (is the router's own storage full or read-only?); nothing was changed"
 	unlock
-	say "the stick with UUID $uuid is no longer expected; its data is still on it. Hermes starts with an empty data directory in $target when it is next started"
+	data_dir=$(uci -q get hermes.main.data_dir); [ -n "$data_dir" ] || data_dir=/srv/hermes
+	say "the stick with UUID $uuid is no longer expected; its data is still on it. Hermes starts with an empty data directory in $data_dir when it is next started"
 }
 
 case "${1:-}" in

@@ -42,6 +42,7 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     And the agent starts again as hermes, with its data on the stick
     And the copy left on the router's own storage is removed, only once the stick is mounted
     And the started agent's own init takes the stick hermes-usb set up
+    And so does a hermes command, run as the gateway runs it and from a root shell
     # -> check_move_copies_and_restarts_on_the_stick
 
   Scenario: only a partition of a USB stick with nothing in use on it is taken
@@ -140,8 +141,9 @@ Feature: Hermes's data moves to a USB stick with one command, and back
   Scenario: nothing starts on a move that is running or was interrupted
     Given hermes-usb is moving the data, or a power cut left the copy it set aside
     When the service starts or procd respawns the gateway
-    Then it refuses, and an interrupted move's copy is named
-    And a lock left by a hermes-usb that is gone does not block anything
+    Then it refuses, and the copy an interrupted move or back left is named
+    And a lock left by a hermes-usb that is gone, or holding a pid now another program's, does
+    And not block anything
     And a new move refuses to run beside the copy left behind, and leaves it alone
     # -> check_interrupted_or_running_move_starts_nothing
 
@@ -153,3 +155,27 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     Then the record is removed, the data on the stick is not touched
     And Hermes starts again with an empty data directory inside
     # -> check_lost_stick_forgotten
+
+  Scenario: the stick's record is on flash before anything inside is let go
+    Given changes to the router's fstab that someone else has left uncommitted
+    When the owner runs hermes-usb move
+    Then the command refuses, names them, and commits nothing of anyone else's
+    Given the router's own storage too full to record the stick
+    When the owner runs hermes-usb move
+    Then the command refuses before the agent is stopped, and changes nothing
+    Given a commit of the fstab that reports success and leaves nothing on flash
+    When the owner runs hermes-usb move
+    Then nothing is switched, the data is inside as it was, the agent starts there again
+    And no record of the stick is left anywhere a reader would take for flash
+    When the owner runs hermes-usb back with such a commit
+    Then it does not say the stick can be removed, and Hermes does not start inside while
+    And flash still says its data is on the stick
+    # -> check_stick_record_proven_on_flash
+
+  Scenario: the data is not moved while anything else is using it
+    Given a process with a file open, or its working directory, in the data directory
+    When the owner runs hermes-usb move
+    Then the command refuses, names the process, and changes nothing
+    And a hermes command started from a root shell while a move runs is refused, however the
+    And data directory's path is spelled, and runs once the move has finished
+    # -> check_move_refuses_while_another_process_uses_the_data

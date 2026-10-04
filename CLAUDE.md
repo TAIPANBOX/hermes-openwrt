@@ -346,7 +346,16 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     upstream's JSON pid record) and for the service's group to hold no process (read, not sized); it
     switches only when every file's checksum and the file count match; it never moves into a
     directory that exists, sets the inside copy aside until the stick is mounted and checked, and
-    puts everything back when a step fails. It refuses, changing nothing, a device not on USB, a
+    puts everything back when a step fails. Every commit of the record is read back from
+    `/etc/config/fstab` itself, not through uci, whose reads include changes waiting in
+    `/tmp/.uci`: `@measured` 2026-10-04 in `openwrt/rootfs:aarch64_generic-25.12.4`, a `uci commit
+    fstab` onto a full tmpfs bound over `/etc/config` returned 0 and left the file 0 bytes. So it
+    needs 256 KiB free there first, refuses while someone else's fstab changes wait uncommitted,
+    and undoes a commit that did not land (the change reverted, the file put back from a copy in
+    RAM) before switching anything; `back` whose record removal does not land says so and leaves
+    Hermes refusing to start inside. It refuses to move a directory another process has a file or
+    its working directory in, and a root shell's `hermes` asks for the data directory however
+    its path is spelled, so hermes-usb's lock binds it too. It refuses, changing nothing, a device not on USB, a
     whole disk, a disk with a partition mounted, a data directory that is a mount point, reached
     through a symbolic link, on another filesystem, named in the fstab or in a system tree, a stick
     too small (before `--format` erases it), another filesystem unless `--format` (every inode table
@@ -357,7 +366,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/teeth-usb.sh`; not gated: a disk held by another device and a partition in use as
     swap, which a loop device cannot show, the moment of a power cut itself, INT and TERM, and
     hermes-login's own wait for the sign-in, during which the stick is not asked again, and a
-    command the user `hermes` runs by hand, since that user cannot read a device's UUID).
+    command the user `hermes` runs by hand, since that user cannot read a device's UUID; in the root
+    profile the gateway, running as root, writes under the empty mount point in the seconds
+    between the stick going and the stop; two hermes-usb runs started at the same moment over a
+    stale lock; and a process that opens the data directory after the check and before the switch).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

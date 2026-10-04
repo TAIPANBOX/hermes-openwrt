@@ -25,7 +25,7 @@
 #   USB_LAUNCHER=/path          another /usr/bin/hermes launcher (teeth)
 #   gate-usb.sh --selftest      the check names, for gate-scenarios-bound.sh
 set -u
-CHECKS='check_missing_tools_named_and_nothing_changed check_status_names_where_data_lives check_move_copies_and_restarts_on_the_stick check_move_refuses_a_device_in_use check_move_refuses_a_data_dir_set_up_by_hand check_copy_that_differs_switches_nothing check_move_refuses_a_stick_without_room check_format_only_when_asked_and_without_lazy_init check_missing_stick_stops_the_start check_stick_coming_and_going check_back_returns_the_data_inside check_failed_mount_puts_everything_back check_failed_back_puts_the_stick_back check_interrupted_or_running_move_starts_nothing check_lost_stick_forgotten'
+CHECKS='check_missing_tools_named_and_nothing_changed check_status_names_where_data_lives check_move_copies_and_restarts_on_the_stick check_move_refuses_a_device_in_use check_move_refuses_a_data_dir_set_up_by_hand check_copy_that_differs_switches_nothing check_move_refuses_a_stick_without_room check_format_only_when_asked_and_without_lazy_init check_missing_stick_stops_the_start check_stick_coming_and_going check_back_returns_the_data_inside check_failed_mount_puts_everything_back check_failed_back_puts_the_stick_back check_interrupted_or_running_move_starts_nothing check_lost_stick_forgotten check_stick_record_proven_on_flash check_move_refuses_while_another_process_uses_the_data'
 if [ "${1:-}" = "--selftest" ]; then for c in $CHECKS; do echo "$c"; done; exit 0; fi
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -150,6 +150,11 @@ init_start() {
 	/etc/init.d/hermes-agent start 2>&1
 }
 stick_of_record() { uci set fstab.hermes_data=mount; uci set fstab.hermes_data.uuid=$1; uci set fstab.hermes_data.target=$D; uci set fstab.hermes_data.fstype=ext4; uci set fstab.hermes_data.options=rw,noatime; uci set fstab.hermes_data.enabled=1; uci commit fstab; }
+# a hermes-usb that is running (its command line names it), holding the lock: prints its pid
+running_move() {
+	mkdir -p /tmp/fake; printf '#!/bin/sh\nsleep 120\n' > /tmp/fake/hermes-usb; sh /tmp/fake/hermes-usb </dev/null >/dev/null 2>&1 &
+	mkdir -p /var/lock/hermes-usb.lock; echo $! > /var/lock/hermes-usb.lock/pid; echo $!
+}
 SELECTED=" ${ONLY:-} "
 run() { if [ -n "${ONLY:-}" ]; then case "$SELECTED" in *" $1 "*) ;; *) return 0 ;; esac; fi; CUR=$1; ( set -u; "$1" ) && echo "PASS $1" || { echo "FAIL $1"; FAILED=1; }; }
 fail() { echo "  $CUR: $*"; exit 1; }
@@ -193,6 +198,9 @@ check_move_copies_and_restarts_on_the_stick() {
 	# (seen on a Brume 2 on 2026-10-04: the gateway refused its own stick); it must go on
 	out=$(HERMES_HOME=$D /usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes /usr/bin/hermes --version 2>&1)
 	echo "$out" | grep -q "Hermes Agent" || fail "the launcher, run as hermes the way the gateway runs it, refused the stick: $out"
+	# and run from a root shell, it asks and takes the stick of record
+	out=$(HERMES_HOME=$D hermes --version 2>&1)
+	echo "$out" | grep -q "Hermes Agent" || fail "the launcher, run as root, refused the stick of record: $out"
 }
 
 check_move_refuses_a_device_in_use() {
@@ -422,11 +430,17 @@ check_failed_back_puts_the_stick_back() {
 check_interrupted_or_running_move_starts_nothing() {
 	reset; touch /tmp/svc.stop; rm -rf $D; mkdir -p $D; chmod 0700 $D
 	# a move in progress: its lock holds a live pid
-	sleep 120 & live=$!; mkdir -p /var/lock/hermes-usb.lock; echo $live > /var/lock/hermes-usb.lock/pid
+	live=$(running_move)
 	out=$(init_start)
 	echo "$out" | grep -q "is moving Hermes's data right now" || fail "the init started while hermes-usb held its lock: $out"
 	out=$(HERMES_HOME=$D /usr/sbin/hermes-gateway /etc/hermes-agent/provider.key 2>&1) && fail "the gateway wrapper started while hermes-usb held its lock"
 	kill $live 2>/dev/null; wait $live 2>/dev/null
+	# a lock whose pid now belongs to another program (pids are reused) does not block either
+	sleep 120 & other=$!; echo $other > /var/lock/hermes-usb.lock/pid
+	out=$(init_start)
+	echo "$out" | grep -q "is moving Hermes's data" && fail "a lock holding another program's pid blocked the start: $out"
+	kill $other 2>/dev/null; wait $other 2>/dev/null
+	mkdir -p /var/lock/hermes-usb.lock; echo $live > /var/lock/hermes-usb.lock/pid
 	# a lock left by a hermes-usb that is gone does not block
 	out=$(init_start)
 	echo "$out" | grep -q "is moving Hermes's data" && fail "a stale lock blocked the start: $out"
@@ -438,6 +452,12 @@ check_interrupted_or_running_move_starts_nothing() {
 	p=$(stick 128 ext4)
 	out=$(hermes-usb move $p 2>&1) && fail "move went ahead beside a copy left by an interrupted move: $out"
 	[ -f $D.hermes-usb-inside/state.db ] || fail "the copy left by an interrupted move was touched"
+	rm -rf $D.hermes-usb-inside
+	# and the copy an interrupted back was making
+	mkdir -p /srv/.hermes-usb-back; echo x > /srv/.hermes-usb-back/state.db
+	out=$(init_start)
+	echo "$out" | grep -q "/srv/.hermes-usb-back" || fail "the copy left by an interrupted back was not named: $out"
+	[ -f /srv/.hermes-usb-back/state.db ] || fail "the copy left by an interrupted back was touched"
 }
 
 check_lost_stick_forgotten() {
@@ -453,6 +473,83 @@ check_lost_stick_forgotten() {
 	out=$(init_start)
 	echo "$out" | grep -q "Not starting" && fail "Hermes did not start inside after the stick was given up: $out"
 	return 0
+}
+
+check_stick_record_proven_on_flash() {
+	reset; seed
+	p=$(stick 128 ext4)
+	# someone else's change waiting in /tmp/.uci is not committed along with the stick's record
+	uci set fstab.pending=mount; uci set fstab.pending.target=/mnt/pending
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with someone else's fstab changes uncommitted: $out"
+	echo "$out" | grep -q "uci changes fstab" || fail "the uncommitted changes were not named: $out"
+	grep -q pending /etc/config/fstab 2>/dev/null && fail "someone else's uncommitted change was committed"
+	uci revert fstab
+	untouched || fail "the data changed"
+	# the storage /etc/config lives on is full: refused before the agent is stopped. On a full
+	# filesystem `uci commit` returned 0 and left /etc/config/fstab empty (OpenWrt 25.12.4,
+	# 2026-10-04), so this is checked first, and every commit is read back from the file.
+	mkdir -p /tmp/fullcfg; mount -t tmpfs -o size=256k tmpfs /tmp/fullcfg; cp -a /etc/config/. /tmp/fullcfg/
+	dd if=/dev/zero of=/tmp/fullcfg/fill bs=1k count=1024 2>/dev/null; mount --bind /tmp/fullcfg /etc/config
+	rm -f /tmp/svc.log
+	out=$(hermes-usb move $p 2>&1); rc=$?
+	umount /etc/config; umount /tmp/fullcfg
+	[ $rc != 0 ] || fail "move went ahead with the storage of /etc/config full: $out"
+	echo "$out" | grep -q "KiB free where /etc/config" || fail "the full storage was not named: $out"
+	[ -e /tmp/svc.log ] && grep -q '^stop' /tmp/svc.log && fail "the agent was stopped before the room for the record was checked"
+	untouched || fail "the data changed"
+	# a commit that says it worked and leaves nothing on flash
+	mkdir -p /tmp/nocommit
+	printf '#!/bin/sh\ncase "$*" in *"commit fstab"*) exit 0 ;; esac\nexec /sbin/uci "$@"\n' > /tmp/nocommit/uci; chmod 0755 /tmp/nocommit/uci
+	rm -f /tmp/svc.log
+	out=$(PATH=/tmp/nocommit:$PATH hermes-usb move $p 2>&1) && fail "move claimed success with the stick's record not on flash: $out"
+	echo "$out" | grep -q "the data is still in $D" || fail "the record not reaching flash was not reported as nothing switched: $out"
+	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "measured nothing: the stand-in commit wrote the record"
+	[ -z "$(uci -q changes fstab)" ] || fail "the record was left waiting in /tmp/.uci, where every reader takes it for flash: $(uci -q changes fstab | tr '\n' ' ')"
+	[ -z "$(hermes_src $D)" ] || fail "$D was left with the stick mounted on it"
+	untouched || fail "the data inside is not as it was"
+	[ ! -e $D.hermes-usb-inside ] || fail "the copy set aside was left beside $D"
+	grep -q '^start' /tmp/svc.log || fail "the agent was not started again where it was"
+	# back whose removal of the record does not reach flash: it says so, and every reader agrees
+	# with flash that the data belongs on the stick
+	q=$(stick 128 ext4)
+	out=$(hermes-usb move $q 2>&1) || fail "the move before back failed: $out"
+	rm -f /tmp/svc.log
+	out=$(PATH=/tmp/nocommit:$PATH hermes-usb back 2>&1) && fail "back claimed success with the stick's record still on flash: $out"
+	echo "$out" | grep -q "can be removed" && fail "back told the owner the stick can be removed while flash still expects it: $out"
+	[ "$(uci -q get fstab.hermes_data.uuid)" = "$(uuid $q)" ] || fail "uci reads no longer match flash, which still names the stick: $(uci -q changes fstab | tr '\n' ' ')"
+	out=$(init_start)
+	echo "$out" | grep -q "Not starting" || fail "Hermes started inside while flash still says its data is on the stick: $out"
+	return 0
+}
+
+check_move_refuses_while_another_process_uses_the_data() {
+	reset; seed
+	p=$(stick 128 ext4)
+	# a process with a file open in the data directory, as a root shell's hermes chat would have
+	( exec 3>>$D/sessions/s1.json; exec sleep 60 ) & holder=$!; sleep 1
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with another process holding a file in $D: $out"
+	echo "$out" | grep -q "has files open in $D" || fail "the process using $D was not named: $out"
+	kill $holder 2>/dev/null; wait $holder 2>/dev/null
+	# one whose working directory is in it
+	( cd $D/sessions && exec sleep 61 ) & holder=$!; sleep 1
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with another process working in $D: $out"
+	echo "$out" | grep -q "has files open in $D" || fail "the process working in $D was not named: $out"
+	kill $holder 2>/dev/null; wait $holder 2>/dev/null
+	[ "$(on $D)" != "$p" ] || fail "$D was switched to the stick"
+	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"
+	untouched || fail "the data changed"
+	grep -q '^start' /tmp/svc.log || fail "the agent was not started again where it was"
+	# hermes run from a root shell while a move holds its lock is refused, inside as well, and
+	# however the path is spelled
+	touch /tmp/svc.stop; sleep 6
+	live=$(running_move)
+	for h in $D $D/ /srv//hermes; do
+		out=$(HERMES_HOME=$h hermes --version 2>&1) && fail "hermes started on $h from a root shell while hermes-usb held its lock: $out"
+		echo "$out" | grep -q "is moving Hermes's data right now" || fail "the lock was not named for $h: $out"
+	done
+	kill $live 2>/dev/null; wait $live 2>/dev/null; rm -rf /var/lock/hermes-usb.lock
+	out=$(HERMES_HOME=$D hermes --version 2>&1)
+	echo "$out" | grep -q "Hermes Agent" || fail "with no move running, hermes from a root shell refused the data inside: $out"
 }
 
 run check_missing_tools_named_and_nothing_changed
