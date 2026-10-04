@@ -34,6 +34,9 @@ if [ "${2:-}" = "--print-home" ]; then
 	exit 0
 fi
 
+# The tokens go in the data directory: never under the mount point of a stick that is missing.
+. /usr/lib/hermes-agent/hermes-usb-check
+why=$(hermes_data_ok "$data_dir") || { echo "hermes-login: $why" >&2; exit 1; }
 mkdir -p "$data_dir"
 chmod 0700 "$data_dir"
 # Upstream's locales and the rest; see the file. The sign-in prints translated text.

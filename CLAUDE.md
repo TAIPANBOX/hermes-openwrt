@@ -332,22 +332,25 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 21. `@decided 2026-10-04`: Hermes installs to the router's own storage by default, and a USB stick
     is an option that one command sets up. `@claude` 2026-10-04, how: `hermes-usb move <partition>
     [--format]` moves the data directory (what is written again and again; the programs are written
-    once) to an ext4 partition on a USB disk with nothing on that disk mounted. Before copying it
-    waits for the gateway's process (the pid file is upstream's JSON record, removed before the
-    gateway's last write) and for the service's group to hold no process (read, not sized: cgroup
-    files report size 0). It switches only when every file's checksum and the file count match,
-    mounts the stick by UUID from `/etc/config/fstab` (section `hermes_data`), records
-    `hermes.main.data_uuid`, and removes the copy inside. It refuses, changing nothing, a device not
-    on USB, a disk with anything mounted or held, a data directory that is a mount point, a
-    symbolic link or named in the fstab already, a system tree as data directory, a stick without
-    room for the data plus 64 MiB (checked before `--format` erases anything), another filesystem
-    unless `--format` (which writes every inode table at once), and a router without the USB
-    packages (it prints the `apk add` line). `hermes-usb back` takes the data back only from the
-    stick it belongs on, puts it in place, and only then clears both entries. With `data_uuid` set,
-    the init starts only when that stick is mounted on the data directory, waiting up to 20 s for it
-    in the first three minutes after boot, and names block-mount when it is missing; the router
-    itself never depends on the stick (gate: `scripts/gate-usb.sh`, bound to `features/usb.feature`;
-    teeth: `scripts/teeth-usb.sh`).
+    once) to an ext4 partition of a USB disk with nothing on that disk mounted. The one record that
+    the data is on a stick is the fstab section `hermes_data` (uuid, target), written in one commit
+    once the stick is mounted and checked, removed in one commit once the data is back inside. One
+    check, `/usr/lib/hermes-agent/hermes-usb-check`, reads it with `df -P` on the data directory
+    and `block info` on what is mounted there, and the init, the gateway wrapper procd respawns,
+    hermes-login and `/etc/hotplug.d/block/90-hermes-usb` all ask it: without the stick nothing of
+    Hermes starts or writes inside, the stick's arrival starts an enabled service, its departure
+    stops it. Before copying, hermes-usb waits for the gateway's process (read from upstream's JSON
+    pid record) and for the service's group to hold no process (read, not sized); it switches only
+    when every file's checksum and the file count match; the copy inside is set aside, not deleted,
+    until the stick is mounted where it belongs. It refuses, changing nothing, a device not on USB, a
+    whole disk, a disk with a partition mounted, a data directory that is a mount point, reached
+    through a symbolic link, on another filesystem, named in the fstab or in a system tree, a stick
+    too small (before `--format` erases it), another filesystem unless `--format` (every inode table
+    written at once, no blocks reserved for root), and a router without the USB packages (it prints
+    the `apk add` line). `back` takes the data only from its own stick, keeps what lay underneath the
+    mount point, and removes the fstab section last (partly gated: `scripts/gate-usb.sh`, bound to
+    `features/usb.feature`, teeth `scripts/teeth-usb.sh`; not gated: a disk held by another device
+    and a partition in use as swap, which a loop device cannot show, and a power loss between steps).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

@@ -19,6 +19,11 @@ profile=$(hermes_profile_canonical "${HERMES_OPENWRT_PROFILE:-owner}") || {
 run_user=$(hermes_profile_user "$profile")
 
 KEY_FILE=${1:?hermes-gateway: no key file given}
+# procd respawns this wrapper, not the init: a stick pulled while the gateway runs must not see
+# it come back empty on the router's own storage. Asked first, before anything is written.
+: "${HERMES_HOME:?hermes-gateway: HERMES_HOME is required}"
+. /usr/lib/hermes-agent/hermes-usb-check
+why=$(hermes_data_ok "$HERMES_HOME") || { echo "hermes-gateway: $why. Not starting." >&2; exit 1; }
 /usr/bin/python3 /usr/libexec/hermes-memory "${HERMES_MEM_MAX_MB:-512}"
 
 read_required() {

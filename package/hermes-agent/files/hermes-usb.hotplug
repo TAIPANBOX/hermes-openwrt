@@ -1,0 +1,21 @@
+#!/bin/sh
+# /etc/hotplug.d/block/90-hermes-usb -- after 10-mount has mounted or unmounted what the fstab
+# names: when the stick holding Hermes's data is mounted where it belongs, start Hermes if it is
+# enabled and not running; when it is gone, stop Hermes, so nothing restarts it on the router's
+# own storage. A stick that is late at boot is then simply started when it appears.
+SERVICE=${HERMES_USB_SERVICE:-/etc/init.d/hermes-agent}
+[ -f /usr/lib/hermes-agent/hermes-usb-check ] || exit 0
+. /usr/lib/hermes-agent/hermes-usb-check
+[ -n "$(hermes_data_stick)" ] || exit 0
+dir=$(uci -q get fstab.hermes_data.target)
+case "$ACTION" in
+	add)
+		"$SERVICE" enabled >/dev/null 2>&1 || exit 0
+		"$SERVICE" running >/dev/null 2>&1 && exit 0
+		hermes_data_ok "$dir" >/dev/null && "$SERVICE" start
+		;;
+	remove)
+		hermes_data_ok "$dir" >/dev/null || "$SERVICE" stop
+		;;
+esac
+exit 0

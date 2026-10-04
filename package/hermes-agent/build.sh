@@ -145,6 +145,9 @@ cp "$SRC/files/hermes-drop.py" "$OUT/usr/libexec/hermes-drop"
 chmod 0755 "$OUT/usr/libexec/hermes-drop"
 # Which profile is which account; sourced by the init and the wrapper, so it is said once.
 cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
+cp "$SRC/files/hermes-usb-check" "$OUT/usr/lib/hermes-agent/hermes-usb-check" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-usb-check"
+mkdir -p "$OUT/etc/hotplug.d/block"
+cp "$SRC/files/hermes-usb.hotplug" "$OUT/etc/hotplug.d/block/90-hermes-usb" && chmod 0644 "$OUT/etc/hotplug.d/block/90-hermes-usb"
 
 # The Hermes-side unlock plugin. It goes in the private site-packages, beside the libraries and
 # owned by root like them, so the agent (which runs as hermes) cannot rewrite the code that

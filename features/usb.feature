@@ -16,7 +16,10 @@
 #                        whose writable layer lives on the stick (extroot) is the README's
 #                        advanced path for routers with too little flash, not this command.
 #                        Without the stick, Hermes does not start rather than start empty on
-#                        internal storage; the router itself never depends on the stick.
+#                        internal storage; the router itself never depends on the stick. The
+#                        record of the stick is one fstab section, written and removed in one
+#                        commit each, and one check reads it for the init, the gateway wrapper
+#                        procd respawns, hermes-login and the block hotplug script.
 #
 # Bound to scripts/gate-usb.sh by scripts/gate-scenarios-bound.sh, both ways;
 # scripts/teeth-usb.sh proves the gate can fail.
@@ -36,17 +39,20 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     And every file arrives on the stick unchanged
     And the stick is mounted on the data directory by its UUID, from the router's fstab, again at the next mount
     And the agent starts again as hermes, with its data on the stick
-    And the copy left on the router's own storage is removed
+    And the copy left on the router's own storage is removed, only once the stick is mounted
+    And the started agent's own init takes the stick hermes-usb set up
     # -> check_move_copies_and_restarts_on_the_stick
 
-  Scenario: only a USB stick with nothing in use on it is taken
-    Given a partition that is not on USB, or on a disk that has something mounted
+  Scenario: only a partition of a USB stick with nothing in use on it is taken
+    Given a partition that is not on USB, a whole disk, or a partition of a disk that has
+    And another of its partitions mounted
     When the owner runs hermes-usb move with it
     Then the command refuses, names the reason, and changes nothing
     # -> check_move_refuses_a_device_in_use
 
   Scenario: a data directory already set up by hand is left alone
-    Given a data directory that is a mount point already, a symbolic link, or named in the fstab
+    Given a data directory that is a mount point already, reached through a symbolic link,
+    And on a filesystem other than the router's own, named in the fstab, or in a system tree
     When the owner runs hermes-usb move
     Then the command refuses, says what to undo first, and changes nothing
     # -> check_move_refuses_a_data_dir_set_up_by_hand
@@ -70,6 +76,7 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     When the owner runs it with --format
     Then the partition is formatted ext4 with every inode table written at once, so the
     And new filesystem does not keep writing on its own for hours afterwards
+    And with no blocks reserved for root, which the agent, running as hermes, could not use
     # -> check_format_only_when_asked_and_without_lazy_init
 
   Scenario: without the USB tools nothing happens, and the command says what to install
@@ -78,19 +85,30 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     Then the command prints the one apk add line that installs them, and changes nothing
     # -> check_missing_tools_named_and_nothing_changed
 
-  Scenario: without the stick, Hermes does not start, and says why
+  Scenario: without the stick, nothing of Hermes writes inside, and each says why
     Given Hermes whose data was moved to a stick
-    And the stick is not there when the service starts
-    When the service starts
-    Then the gateway does not run, nothing is written to the router's own storage
-    And the log says the stick holding Hermes's data is missing
+    And the stick is not there
+    When the service starts, procd respawns the gateway, or the ChatGPT sign-in runs
+    Then each refuses, says the stick holding Hermes's data is missing
+    And nothing is written to the router's own storage
     And a different stick in its place is refused the same way
     And with the right stick mounted the start goes on
     # -> check_missing_stick_stops_the_start
+
+  Scenario: the stick coming and going starts and stops Hermes
+    Given Hermes enabled, with its data on a stick
+    When the stick is plugged in and mounted
+    Then Hermes starts, and a stick late at boot needs no wait
+    When the service is disabled and the stick is plugged in
+    Then nothing starts
+    When the stick goes
+    Then Hermes is stopped, so nothing restarts it on the router's own storage
+    # -> check_stick_coming_and_going
 
   Scenario: the data comes back to the router's own storage
     Given Hermes with its data on a stick
     When the owner runs hermes-usb back, and only from the stick the data belongs on
     Then every file returns to the router's own storage unchanged
-    And the fstab entry is removed and the agent starts with its data inside
+    And anything that lay underneath the mount point is kept aside, not deleted
+    And the fstab entry is removed last, in one commit, and the agent starts with its data inside
     # -> check_back_returns_the_data_inside

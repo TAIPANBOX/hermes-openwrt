@@ -1,9 +1,10 @@
 #!/bin/sh
-# gate-usb.sh -- hermes-usb, and the init's refusal to start without the stick, in OpenWrt's
-# own rootfs with the built hermes-agent installed. A "stick" is an image file on a loop device
+# gate-usb.sh -- hermes-usb, the stick check the init, the gateway wrapper and hermes-login share,
+# and the block hotplug script, in OpenWrt's own rootfs with the built hermes-agent installed.
+# A "stick" is an image file with a partition table on a loop device (partitions loopNp1, p2)
 # inside a privileged, disposable container; mkfs, mount, block and the fstab are the real ones.
-# Loop devices are not on USB, so the command's USB test is lifted with HERMES_USB_ANY_DEVICE=1
-# everywhere but the one check that proves the test refuses them.
+# Loop devices are not on USB, so the command's USB test is lifted by a file no package ships
+# (/etc/hermes-usb.gate-any-device), removed for the one check that proves the test refuses.
 #
 # The service is stood in for (there is no procd here) by a gateway shaped like the real one's
 # shutdown as a Flint 2 showed it on 2026-10-04: its pid file is a JSON record as upstream
@@ -11,15 +12,19 @@
 # three seconds later. In "pid" mode its own process makes that write; in "cgroup" mode the pid
 # in the record is already gone and a second process, listed in a stand-in cgroup.procs, makes
 # it. So the wait on the process and the wait on the group are each needed by one check.
-# The refusal without the stick, and the start with it, are the installed init's own.
+# The init's start, the wrapper and hermes-login are the installed ones.
 #
 #   gate-usb.sh                 every check
 #   ONLY="check_a" gate-usb.sh  just those (the teeth use this)
 #   USB_BIN=/path gate-usb.sh   another hermes-usb over the installed one (teeth)
 #   USB_INIT=/path gate-usb.sh  another init over the installed one (teeth)
+#   USB_LIB=/path gate-usb.sh   another hermes-usb-check over the installed one (teeth)
+#   USB_PLUG=/path gate-usb.sh  another hotplug script over the installed one (teeth)
+#   USB_GW=/path gate-usb.sh    another gateway wrapper (teeth)
+#   USB_LOGIN=/path gate-usb.sh another hermes-login (teeth)
 #   gate-usb.sh --selftest      the check names, for gate-scenarios-bound.sh
 set -u
-CHECKS='check_missing_tools_named_and_nothing_changed check_status_names_where_data_lives check_move_copies_and_restarts_on_the_stick check_move_refuses_a_device_in_use check_move_refuses_a_data_dir_set_up_by_hand check_copy_that_differs_switches_nothing check_move_refuses_a_stick_without_room check_format_only_when_asked_and_without_lazy_init check_missing_stick_stops_the_start check_back_returns_the_data_inside'
+CHECKS='check_missing_tools_named_and_nothing_changed check_status_names_where_data_lives check_move_copies_and_restarts_on_the_stick check_move_refuses_a_device_in_use check_move_refuses_a_data_dir_set_up_by_hand check_copy_that_differs_switches_nothing check_move_refuses_a_stick_without_room check_format_only_when_asked_and_without_lazy_init check_missing_stick_stops_the_start check_stick_coming_and_going check_back_returns_the_data_inside'
 if [ "${1:-}" = "--selftest" ]; then for c in $CHECKS; do echo "$c"; done; exit 0; fi
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -32,8 +37,12 @@ APK=${APK:-$(ls -t "$ROOT/build/$LINE/$ARCH"/hermes-agent-[0-9]*.apk 2>/dev/null
 [ -n "$APK" ] && [ -f "$APK" ] || { echo "FAIL: measured nothing: no hermes-agent apk; build it first"; exit 1; }
 MCP=$("$ROOT/scripts/mcp-apk.sh" "$ARCH") || exit 1
 EXTRA=""
-[ -n "${USB_BIN:-}" ] && EXTRA="$EXTRA -v $USB_BIN:/override/hermes-usb:ro"
-[ -n "${USB_INIT:-}" ] && EXTRA="$EXTRA -v $USB_INIT:/override/hermes-agent.init:ro"
+[ -n "${USB_BIN:-}" ] && EXTRA="$EXTRA -v $USB_BIN:/override/usr/sbin/hermes-usb:ro"
+[ -n "${USB_INIT:-}" ] && EXTRA="$EXTRA -v $USB_INIT:/override/etc/init.d/hermes-agent:ro"
+[ -n "${USB_LIB:-}" ] && EXTRA="$EXTRA -v $USB_LIB:/override/usr/lib/hermes-agent/hermes-usb-check:ro"
+[ -n "${USB_PLUG:-}" ] && EXTRA="$EXTRA -v $USB_PLUG:/override/etc/hotplug.d/block/90-hermes-usb:ro"
+[ -n "${USB_GW:-}" ] && EXTRA="$EXTRA -v $USB_GW:/override/usr/sbin/hermes-gateway:ro"
+[ -n "${USB_LOGIN:-}" ] && EXTRA="$EXTRA -v $USB_LOGIN:/override/usr/sbin/hermes-login:ro"
 echo "PASS: artefacts $(basename "$APK"), $(basename "$MCP")"
 
 # shellcheck disable=SC2086
@@ -42,10 +51,13 @@ docker run --rm -i --platform "$PLATFORM" --privileged -e ONLY="${ONLY:-}" -e CH
 set -u
 mkdir -p /var/lock /var/run /var/state /stub /tmp/cg
 apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/install.log 2>&1 || { tail -5 /tmp/install.log; echo "FAIL setup: the package would not install"; exit 1; }
-[ -f /override/hermes-usb ] && cp /override/hermes-usb /usr/sbin/hermes-usb && chmod 0755 /usr/sbin/hermes-usb
-[ -f /override/hermes-agent.init ] && cp /override/hermes-agent.init /etc/init.d/hermes-agent && chmod 0755 /etc/init.d/hermes-agent
-[ -x /usr/sbin/hermes-usb ] || { echo "FAIL: measured nothing: /usr/sbin/hermes-usb is not installed"; exit 1; }
-apk add losetup dumpe2fs >/dev/null 2>&1 || { echo "FAIL setup: losetup and dumpe2fs would not install"; exit 1; }
+if [ -d /override ]; then (cd /override && find . -type f) | while read -r f; do mkdir -p "$(dirname "/${f#./}")"; cp "/override/$f" "/${f#./}"; done; fi
+chmod 0755 /usr/sbin/hermes-usb /etc/init.d/hermes-agent /usr/sbin/hermes-gateway /usr/sbin/hermes-login 2>/dev/null
+for f in /usr/sbin/hermes-usb /usr/lib/hermes-agent/hermes-usb-check /etc/hotplug.d/block/90-hermes-usb; do
+	[ -f $f ] || { echo "FAIL: measured nothing: $f is not installed"; exit 1; }
+done
+apk add losetup dumpe2fs sfdisk >/dev/null 2>&1 || { echo "FAIL setup: losetup, dumpe2fs and sfdisk would not install"; exit 1; }
+touch /etc/hermes-usb.gate-any-device
 
 # The stand-in gateway. $1 data dir, $2 mode (pid | cgroup).
 cat > /stub/gw <<'GW'
@@ -66,42 +78,58 @@ sleep 1; rm -f "$D/gateway.pid" "$D/gateway.sock"
 sleep 3; n=$(cut -d" " -f2 "$D/state.db.closed" 2>/dev/null); echo "closed $(( ${n:-0} + 1 ))" > "$D/state.db.closed"
 rm -f "$D/state.db-wal"; : > /tmp/cg/cgroup.procs; echo "gone $(date +%s)" >> /tmp/svc.log
 GW
+# The stand-in's command line holds "hermes" (as the real gateway's does), for the pid check.
+ln -sf /stub/gw /stub/hermes-gw
 cat > /stub/svc <<'SVC'
 #!/bin/sh
 D=$(uci -q get hermes.main.data_dir); [ -n "$D" ] || D=/srv/hermes
 case "$1" in
-	stop)  echo "stop $(date +%s)" >> /tmp/svc.log; touch /tmp/svc.stop ;;
-	start) rm -f /tmp/svc.stop; echo "start $(date +%s) data_on=$(awk -v d="$D" '$2 == d { print $1 }' /proc/mounts)" >> /tmp/svc.log
-	       sh /stub/gw "$D" "$(cat /tmp/stub.mode 2>/dev/null || echo pid)" </dev/null >/dev/null 2>&1 &
-	       sleep 2 ;;
+	stop)    echo "stop $(date +%s)" >> /tmp/svc.log; touch /tmp/svc.stop ;;
+	start)   rm -f /tmp/svc.stop; echo "start $(date +%s) data_on=$(df -P "$D" | awk 'NR == 2 { print $1 }')" >> /tmp/svc.log
+	         sh /stub/hermes-gw "$D" "$(cat /tmp/stub.mode 2>/dev/null || echo pid)" </dev/null >/dev/null 2>&1 &
+	         sleep 2 ;;
+	enabled) [ -e /tmp/stub.enabled ] ;;
+	running) pgrep -f /stub/hermes-gw >/dev/null ;;
 esac
 SVC
 chmod 0755 /stub/svc
-export HERMES_USB_SERVICE=/stub/svc HERMES_USB_CGROUP=/tmp/cg HERMES_USB_ANY_DEVICE=1
+export HERMES_USB_SERVICE=/stub/svc HERMES_USB_CGROUP=/tmp/cg
 
 # Loop devices are the kernel's, shared with whatever else the Docker host runs, so only the
 # ones this gate attached are ever detached, and spare device nodes are made up front.
 i=0; while [ $i -lt 64 ]; do [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i; i=$((i + 1)); done
 : > /tmp/ours
-stick() {  # $1 MiB, $2 mkfs type or "none"; prints the loop device
+# disk $1 MiB, $2 partitions ("1" or "2"): prints the loop device; partition nodes are made
+disk() {
 	f=/tmp/stick.$$.$RANDOM.img; dd if=/dev/zero of=$f bs=1M count=$1 2>/dev/null
-	l=$(losetup -f --show $f); echo "$l $f" >> /tmp/ours
-	case "$2" in ext4) mkfs.ext4 -q -F $l ;; ext2) mke2fs -q -F -t ext2 $l ;; none) ;; esac
+	if [ "$2" = 2 ]; then printf ',%sM,83\n,,83\n' $(( $1 / 2 )) | sfdisk -q $f >/dev/null 2>&1; else printf ',,83\n' | sfdisk -q $f >/dev/null 2>&1; fi
+	l=$(losetup -f --show -P $f); echo "$l $f" >> /tmp/ours
+	for p in /sys/class/block/${l#/dev/}p*; do
+		[ -e "$p/dev" ] || continue; n=/dev/$(basename $p); [ -e $n ] || mknod $n b $(cut -d: -f1 $p/dev) $(cut -d: -f2 $p/dev)
+	done
 	echo $l
 }
-detach() { while read -r l f; do umount $l 2>/dev/null; losetup -d $l 2>/dev/null; rm -f $f; done < /tmp/ours; : > /tmp/ours; }
+stick() {  # $1 MiB, $2 mkfs type or "none": prints the first partition of a one-partition disk
+	l=$(disk $1 1); p=${l}p1
+	case "$2" in ext4) mkfs.ext4 -q -F $p ;; ext2) mke2fs -q -F -t ext2 $p ;; none) ;; esac
+	echo $p
+}
+detach() { while read -r l f; do umount ${l}p1 2>/dev/null; umount ${l}p2 2>/dev/null; losetup -d $l 2>/dev/null; rm -f $f; done < /tmp/ours; : > /tmp/ours; }
 
 D=/srv/hermes
 sums() { ( cd $1 && find . -type f ! -name gateway.pid ! -name state.db-wal ! -name state.db.closed -exec md5sum {} + | sort -k 2 ); }
 fstype() { block info $1 | sed -n 's/.*TYPE="\([^"]*\)".*/\1/p'; }
 uuid() { block info $1 | sed -n 's/.*UUID="\([^"]*\)".*/\1/p'; }
 owner() { ls -ld $1 | awk '{print $3}'; }
+on() { df -P $1 | awk 'NR == 2 { print $1 }'; }
 reset() {
-	touch /tmp/svc.stop; sleep 1; kill $(pgrep -f /stub/gw) 2>/dev/null; rm -f /tmp/svc.stop
-	umount $D 2>/dev/null; umount $D 2>/dev/null; umount /mnt/busy 2>/dev/null; rm -f /srv/link; detach
+	touch /tmp/svc.stop; sleep 1; kill $(pgrep -f /stub/hermes-gw) 2>/dev/null; rm -f /tmp/svc.stop
+	umount $D 2>/dev/null; umount $D 2>/dev/null; umount /mnt/busy 2>/dev/null; umount /srv/other 2>/dev/null
+	rm -rf /srv/link /srv/real /srv/hermes.inside.* /srv/hermes.underneath.* /srv/.hermes-usb-back.*; detach
 	for s in hermes_data byhand; do uci -q delete fstab.$s; done; uci commit fstab 2>/dev/null
-	uci -q delete hermes.main.data_uuid; uci -q delete hermes.main.data_dir; uci commit hermes
-	rm -f /tmp/svc.log /tmp/stub.mode; : > /tmp/cg/cgroup.procs
+	uci -q delete hermes.main.data_dir; uci set hermes.main.enabled=0; uci commit hermes
+	rm -f /tmp/svc.log /tmp/stub.mode /tmp/stub.enabled; : > /tmp/cg/cgroup.procs; rmdir /var/lock/hermes-usb.lock 2>/dev/null
+	touch /etc/hermes-usb.gate-any-device
 }
 seed() {  # a data directory like the agent's, with the stand-in gateway running on it
 	rm -rf $D; mkdir -p $D/sessions $D/logs; chmod 0700 $D; rm -f $D/state.db.closed
@@ -112,6 +140,12 @@ seed() {  # a data directory like the agent's, with the stand-in gateway running
 	/stub/svc start; rm -f /tmp/svc.log
 }
 untouched() { sums $D | cmp -s - /tmp/seed.sums; }
+key() { mkdir -p /etc/hermes-agent && printf '%s' sk-test-NotReal > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key; }
+init_start() {
+	key; uci set hermes.main.enabled=1; uci set hermes.main.base_url=http://127.0.0.1:9/v1; uci set hermes.main.model=m; uci commit hermes
+	/etc/init.d/hermes-agent start 2>&1
+}
+stick_of_record() { uci set fstab.hermes_data=mount; uci set fstab.hermes_data.uuid=$1; uci set fstab.hermes_data.target=$D; uci set fstab.hermes_data.fstype=ext4; uci set fstab.hermes_data.options=rw,noatime; uci set fstab.hermes_data.enabled=1; uci commit fstab; }
 SELECTED=" ${ONLY:-} "
 run() { if [ -n "${ONLY:-}" ]; then case "$SELECTED" in *" $1 "*) ;; *) return 0 ;; esac; fi; CUR=$1; ( set -u; "$1" ) && echo "PASS $1" || { echo "FAIL $1"; FAILED=1; }; }
 fail() { echo "  $CUR: $*"; exit 1; }
@@ -124,7 +158,6 @@ check_missing_tools_named_and_nothing_changed() {
 	[ $rc = 2 ] || fail "exit $rc, wanted 2: $out"
 	echo "$out" | grep -q 'apk add kmod-usb-storage block-mount kmod-fs-ext4' || fail "the apk add line is missing: $out"
 	[ ! -f /etc/config/fstab ] || ! grep -q hermes_data /etc/config/fstab || fail "fstab was changed"
-	[ -z "$(uci -q get hermes.main.data_uuid)" ] || fail "data_uuid was set"
 	untouched || fail "the data changed"
 }
 tools() { apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs >/dev/null 2>&1 || { echo "FAIL setup: the USB tools would not install"; exit 1; }; }
@@ -137,59 +170,80 @@ check_status_names_where_data_lives() {
 
 check_move_copies_and_restarts_on_the_stick() {
 	reset; seed   # pid mode: only the gateway's own process makes the last write
-	l=$(stick 128 ext4); u=$(uuid $l)
-	out=$(hermes-usb move $l 2>&1) || fail "move failed: $out"
-	[ "$(awk -v d=$D '$2 == d { print $1 }' /proc/mounts)" = "$l" ] || fail "$D is not on $l"
+	p=$(stick 128 ext4); u=$(uuid $p)
+	out=$(hermes-usb move $p 2>&1) || fail "move failed: $out"
+	[ "$(on $D)" = "$p" ] || fail "$D is not on $p"
 	untouched || fail "the data on the stick differs"
 	[ "$(cat $D/state.db.closed 2>/dev/null)" = "closed 1" ] || fail "the copy was made before the gateway's last write (the stick holds '$(cat $D/state.db.closed 2>/dev/null)')"
-	grep -q "^start .*data_on=$l" /tmp/svc.log || fail "the agent was not started again on the stick"
+	grep -q "^start .*data_on=$p" /tmp/svc.log || fail "the agent was not started again on the stick"
 	[ "$(uci -q get fstab.hermes_data.uuid)" = "$u" ] && [ "$(uci -q get fstab.hermes_data.target)" = "$D" ] || fail "fstab does not mount $u on $D"
-	[ "$(uci -q get hermes.main.data_uuid)" = "$u" ] || fail "hermes.main.data_uuid is not $u"
+	[ -z "$(ls -d /srv/hermes.inside.* 2>/dev/null)" ] || fail "the copy set aside inside was left: $(ls -d /srv/hermes.inside.*)"
 	touch /tmp/svc.stop; sleep 6; umount $D
-	[ -z "$(ls -A $D)" ] || fail "the copy inside was left: $(ls -A $D | tr '\n' ' ')"
+	[ -z "$(ls -A $D)" ] || fail "something was left inside under the mount point: $(ls -A $D | tr '\n' ' ')"
 	block mount >/dev/null 2>&1
-	[ "$(awk -v d=$D '$2 == d { print $1 }' /proc/mounts)" = "$l" ] || fail "block mount did not put the stick back on $D from the fstab"
+	[ "$(on $D)" = "$p" ] || fail "block mount did not put the stick back on $D from the fstab"
+	out=$(init_start)
+	echo "$out" | grep -q "Not starting" && fail "the init refused the stick hermes-usb set up: $out"
+	[ "$(owner $D)" = hermes ] || fail "the init did not go on to give $D to hermes: $out"
 }
 
 check_move_refuses_a_device_in_use() {
 	reset; seed
-	l=$(stick 128 ext4); mkdir -p /mnt/busy && mount $l /mnt/busy
-	out=$(hermes-usb move $l 2>&1) && fail "move went ahead on a mounted partition: $out"
-	echo "$out" | grep -q "is mounted on /mnt/busy" || fail "the reason was not named: $out"
+	l=$(disk 256 2); mkfs.ext4 -q -F ${l}p1; mkfs.ext4 -q -F ${l}p2
+	mkdir -p /mnt/busy && mount ${l}p2 /mnt/busy
+	out=$(hermes-usb move ${l}p1 2>&1) && fail "move went ahead on a disk with a partition mounted: $out"
+	echo "$out" | grep -q "${l}p2 is mounted on /mnt/busy" || fail "the mounted partition was not named: $out"
 	umount /mnt/busy
-	out=$(HERMES_USB_ANY_DEVICE= hermes-usb move $l 2>&1) && fail "move went ahead on a device that is not on USB: $out"
+	out=$(hermes-usb move $l --format 2>&1) && fail "move went ahead on a whole disk: $out"
+	echo "$out" | grep -q "is a whole disk" || fail "a whole disk was not refused as such: $out"
+	rm -f /etc/hermes-usb.gate-any-device
+	out=$(hermes-usb move ${l}p1 2>&1) && fail "move went ahead on a device that is not on USB: $out"
 	echo "$out" | grep -q "is not on USB" || fail "a device not on USB was not refused as such: $out"
+	touch /etc/hermes-usb.gate-any-device
 	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"
 	untouched || fail "the data changed"
 }
 
 check_move_refuses_a_data_dir_set_up_by_hand() {
 	reset; seed
-	l=$(stick 128 ext4); other=$(stick 128 ext4)
-	# a stick mounted on the data directory by hand, as the README's earlier recipe did
+	p=$(stick 128 ext4); other=$(stick 128 ext4)
 	touch /tmp/svc.stop; sleep 6; rm -f /tmp/svc.stop
+	# a stick mounted on the data directory by hand, as the README's earlier recipe did
 	mount $other $D; echo byhand > $D/marker
-	out=$(hermes-usb move $l 2>&1) && fail "move went ahead over a mount point: $out"
-	echo "$out" | grep -q "already has $other mounted" || fail "the mount point was not named: $out"
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead over a mount point: $out"
+	echo "$out" | grep -q "not on the router's own root filesystem" || fail "the mount point was not named: $out"
 	[ -f $D/marker ] || fail "the stick mounted by hand was touched"
 	umount $D
 	# named in the fstab
 	uci set fstab.byhand=mount; uci set fstab.byhand.target=$D; uci set fstab.byhand.uuid=$(uuid $other); uci commit fstab
-	out=$(hermes-usb move $l 2>&1) && fail "move went ahead with an fstab section on $D: $out"
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with an fstab section on $D: $out"
 	echo "$out" | grep -q "section 'byhand'" || fail "the fstab section was not named: $out"
 	uci -q delete fstab.byhand; uci commit fstab
-	# a symbolic link
+	# a symbolic link, at the end and in a parent
 	ln -s $D /srv/link; uci set hermes.main.data_dir=/srv/link; uci commit hermes
-	out=$(hermes-usb move $l 2>&1) && fail "move went ahead through a symbolic link: $out"
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead through a symbolic link: $out"
 	echo "$out" | grep -q "symbolic link" || fail "the link was not named: $out"
+	mkdir -p /srv/real/hermes; rm -f /srv/link; ln -s /srv/real /srv/link; uci set hermes.main.data_dir=/srv/link/hermes; uci commit hermes
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead through a symbolic link in a parent: $out"
+	echo "$out" | grep -q "symbolic link" || fail "the parent link was not named: $out"
+	# a data directory on another filesystem
+	mkdir -p /srv/other && mount $other /srv/other && mkdir -p /srv/other/hermes
+	uci set hermes.main.data_dir=/srv/other/hermes; uci commit hermes
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead from another filesystem: $out"
+	echo "$out" | grep -q "not on the router's own root filesystem" || fail "the other filesystem was not named: $out"
+	umount /srv/other
+	# a system tree
+	uci set hermes.main.data_dir=/etc/hermes; uci commit hermes
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead on a system tree: $out"
+	echo "$out" | grep -q "system tree" || fail "the system tree was not named: $out"
+	uci -q delete hermes.main.data_dir; uci commit hermes
 	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"
-	[ -z "$(uci -q get hermes.main.data_uuid)" ] || fail "data_uuid was set"
 	untouched || fail "the data changed"
 }
 
 check_copy_that_differs_switches_nothing() {
 	reset; seed
-	l=$(stick 128 ext4)
+	p=$(stick 128 ext4)
 	# a cp that copies, then spoils one byte of one file on the destination
 	mkdir -p /tmp/badcp; cat > /tmp/badcp/cp <<'CP'
 #!/bin/sh
@@ -199,11 +253,10 @@ f=$(find "$last" -name s3.json | head -n 1); [ -n "$f" ] && printf X | dd of="$f
 exit 0
 CP
 	chmod 0755 /tmp/badcp/cp
-	out=$(PATH=/tmp/badcp:$PATH hermes-usb move $l 2>&1) && fail "move switched to a copy that differs: $out"
+	out=$(PATH=/tmp/badcp:$PATH hermes-usb move $p 2>&1) && fail "move switched to a copy that differs: $out"
 	echo "$out" | grep -q "does not match" || fail "the mismatch was not named: $out"
-	[ -z "$(awk -v d=$D '$2 == d { print $1 }' /proc/mounts)" ] || fail "$D was switched to the stick"
+	[ "$(on $D)" != "$p" ] || fail "$D was switched to the stick"
 	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"
-	[ -z "$(uci -q get hermes.main.data_uuid)" ] || fail "data_uuid was set"
 	untouched || fail "the data inside changed"
 	grep -q '^start' /tmp/svc.log || fail "the agent was not started again where it was"
 }
@@ -211,10 +264,10 @@ CP
 check_move_refuses_a_stick_without_room() {
 	reset; seed
 	head -c 9000000 /dev/urandom > $D/big.bin; sums $D > /tmp/seed.sums
-	l=$(stick 16 ext4)
-	out=$(HERMES_USB_MARGIN_KB=4096 hermes-usb move $l 2>&1) && fail "move went ahead: $out"
+	p=$(stick 16 ext4)
+	out=$(HERMES_USB_MARGIN_KB=4096 hermes-usb move $p 2>&1) && fail "move went ahead: $out"
 	echo "$out" | grep -q "needs" || fail "the size was not named: $out"
-	small=$(stick 12 ext2)
+	small=$(stick 14 ext2)
 	out=$(HERMES_USB_MARGIN_KB=4096 hermes-usb move $small --format 2>&1) && fail "--format went ahead on a stick too small: $out"
 	[ "$(fstype $small)" = ext2 ] || fail "--format erased a stick that could not hold the data"
 	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"
@@ -224,58 +277,84 @@ check_move_refuses_a_stick_without_room() {
 
 check_format_only_when_asked_and_without_lazy_init() {
 	reset; seed
-	l=$(stick 128 ext2)
-	out=$(hermes-usb move $l 2>&1) && fail "an ext2 stick was used without --format: $out"
+	p=$(stick 128 ext2)
+	out=$(hermes-usb move $p 2>&1) && fail "an ext2 stick was used without --format: $out"
 	echo "$out" | grep -q -- "--format would erase it" || fail "the refusal does not name --format: $out"
-	[ "$(fstype $l)" = ext2 ] || fail "the stick was changed without --format"
-	out=$(hermes-usb move $l --format 2>&1) || fail "--format failed: $out"
-	[ "$(fstype $l)" = ext4 ] || fail "not ext4 after --format"
-	groups=$(dumpe2fs $l 2>/dev/null | grep -c '^Group [0-9]')
-	zeroed=$(dumpe2fs $l 2>/dev/null | grep '^Group [0-9]' | grep -c 'ITABLE_ZEROED')
+	[ "$(fstype $p)" = ext2 ] || fail "the stick was changed without --format"
+	# A partition of a loop device can zero inode tables at once whatever mkfs is told, which a
+	# USB stick cannot, so what mkfs was asked for is recorded as well as what it made.
+	real=$(command -v mkfs.ext4); mkdir -p /tmp/mkfsrec
+	printf '#!/bin/sh\necho "$*" > /tmp/mkfs.args\nexec %s "$@"\n' "$real" > /tmp/mkfsrec/mkfs.ext4; chmod 0755 /tmp/mkfsrec/mkfs.ext4
+	out=$(PATH=/tmp/mkfsrec:$PATH hermes-usb move $p --format 2>&1) || fail "--format failed: $out"
+	[ "$(fstype $p)" = ext4 ] || fail "not ext4 after --format"
+	args=$(cat /tmp/mkfs.args 2>/dev/null)
+	[ -n "$args" ] || fail "measured nothing: mkfs.ext4 was not seen"
+	case " $args " in *lazy_itable_init=0*) ;; *) fail "mkfs.ext4 was not told to write the inode tables at once: $args" ;; esac
+	case " $args " in *lazy_journal_init=0*) ;; *) fail "mkfs.ext4 was not told to write the journal at once: $args" ;; esac
+	case " $args " in *" -m 0 "*) ;; *) fail "mkfs.ext4 was not told to reserve no blocks: $args" ;; esac
+	groups=$(dumpe2fs $p 2>/dev/null | grep -c '^Group [0-9]')
+	zeroed=$(dumpe2fs $p 2>/dev/null | grep '^Group [0-9]' | grep -c 'ITABLE_ZEROED')
 	[ "$groups" -gt 0 ] || fail "measured nothing: dumpe2fs listed no block groups"
 	[ "$groups" = "$zeroed" ] || fail "$zeroed of $groups inode tables written at format time: the filesystem would go on writing by itself"
+	[ "$(dumpe2fs -h $p 2>/dev/null | sed -n 's/^Reserved block count: *//p')" = 0 ] || fail "blocks are reserved for root on a stick the agent writes as hermes"
 }
 
-init_start() {
-	mkdir -p /etc/hermes-agent && printf '%s' sk-test-NotReal > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key
-	uci set hermes.main.enabled=1; uci set hermes.main.base_url=http://127.0.0.1:9/v1; uci set hermes.main.model=m; uci commit hermes
-	/etc/init.d/hermes-agent start 2>&1
-}
 check_missing_stick_stops_the_start() {
 	reset; touch /tmp/svc.stop; rm -rf $D; mkdir -p $D; chmod 0700 $D
 	right=$(stick 128 ext4); wrong=$(stick 128 ext4)
-	uci set hermes.main.data_uuid=$(uuid $right); uci commit hermes
+	stick_of_record $(uuid $right)
 	out=$(init_start)
-	echo "$out" | grep -q "that stick is not" || fail "the start without the stick did not say so: $out"
+	echo "$out" | grep -q "that stick is not mounted" || fail "the start without the stick did not say so: $out"
+	out=$(HERMES_HOME=$D /usr/sbin/hermes-gateway /etc/hermes-agent/provider.key 2>&1) && fail "the gateway wrapper (what procd respawns) went ahead without the stick: $out"
+	echo "$out" | grep -q "that stick is not mounted" || fail "the gateway wrapper did not say the stick is missing: $out"
+	out=$(hermes-login chatgpt 2>&1) && fail "hermes-login went ahead without the stick: $out"
+	echo "$out" | grep -q "that stick is not mounted" || fail "hermes-login did not say the stick is missing: $out"
 	[ -z "$(ls -A $D)" ] || fail "something was written inside: $(ls -A $D | tr '\n' ' ')"
-	pgrep -f 'hermes_cli/main.py gateway' >/dev/null && fail "a gateway runs"
 	mount $wrong $D
 	out=$(init_start)
-	echo "$out" | grep -q "that stick is not" || fail "a different stick was taken for Hermes's: $out"
+	echo "$out" | grep -q "not the USB stick with Hermes's data" || fail "a different stick was taken for Hermes's: $out"
 	umount $D; mount $right $D
 	out=$(init_start)
 	echo "$out" | grep -q "Not starting" && fail "the start refused with the right stick mounted: $out"
-	[ "$(owner $D)" = hermes ] || fail "the start did not go on to hand $D to hermes: $out"
-	uci -q delete hermes.main.data_uuid; uci set hermes.main.enabled=0; uci commit hermes
+	[ "$(owner $D)" = hermes ] || fail "the start did not go on to give $D to hermes: $out"
+}
+
+check_stick_coming_and_going() {
+	reset; touch /tmp/svc.stop; rm -rf $D; mkdir -p $D; chmod 0700 $D
+	p=$(stick 128 ext4); stick_of_record $(uuid $p); touch /tmp/stub.enabled; rm -f /tmp/svc.stop
+	# the stick appears: block's own hotplug has mounted it, then ours runs
+	mount $p $D
+	( ACTION=add DEVNAME=${p#/dev/}; . /etc/hotplug.d/block/90-hermes-usb )
+	grep -q "^start .*data_on=$p" /tmp/svc.log || fail "the stick was mounted and Hermes was not started: $(cat /tmp/svc.log 2>/dev/null)"
+	# a disabled service is not started by a stick
+	touch /tmp/svc.stop; sleep 6; rm -f /tmp/svc.log /tmp/stub.enabled /tmp/svc.stop
+	( ACTION=add DEVNAME=${p#/dev/}; . /etc/hotplug.d/block/90-hermes-usb )
+	grep -q '^start' /tmp/svc.log 2>/dev/null && fail "a disabled service was started by the stick"
+	# the stick goes: block's hotplug has unmounted it, then ours stops Hermes
+	touch /tmp/stub.enabled; /stub/svc start; rm -f /tmp/svc.log
+	umount $D
+	( ACTION=remove DEVNAME=${p#/dev/}; . /etc/hotplug.d/block/90-hermes-usb )
+	grep -q '^stop' /tmp/svc.log || fail "the stick went and Hermes was not stopped"
 }
 
 check_back_returns_the_data_inside() {
 	reset; echo cgroup > /tmp/stub.mode; seed   # cgroup mode: the last write is made by a process only the group shows
-	l=$(stick 128 ext4); stranger=$(stick 128 ext4)
-	out=$(hermes-usb move $l 2>&1) || fail "the move before it failed: $out"
+	p=$(stick 128 ext4); stranger=$(stick 128 ext4)
+	out=$(hermes-usb move $p 2>&1) || fail "the move before it failed: $out"
 	[ "$(cat $D/state.db.closed 2>/dev/null)" = "closed 1" ] || fail "the move copied before the group's last write (the stick holds '$(cat $D/state.db.closed 2>/dev/null)')"
 	# back refuses a stick that is not the one the data belongs on
 	touch /tmp/svc.stop; sleep 6; umount $D; mount $stranger $D
 	out=$(hermes-usb back 2>&1) && fail "back went ahead from a stick that is not Hermes's: $out"
-	echo "$out" | grep -q "not the stick with UUID" || fail "the wrong stick was not named: $out"
-	umount $D; mount $l $D; /stub/svc start; rm -f /tmp/svc.log
+	echo "$out" | grep -q "not the USB stick with Hermes's data" || fail "the wrong stick was not named: $out"
+	# something left underneath the mount point is kept, not deleted
+	umount $D; echo under > $D/left-underneath; mount $p $D; /stub/svc start; rm -f /tmp/svc.log
 	out=$(hermes-usb back 2>&1) || fail "back failed: $out"
-	[ -z "$(awk -v d=$D '$2 == d { print $1 }' /proc/mounts)" ] || fail "$D is still a mount point"
+	[ "$(on $D)" != "$p" ] || fail "$D is still on the stick"
 	untouched || fail "the data inside differs"
 	# three shutdowns: the move's, the one above to swap in the stranger, and back's own
 	[ "$(cat $D/state.db.closed 2>/dev/null)" = "closed 3" ] || fail "the copy was made before the gateway's last write (inside holds '$(cat $D/state.db.closed 2>/dev/null)')"
 	grep -q hermes_data /etc/config/fstab && fail "the fstab entry is still there"
-	[ -z "$(uci -q get hermes.main.data_uuid)" ] || fail "data_uuid is still set"
+	ls /srv/hermes.underneath.*/left-underneath >/dev/null 2>&1 || fail "what was underneath the mount point was not kept"
 	grep -q '^start' /tmp/svc.log || fail "the agent was not started again"
 }
 
