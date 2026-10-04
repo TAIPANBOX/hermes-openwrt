@@ -487,6 +487,15 @@ check_stick_record_proven_on_flash() {
 	grep -q pending /etc/config/fstab 2>/dev/null && fail "someone else's uncommitted change was committed"
 	uci revert fstab
 	untouched || fail "the data changed"
+	# uci applies what /tmp/.uci holds under the name the command reads its copy of the file by,
+	# so a change waiting there is refused before anything happens
+	mkdir -p /tmp/.uci; printf "+hermes_usb_copy.hermes_data='mount'\n" > /tmp/.uci/hermes_usb_copy
+	rm -f /tmp/svc.log
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with a uci change waiting under the name it reads fstab by: $out"
+	echo "$out" | grep -q "/tmp/.uci/hermes_usb_copy" || fail "the waiting change was not named: $out"
+	[ -e /tmp/svc.log ] && grep -q '^stop' /tmp/svc.log && fail "the agent was stopped before the waiting change was refused"
+	rm -f /tmp/.uci/hermes_usb_copy
+	untouched || fail "the data changed"
 	# the storage /etc/config lives on is full: refused before the agent is stopped. On a full
 	# filesystem `uci commit` returned 0 and left /etc/config/fstab empty (OpenWrt 25.12.4,
 	# 2026-10-04), so this is checked first, and every commit is read back from the file.
@@ -550,6 +559,14 @@ check_stick_record_proven_on_flash() {
 	printf '#!/bin/sh\ncase "$*" in *"commit fstab"*) /sbin/uci "$@"; : > /etc/config/fstab; exit 0 ;; esac\nexec /sbin/uci "$@"\n' > /tmp/trunc/uci; chmod 0755 /tmp/trunc/uci
 	out=$(PATH=/tmp/trunc:$PATH hermes-usb forget --yes 2>&1) && fail "forget claimed success with /etc/config/fstab left empty: $out"
 	cmp -s /tmp/fstab.before /etc/config/fstab || fail "/etc/config/fstab was not put back as it was: '$(cat /etc/config/fstab)'"
+	# and when it cannot be put back either, the copy is kept in /tmp and named
+	mkdir -p /tmp/nomv
+	printf '#!/bin/sh\nfor last; do :; done\n[ "$last" = /etc/config/fstab ] && exit 1\nexec /bin/mv "$@"\n' > /tmp/nomv/mv; chmod 0755 /tmp/nomv/mv
+	out=$(PATH=/tmp/trunc:/tmp/nomv:$PATH hermes-usb forget --yes 2>&1) && fail "forget claimed success with /etc/config/fstab neither written nor put back: $out"
+	kept=$(echo "$out" | sed -n 's|.*rebuild it from \(/tmp/hermes-usb\.fstab\.saved\.[0-9]*\).*|\1|p' | head -n 1)
+	[ -n "$kept" ] || fail "the message did not name a copy kept in /tmp: $out"
+	cmp -s /tmp/fstab.before "$kept" || fail "the copy named, $kept, is not what /etc/config/fstab held"
+	cp /tmp/fstab.before /etc/config/fstab; rm -f "$kept"
 	mkdir -p /tmp/nobackup
 	printf '#!/bin/sh\nfor last; do :; done\ncase "$last" in /tmp/hermes-usb.*.fstab) exit 1 ;; esac\nexec /bin/cp "$@"\n' > /tmp/nobackup/cp; chmod 0755 /tmp/nobackup/cp
 	out=$(PATH=/tmp/nobackup:$PATH hermes-usb forget --yes 2>&1) && fail "forget went ahead with no copy of /etc/config/fstab to put back: $out"

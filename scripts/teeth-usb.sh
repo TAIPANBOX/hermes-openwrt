@@ -121,6 +121,10 @@ plant "a file uci cannot read taken for one it can" $R usb \
 	'now=$(fstab_others /etc/config/fstab) &&' 'now=$(fstab_others /etc/config/fstab; true) &&'
 plant "a copy of fstab that failed taken for a copy" $R usb \
 	'	cp /etc/config/fstab "$saved" 2>/dev/null && cmp -s /etc/config/fstab "$saved" \' '	: > "$saved" \'
+plant "a uci change waiting under the copy's name not refused" $R usb \
+	'	[ ! -e "/tmp/.uci/$COPY" ] || die' '	true || die'
+plant "the copy of fstab not kept when it cannot be put back" $R usb \
+	'{ [ ! -e "$fstab_lost" ] && mv "$saved" "$fstab_lost" && [ -f "$fstab_lost" ]; } || { fstab_lost=$saved; keep_saved=1; }' '{ fstab_lost=$saved; }'
 plant "fstab not checked again after the copy" $R usb \
 	'	fstab_writable   # again:' '	:   # again:'
 # other users of the data directory

@@ -352,12 +352,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     fstab` onto a full tmpfs bound over `/etc/config` returned 0 and left the file 0 bytes. So it
     needs 256 KiB free there first, refuses while someone else's fstab changes wait uncommitted
     (checked again after the copy, which can take minutes), commits only with a copy of the file
-    in RAM, and reads the result with uci itself (a copy under another package name, apart from
-    `/tmp/.uci`): a commit that did not land, the record not as asked, any other section changed,
+    in RAM, and reads the result with uci itself (a copy under another package name, so the
+    changes waiting for fstab in `/tmp/.uci` play no part, and refused while a change waits there
+    under the copy's own name): a commit that did not land, the record not as asked, any other section changed,
     or a file uci cannot parse, a file left empty or cut off inside a value included, is undone
     (the change reverted, the file put back from that copy by a rename) before switching anything;
     `back` whose record removal does not land says so and leaves Hermes refusing to start inside;
-    when the file could not be put back either, each command says so and names the copy in `/tmp`. It refuses to move a directory another process has a file or
+    when the file could not be put back either, each command says so and names the copy it kept
+    in `/tmp`, under a name of its own. It refuses to move a directory another process has a file or
     its working directory or root in (a path with spaces and a file deleted while open included),
     and a root shell's `hermes` asks for the data directory however
     its path is spelled, so hermes-usb's lock binds it too. It refuses, changing nothing, a device not on USB, a
@@ -376,7 +378,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     between the stick going and the stop; two hermes-usb runs started at the same moment over a
     stale lock; a process that opens the data directory after the check and before the switch, or
     maps a file in it without keeping it open; a process whose root directory is in it, which is
-    looked for and not gated; a power cut while the file is put back).
+    looked for and not gated; a power cut while the file is put back; another `uci commit fstab`,
+    from LuCI or a shell, landing in the moment between the copy and the read-back, which is then
+    taken for a failed commit and put back over).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

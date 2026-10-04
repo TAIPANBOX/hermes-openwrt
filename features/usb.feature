@@ -162,6 +162,7 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     When the owner runs hermes-usb move
     Then the command refuses, names them, and commits nothing of anyone else's
     And a change someone starts while the copy runs is caught the same way before the switch
+    And so is a uci change waiting under the name the command reads its copy of the file by
     Given the router's own storage too full to record the stick
     When the owner runs hermes-usb move
     Then the command refuses before the agent is stopped, and changes nothing
@@ -178,6 +179,7 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     Then it does not say the stick is given up
     And the file is put back as it was, with every other section in it
     And a file left that uci cannot read is put back the same way
+    And a file that cannot be put back either is named, with the copy kept of it in /tmp
     And with no copy of the file to put back, nothing is committed at all
     # -> check_stick_record_proven_on_flash
 
