@@ -109,14 +109,16 @@ plant "someone else's waiting fstab changes committed with the record" $R usb \
 plant "no room checked where /etc/config lives" $R usb \
 	'	num "$have" && [ "$have" -ge "$CONF_ROOM_KB" ] || die' '	true || die'
 plant "a commit taken at its word, not read back from the file" $R usb \
-	'	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && [' '	return 0; ['
+	'	if [ "$rc" = 0 ] && rec=$(flash_record) && [ "$rec" = "$1" ] \' '	if true \'
 plant "a commit that did not land left waiting in /tmp/.uci" $R usb \
 	'	uci -q revert fstab
 	if ! cmp' '	if ! cmp'
 plant "back says the stick can go while flash still expects it" $R usb \
 	'	commit_fstab "" || die "the data is back' '	commit_fstab "" || true "the data is back'
 plant "a commit that empties the file taken as landed" $R usb \
-	' && [ "$(fstab_others /etc/config/fstab)" = "$(fstab_others "$saved")" ] && return 0' ' && return 0'
+	'		&& now=$(fstab_others /etc/config/fstab) && was=$(fstab_others "$saved") && [ "$now" = "$was" ]; then' '		; then'
+plant "a file uci cannot read taken for one it can" $R usb \
+	'now=$(fstab_others /etc/config/fstab) &&' 'now=$(fstab_others /etc/config/fstab; true) &&'
 plant "a copy of fstab that failed taken for a copy" $R usb \
 	'	cp /etc/config/fstab "$saved" 2>/dev/null && cmp -s /etc/config/fstab "$saved" \' '	: > "$saved" \'
 plant "fstab not checked again after the copy" $R usb \

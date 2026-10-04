@@ -521,6 +521,17 @@ check_stick_record_proven_on_flash() {
 	untouched || fail "the data inside is not as it was"
 	[ ! -e $D.hermes-usb-inside ] || fail "the copy set aside was left beside $D"
 	grep -q '^start' /tmp/svc.log || fail "the agent was not started again where it was"
+	# a commit cut off inside a quoted value after the record's target: uci and block-mount cannot
+	# read that file, though the uuid and target lines are there
+	mkdir -p /tmp/cutcommit
+	printf '#!/bin/sh\ncase "$*" in *"commit fstab"*) /sbin/uci "$@"; awk '"'"'/option fstype/ { printf "%%s", substr($0, 1, index($0, "ex") + 1); exit } { print }'"'"' /etc/config/fstab > /tmp/cut; cat /tmp/cut > /etc/config/fstab; exit 0 ;; esac\nexec /sbin/uci "$@"\n' > /tmp/cutcommit/uci; chmod 0755 /tmp/cutcommit/uci
+	r=$(stick 128 ext4); cp /etc/config/fstab /tmp/fstab.before; rm -f /tmp/svc.log
+	out=$(PATH=/tmp/cutcommit:$PATH hermes-usb move $r 2>&1) && fail "move claimed success with /etc/config/fstab cut off inside a value: $out"
+	echo "$out" | grep -q "the data is still in $D" || fail "the cut commit was not reported as nothing switched: $out"
+	cmp -s /tmp/fstab.before /etc/config/fstab || fail "/etc/config/fstab was not put back as it was: '$(cat /etc/config/fstab)'"
+	[ -z "$(hermes_src $D)" ] || fail "$D was left with the stick mounted on it"
+	untouched || fail "the data inside is not as it was"
+	[ ! -e $D.hermes-usb-inside ] || fail "the copy set aside was left beside $D"
 	# back whose removal of the record does not reach flash: it says so, and every reader agrees
 	# with flash that the data belongs on the stick
 	q=$(stick 128 ext4)
@@ -544,6 +555,13 @@ check_stick_record_proven_on_flash() {
 	out=$(PATH=/tmp/nobackup:$PATH hermes-usb forget --yes 2>&1) && fail "forget went ahead with no copy of /etc/config/fstab to put back: $out"
 	cmp -s /tmp/fstab.before /etc/config/fstab || fail "/etc/config/fstab changed though no copy of it could be made: '$(cat /etc/config/fstab)'"
 	uci -q delete fstab.other; uci commit fstab
+	# a file holding only the record, left by the commit as something uci cannot read at all
+	printf "config mount 'hermes_data'\n\toption uuid '%s'\n\toption target '%s'\n" "$(uci -q get fstab.hermes_data.uuid)" $D > /etc/config/fstab
+	cp /etc/config/fstab /tmp/fstab.before
+	mkdir -p /tmp/garbage
+	printf '#!/bin/sh\ncase "$*" in *"commit fstab"*) /sbin/uci "$@"; printf "%%s\\n" "'"'"'" > /etc/config/fstab; exit 0 ;; esac\nexec /sbin/uci "$@"\n' > /tmp/garbage/uci; chmod 0755 /tmp/garbage/uci
+	out=$(PATH=/tmp/garbage:$PATH hermes-usb forget --yes 2>&1) && fail "forget claimed success with /etc/config/fstab left unreadable: $out"
+	cmp -s /tmp/fstab.before /etc/config/fstab || fail "/etc/config/fstab was not put back as it was: '$(cat /etc/config/fstab)'"
 	return 0
 }
 

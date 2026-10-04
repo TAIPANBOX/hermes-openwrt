@@ -168,20 +168,22 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     Given a commit of the fstab that reports success and leaves nothing on flash
     When the owner runs hermes-usb move
     Then nothing is switched, the data is inside as it was, the agent starts there again
+    And the same holds for a commit cut off inside a value after the record's target
     And no record of the stick is left anywhere a reader would take for flash
     When the owner runs hermes-usb back with such a commit
     Then it does not say the stick can be removed, and Hermes does not start inside while
     And flash still says its data is on the stick
-    Given a commit that reports success and leaves the file empty
+    Given a commit that reports success and leaves the file empty or unreadable
     When the owner gives the stick up with hermes-usb forget --yes
-    Then it does not say the stick is given up, and the file is put back as it was, every
-    And other section in it
+    Then it does not say the stick is given up
+    And the file is put back as it was, with every other section in it
+    And a file left that uci cannot read is put back the same way
     And with no copy of the file to put back, nothing is committed at all
     # -> check_stick_record_proven_on_flash
 
   Scenario: the data is not moved while anything else is using it
-    Given a process with a file open, or its working directory, in the data directory, the
-    And file's name having a space in it, or the file deleted while it is held open
+    Given a process with a file open, or its working directory, in the data directory
+    And the file's name may have a space in it, or the file may be deleted while held open
     When the owner runs hermes-usb move
     Then the command refuses, names the process, and changes nothing
     And a hermes command started from a root shell while a move runs is refused, however the

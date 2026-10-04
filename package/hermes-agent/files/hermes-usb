@@ -63,7 +63,7 @@ cleanup() {
 	[ -n "$mnt" ] && { umount "$mnt" 2>/dev/null; rmdir "$mnt" 2>/dev/null; }
 	unlock
 	[ "$stopped" = 1 ] && restart
-	rm -f "/tmp/hermes-usb.$$.a" "/tmp/hermes-usb.$$.b" "/tmp/hermes-usb.$$.fstab"
+	rm -rf "/tmp/hermes-usb.$$.a" "/tmp/hermes-usb.$$.b" "/tmp/hermes-usb.$$.fstab" "/tmp/hermes-usb.$$.uci"
 }
 trap cleanup EXIT
 trap 'exit 1' INT TERM
@@ -97,23 +97,26 @@ nobody_else_in() {
 	[ -z "$u" ] || die "process $u has files open in $1; stop it first (a shell working there only needs to cd out of it). Nothing was moved"
 }
 
-# /etc/config/fstab as it is on flash: the hermes_data section's uuid and target, read from the
-# file, since uci's own reads include changes still waiting in /tmp/.uci
-flash_record() {
-	awk -v q="'" '
-		function v(x) { gsub(q, "", x); gsub(/"/, "", x); return x }
-		$1 == "config" { in_s = (v($3) == "hermes_data"); if (in_s) seen = 1; next }
-		in_s && $1 == "option" && ($2 == "uuid" || $2 == "target") { o[$2] = v($3) }
-		END { if (seen) print o["uuid"] " " o["target"] }' /etc/config/fstab 2>/dev/null
+# The file as uci itself reads it: a copy under another package name with its own save
+# directory, so changes waiting in /tmp/.uci for fstab play no part. A file uci cannot parse
+# (a commit cut off inside a value keeps its uuid and target lines) has no record for
+# flash_record and makes fstab_others fail, as block-mount would fail to read it at boot.
+UCI_COPY=/tmp/hermes-usb.$$.uci
+ucopy() { uci -q -c "$UCI_COPY/c" -t "$UCI_COPY/s" "$@"; }
+read_fstab() {
+	rm -rf "$UCI_COPY"; mkdir -p "$UCI_COPY/c" "$UCI_COPY/s" && cp "$1" "$UCI_COPY/c/hu" 2>/dev/null
 }
-# every other section of the file, normalised (quotes, spacing and comments set aside, as uci
-# itself rewrites them): what a commit of the record must leave exactly as it was
+# the record as /etc/config/fstab on flash has it: "uuid target", nothing when there is none
+flash_record() {
+	read_fstab /etc/config/fstab || return 1
+	ucopy get hu.hermes_data >/dev/null || return 0
+	echo "$(ucopy get hu.hermes_data.uuid) $(ucopy get hu.hermes_data.target)"
+}
+# every other section of file $1, as uci reads it: what a commit of the record must leave as it was
 fstab_others() {
-	awk -v q="'" '
-		function v(x) { gsub(q, "", x); gsub(/"/, "", x); return x }
-		/^[ \t]*#/ || NF == 0 { next }
-		$1 == "config" { skip = (v($3) == "hermes_data"); if (skip) next }
-		!skip { $1 = $1; print v($0) }' "$1" 2>/dev/null
+	read_fstab "$1" || return 1
+	ucopy delete hu.hermes_data
+	ucopy show hu
 }
 CONF_ROOM_KB=256
 fstab_writable() {
@@ -130,14 +133,22 @@ commit_fstab() {
 	cp /etc/config/fstab "$saved" 2>/dev/null && cmp -s /etc/config/fstab "$saved" \
 		|| { uci -q revert fstab; echo "$NAME: could not keep a copy of /etc/config/fstab in /tmp to put back should the commit not land (is /tmp full?), so nothing was committed" >&2; return 1; }
 	uci commit fstab; rc=$?; sync
-	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && [ "$(fstab_others /etc/config/fstab)" = "$(fstab_others "$saved")" ] && return 0
+	if [ "$rc" = 0 ] && rec=$(flash_record) && [ "$rec" = "$1" ] \
+		&& now=$(fstab_others /etc/config/fstab) && was=$(fstab_others "$saved") && [ "$now" = "$was" ]; then
+		return 0
+	fi
 	uci -q revert fstab
 	if ! cmp -s "$saved" /etc/config/fstab; then
-		cp "$saved" /etc/config/fstab 2>/dev/null && sync && cmp -s "$saved" /etc/config/fstab \
-			|| { cp "$saved" /tmp/hermes-usb.fstab.saved; echo "$NAME: /etc/config/fstab could not be put back as it was; its earlier content is in /tmp/hermes-usb.fstab.saved (RAM: copy it somewhere safe)" >&2; }
+		# put back by a rename, so a failure half way leaves the file no worse than the commit did
+		{ cp "$saved" /etc/config/.fstab.hermes-usb && sync && mv /etc/config/.fstab.hermes-usb /etc/config/fstab \
+			&& sync && cmp -s "$saved" /etc/config/fstab; } || {
+			rm -f /etc/config/.fstab.hermes-usb; mv "$saved" /tmp/hermes-usb.fstab.saved; fstab_lost=1
+			echo "$NAME: /etc/config/fstab could not be put back as it was; what it held before is in /tmp/hermes-usb.fstab.saved, in RAM: copy it somewhere safe" >&2
+		}
 	fi
 	return 1
 }
+fstab_lost=""
 
 files_in()    { find "$1" -xdev -type f ! -name gateway.pid ! -name gateway.sock | wc -l; }
 tree_sums()   { ( cd "$1" && find . -xdev -type f ! -name gateway.pid ! -name gateway.sock -exec md5sum {} + | sort -k 2 ); }
@@ -315,6 +326,7 @@ move() {
 	if [ -n "$why" ]; then
 		umount "$data_dir" || die "after mounting, $why, and $data_dir would not unmount; the data is safe in $aside"
 		put_back "$aside" "$data_dir"
+		[ -z "$fstab_lost" ] || why="$why; put /tmp/hermes-usb.fstab.saved back as /etc/config/fstab"
 		die "after mounting, $why; nothing was switched, the data is still in $data_dir"
 	fi
 	rm -rf "$aside"
@@ -368,7 +380,10 @@ back() {
 	fi
 	# only now does the router stop expecting the stick: one commit
 	uci -q delete fstab.hermes_data
-	commit_fstab "" || die "the data is back in $target, but the stick's record could not be removed from /etc/config/fstab (is the router's own storage full or read-only?), so the router still expects the stick and Hermes does not start. Make room, then: uci delete fstab.hermes_data; uci commit fstab. Keep the stick: it still holds the same data"
+	if ! commit_fstab ""; then
+		[ -z "$fstab_lost" ] || die "the data is back in $target, but /etc/config/fstab could neither be written nor put back as it was: rebuild it from /tmp/hermes-usb.fstab.saved, leaving out section hermes_data, before the router restarts${under:+. What lay underneath the mount point is in $under}"
+		die "the data is back in $target, but the stick's record could not be removed from /etc/config/fstab (is the router's own storage full or read-only?), so the router still expects the stick and Hermes does not start. Make room, then: uci delete fstab.hermes_data; uci commit fstab. Keep the stick: it still holds the same data${under:+. What lay underneath the mount point is in $under}"
+	fi
 	unlock; restart
 	say "brought $n files back to $target on the router's own storage; the stick ($dev) is no longer used and can be removed${under:+. What lay underneath the mount point is kept in $under}"
 }
@@ -382,7 +397,10 @@ forget() {
 	[ -z "$(hermes_mount_source "$target")" ] || die "a stick is mounted on $target; run 'hermes-usb back' to bring its data inside, or unmount it first to give it up"
 	fstab_writable
 	uci -q delete fstab.hermes_data
-	commit_fstab "" || die "the stick's record could not be removed from /etc/config/fstab (is the router's own storage full or read-only?); nothing was changed"
+	if ! commit_fstab ""; then
+		[ -z "$fstab_lost" ] || die "the stick's record could not be removed, and /etc/config/fstab could not be put back as it was: rebuild it from /tmp/hermes-usb.fstab.saved, leaving out section hermes_data"
+		die "the stick's record could not be removed from /etc/config/fstab (is the router's own storage full or read-only?); nothing was changed"
+	fi
 	unlock
 	data_dir=$(uci -q get hermes.main.data_dir); [ -n "$data_dir" ] || data_dir=/srv/hermes
 	say "the stick with UUID $uuid is no longer expected; its data is still on it. Hermes starts with an empty data directory in $data_dir when it is next started"
