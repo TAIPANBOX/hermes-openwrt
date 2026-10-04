@@ -387,9 +387,11 @@ check_back_returns_the_data_inside() {
 	out=$(hermes-usb back 2>&1) && fail "back went ahead from a stick that is not Hermes's: $out"
 	echo "$out" | grep -q "not the USB stick with Hermes's data" || fail "the wrong stick was not named: $out"
 	# something left underneath the mount point is kept, not deleted
-	umount $D; echo under > $D/left-underneath; mount $p $D; /stub/svc start; rm -f /tmp/svc.log
+	umount $D; echo under > $D/left-underneath; mount $p $D; echo recovered > "$D/lost+found/#12"; /stub/svc start; rm -f /tmp/svc.log
 	out=$(hermes-usb back 2>&1) || fail "back failed: $out"
 	[ "$(on $D)" != "$p" ] || fail "$D is still on the stick"
+	[ -f "$D/lost+found/#12" ] || fail "what fsck had recovered into the stick's lost+found did not come inside"
+	rm -rf $D/lost+found
 	untouched || fail "the data inside differs"
 	# three shutdowns: the move's, the one above to swap in the stranger, and back's own
 	[ "$(cat $D/state.db.closed 2>/dev/null)" = "closed 3" ] || fail "the copy was made before the gateway's last write (inside holds '$(cat $D/state.db.closed 2>/dev/null)')"
@@ -497,6 +499,16 @@ check_stick_record_proven_on_flash() {
 	echo "$out" | grep -q "KiB free where /etc/config" || fail "the full storage was not named: $out"
 	[ -e /tmp/svc.log ] && grep -q '^stop' /tmp/svc.log && fail "the agent was stopped before the room for the record was checked"
 	untouched || fail "the data changed"
+	# an fstab change someone starts while the copy runs is not committed with the record either
+	mkdir -p /tmp/latecp
+	printf '#!/bin/sh\n/bin/cp "$@" || exit $?\nuci set fstab.late=mount; uci set fstab.late.target=/mnt/late\n' > /tmp/latecp/cp; chmod 0755 /tmp/latecp/cp
+	rm -f /tmp/svc.log
+	out=$(PATH=/tmp/latecp:$PATH hermes-usb move $p 2>&1) && fail "move went ahead with an fstab change started during the copy: $out"
+	echo "$out" | grep -q "uci changes fstab" || fail "the change started during the copy was not named: $out"
+	grep -q late /etc/config/fstab 2>/dev/null && fail "an fstab change started during the copy was committed with the record"
+	[ "$(on $D)" != "$p" ] || fail "$D was switched to the stick"
+	uci revert fstab; untouched || fail "the data changed"
+	mkfs.ext4 -q -F $p
 	# a commit that says it worked and leaves nothing on flash
 	mkdir -p /tmp/nocommit
 	printf '#!/bin/sh\ncase "$*" in *"commit fstab"*) exit 0 ;; esac\nexec /sbin/uci "$@"\n' > /tmp/nocommit/uci; chmod 0755 /tmp/nocommit/uci
@@ -519,6 +531,19 @@ check_stick_record_proven_on_flash() {
 	[ "$(uci -q get fstab.hermes_data.uuid)" = "$(uuid $q)" ] || fail "uci reads no longer match flash, which still names the stick: $(uci -q changes fstab | tr '\n' ' ')"
 	out=$(init_start)
 	echo "$out" | grep -q "Not starting" || fail "Hermes started inside while flash still says its data is on the stick: $out"
+	# the record given up with forget, beside another section: a commit that empties the file is
+	# caught and the file put back whole, and with no copy to put back nothing is written at all
+	uci set fstab.other=mount; uci set fstab.other.target=/mnt/other; uci set fstab.other.enabled=0; uci commit fstab
+	cp /etc/config/fstab /tmp/fstab.before
+	mkdir -p /tmp/trunc
+	printf '#!/bin/sh\ncase "$*" in *"commit fstab"*) /sbin/uci "$@"; : > /etc/config/fstab; exit 0 ;; esac\nexec /sbin/uci "$@"\n' > /tmp/trunc/uci; chmod 0755 /tmp/trunc/uci
+	out=$(PATH=/tmp/trunc:$PATH hermes-usb forget --yes 2>&1) && fail "forget claimed success with /etc/config/fstab left empty: $out"
+	cmp -s /tmp/fstab.before /etc/config/fstab || fail "/etc/config/fstab was not put back as it was: '$(cat /etc/config/fstab)'"
+	mkdir -p /tmp/nobackup
+	printf '#!/bin/sh\nfor last; do :; done\ncase "$last" in /tmp/hermes-usb.*.fstab) exit 1 ;; esac\nexec /bin/cp "$@"\n' > /tmp/nobackup/cp; chmod 0755 /tmp/nobackup/cp
+	out=$(PATH=/tmp/nobackup:$PATH hermes-usb forget --yes 2>&1) && fail "forget went ahead with no copy of /etc/config/fstab to put back: $out"
+	cmp -s /tmp/fstab.before /etc/config/fstab || fail "/etc/config/fstab changed though no copy of it could be made: '$(cat /etc/config/fstab)'"
+	uci -q delete fstab.other; uci commit fstab
 	return 0
 }
 
@@ -534,6 +559,15 @@ check_move_refuses_while_another_process_uses_the_data() {
 	( cd $D/sessions && exec sleep 61 ) & holder=$!; sleep 1
 	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with another process working in $D: $out"
 	echo "$out" | grep -q "has files open in $D" || fail "the process working in $D was not named: $out"
+	kill $holder 2>/dev/null; wait $holder 2>/dev/null
+	# a file whose name has a space in it, and one deleted while it is held open
+	echo x > "$D/sessions/a b.json"; ( exec 3>>"$D/sessions/a b.json"; exec sleep 62 ) & holder=$!; sleep 1
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with another process holding a file with a space in its name: $out"
+	echo "$out" | grep -q "has files open in $D" || fail "the process holding 'a b.json' was not named: $out"
+	kill $holder 2>/dev/null; wait $holder 2>/dev/null; rm -f "$D/sessions/a b.json"
+	echo y > $D/gone; ( exec 3<$D/gone; rm -f $D/gone; exec sleep 63 ) & holder=$!; sleep 1
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead with another process holding a deleted file in $D: $out"
+	echo "$out" | grep -q "has files open in $D" || fail "the process holding a deleted file was not named: $out"
 	kill $holder 2>/dev/null; wait $holder 2>/dev/null
 	[ "$(on $D)" != "$p" ] || fail "$D was switched to the stick"
 	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"

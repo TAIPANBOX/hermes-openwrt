@@ -118,6 +118,7 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     When the owner runs hermes-usb back, and only from the stick the data belongs on
     Then every file returns to the router's own storage unchanged
     And anything that lay underneath the mount point is kept aside, not deleted
+    And what fsck recovered into the stick's lost+found comes inside with the rest
     And the fstab entry is removed last, in one commit, and the agent starts with its data inside
     # -> check_back_returns_the_data_inside
 
@@ -160,6 +161,7 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     Given changes to the router's fstab that someone else has left uncommitted
     When the owner runs hermes-usb move
     Then the command refuses, names them, and commits nothing of anyone else's
+    And a change someone starts while the copy runs is caught the same way before the switch
     Given the router's own storage too full to record the stick
     When the owner runs hermes-usb move
     Then the command refuses before the agent is stopped, and changes nothing
@@ -170,10 +172,16 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     When the owner runs hermes-usb back with such a commit
     Then it does not say the stick can be removed, and Hermes does not start inside while
     And flash still says its data is on the stick
+    Given a commit that reports success and leaves the file empty
+    When the owner gives the stick up with hermes-usb forget --yes
+    Then it does not say the stick is given up, and the file is put back as it was, every
+    And other section in it
+    And with no copy of the file to put back, nothing is committed at all
     # -> check_stick_record_proven_on_flash
 
   Scenario: the data is not moved while anything else is using it
-    Given a process with a file open, or its working directory, in the data directory
+    Given a process with a file open, or its working directory, in the data directory, the
+    And file's name having a space in it, or the file deleted while it is held open
     When the owner runs hermes-usb move
     Then the command refuses, names the process, and changes nothing
     And a hermes command started from a root shell while a move runs is refused, however the

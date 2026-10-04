@@ -83,17 +83,18 @@ size_kb()     { du -sk "$1" 2>/dev/null | cut -f1; }
 free_kb()     { df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'; }
 # a process other than this one with its working directory or an open file in $1: "pid command"
 dir_user() {
-	ls -l /proc/[0-9]*/cwd /proc/[0-9]*/fd 2>/dev/null | awk -v d="$1" -v me="$$" '
+	ls -l /proc/[0-9]*/cwd /proc/[0-9]*/root /proc/[0-9]*/fd 2>/dev/null | awk -v d="$1" -v me="$$" '
 		/^\/proc\/[0-9]+\/fd:$/ { split($0, a, "/"); pid = a[3]; next }
 		/ -> / {
-			who = pid; t = $NF
-			if ($(NF - 2) ~ /^\/proc\/[0-9]+\/cwd$/) { split($(NF - 2), a, "/"); who = a[3] }
+			i = index($0, " -> "); t = substr($0, i + 4)   # a deleted file: "<path> (deleted)"
+			n = split(substr($0, 1, i - 1), w, " "); who = pid
+			if (w[n] ~ /^\/proc\/[0-9]+\/(cwd|root)$/) { split(w[n], a, "/"); who = a[3] }
 			if (who != me && (t == d || index(t, d "/") == 1)) { print who; exit }
 		}' | while read -r u; do echo "$u ($(tr '\0' ' ' < "/proc/$u/cmdline" 2>/dev/null | cut -c 1-60))"; done
 }
 nobody_else_in() {
 	u=$(dir_user "$1")
-	[ -z "$u" ] || die "process $u has files open in $1; stop it first. Nothing was moved"
+	[ -z "$u" ] || die "process $u has files open in $1; stop it first (a shell working there only needs to cd out of it). Nothing was moved"
 }
 
 # /etc/config/fstab as it is on flash: the hermes_data section's uuid and target, read from the
@@ -105,6 +106,15 @@ flash_record() {
 		in_s && $1 == "option" && ($2 == "uuid" || $2 == "target") { o[$2] = v($3) }
 		END { if (seen) print o["uuid"] " " o["target"] }' /etc/config/fstab 2>/dev/null
 }
+# every other section of the file, normalised (quotes, spacing and comments set aside, as uci
+# itself rewrites them): what a commit of the record must leave exactly as it was
+fstab_others() {
+	awk -v q="'" '
+		function v(x) { gsub(q, "", x); gsub(/"/, "", x); return x }
+		/^[ \t]*#/ || NF == 0 { next }
+		$1 == "config" { skip = (v($3) == "hermes_data"); if (skip) next }
+		!skip { $1 = $1; print v($0) }' "$1" 2>/dev/null
+}
 CONF_ROOM_KB=256
 fstab_writable() {
 	[ -z "$(uci -q changes fstab)" ] || die "/etc/config/fstab has changes waiting to be committed (uci changes fstab); commit or revert them first, so this command commits only its own. Nothing was changed"
@@ -112,12 +122,15 @@ fstab_writable() {
 	num "$have" && [ "$have" -ge "$CONF_ROOM_KB" ] || die "the router's own storage has ${have:-an unknown amount of} KiB free where /etc/config lives; recording the stick needs $CONF_ROOM_KB, and a full one can leave /etc/config/fstab empty. Nothing was changed"
 }
 # One commit of fstab, read back from the file: $1 what flash_record must then say ("" for no
-# section). A commit that did not land is undone: the waiting change dropped, the file as it was.
+# section), with every other section as it was. A commit that did not land (a file left empty
+# reads as "no section", so the other sections are what tell) is undone: the waiting change
+# dropped, the file as it was. Without a copy to put back, nothing is committed.
 commit_fstab() {
 	saved=/tmp/hermes-usb.$$.fstab
-	cp /etc/config/fstab "$saved" 2>/dev/null || : > "$saved"
+	cp /etc/config/fstab "$saved" 2>/dev/null && cmp -s /etc/config/fstab "$saved" \
+		|| { uci -q revert fstab; echo "$NAME: could not keep a copy of /etc/config/fstab in /tmp to put back should the commit not land (is /tmp full?), so nothing was committed" >&2; return 1; }
 	uci commit fstab; rc=$?; sync
-	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && return 0
+	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && [ "$(fstab_others /etc/config/fstab)" = "$(fstab_others "$saved")" ] && return 0
 	uci -q revert fstab
 	if ! cmp -s "$saved" /etc/config/fstab; then
 		cp "$saved" /etc/config/fstab 2>/dev/null && sync && cmp -s "$saved" /etc/config/fstab \
@@ -270,6 +283,7 @@ move() {
 	cp -a "$data_dir/." "$mnt/" && same_tree "$data_dir" "$mnt" \
 		|| die "the copy on $part does not match $data_dir; nothing was switched, the data is still in $data_dir"
 	n=$(files_in "$data_dir")
+	fstab_writable   # again: the copy can take minutes, and someone may have started an fstab change
 	umount "$mnt" || die "could not unmount $part from $mnt; nothing was switched, the data is still in $data_dir"
 	rmdir "$mnt"; mnt=""
 
@@ -293,7 +307,7 @@ move() {
 	uci set fstab.hermes_data.enabled=1
 	why=""
 	if ! commit_fstab "$uuid $data_dir"; then
-		why="the stick's record did not reach /etc/config/fstab (is the router's own storage full or read-only?)"
+		why="the stick's record could not be committed to /etc/config/fstab (is the router's own storage, or /tmp, full or read-only?)"
 	elif ! why=$(hermes_stick_on "$data_dir" "$uuid"); then
 		uci -q delete fstab.hermes_data
 		commit_fstab "" || why="$why, and its record could not be removed from /etc/config/fstab again: remove section hermes_data by hand"
@@ -333,8 +347,9 @@ back() {
 	nobody_else_in "$target"
 	{ mkdir -m 0700 "$tmp" && cp -a "$target/." "$tmp/" && same_tree "$target" "$tmp"; } \
 		|| { rm -rf "$tmp"; die "the copy does not match the stick; nothing was switched"; }
-	rm -rf "$tmp/lost+found"
+	rmdir "$tmp/lost+found" 2>/dev/null
 	n=$(files_in "$tmp")
+	why=$(fstab_writable 2>&1) || { rm -rf "$tmp"; echo "$why" >&2; exit 1; }
 	umount "$target" || { rm -rf "$tmp"; die "could not unmount $target; nothing was switched"; }
 	[ -z "$(hermes_mount_source "$target")" ] || { rm -rf "$tmp"; die "$target is still a mount point after unmounting; nothing was switched"; }
 	remount() { [ -d "$target" ] || mkdir -m 0700 "$target"; mount -t ext4 -o rw,noatime "$dev" "$target"; rm -rf "$tmp"; }

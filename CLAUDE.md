@@ -350,11 +350,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `/etc/config/fstab` itself, not through uci, whose reads include changes waiting in
     `/tmp/.uci`: `@measured` 2026-10-04 in `openwrt/rootfs:aarch64_generic-25.12.4`, a `uci commit
     fstab` onto a full tmpfs bound over `/etc/config` returned 0 and left the file 0 bytes. So it
-    needs 256 KiB free there first, refuses while someone else's fstab changes wait uncommitted,
-    and undoes a commit that did not land (the change reverted, the file put back from a copy in
-    RAM) before switching anything; `back` whose record removal does not land says so and leaves
+    needs 256 KiB free there first, refuses while someone else's fstab changes wait uncommitted
+    (checked again after the copy, which can take minutes), commits only with a copy of the file
+    in RAM, and undoes a commit that did not land, the record not as asked or any other section
+    changed, a file left empty included (the change reverted, the file put back from that copy),
+    before switching anything; `back` whose record removal does not land says so and leaves
     Hermes refusing to start inside. It refuses to move a directory another process has a file or
-    its working directory in, and a root shell's `hermes` asks for the data directory however
+    its working directory or root in (a path with spaces and a file deleted while open included),
+    and a root shell's `hermes` asks for the data directory however
     its path is spelled, so hermes-usb's lock binds it too. It refuses, changing nothing, a device not on USB, a
     whole disk, a disk with a partition mounted, a data directory that is a mount point, reached
     through a symbolic link, on another filesystem, named in the fstab or in a system tree, a stick
@@ -369,7 +372,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     command the user `hermes` runs by hand, since that user cannot read a device's UUID; in the root
     profile the gateway, running as root, writes under the empty mount point in the seconds
     between the stick going and the stop; two hermes-usb runs started at the same moment over a
-    stale lock; and a process that opens the data directory after the check and before the switch).
+    stale lock; a process that opens the data directory after the check and before the switch, or
+    maps a file in it without keeping it open).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

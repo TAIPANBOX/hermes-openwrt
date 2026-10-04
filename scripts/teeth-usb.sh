@@ -109,17 +109,27 @@ plant "someone else's waiting fstab changes committed with the record" $R usb \
 plant "no room checked where /etc/config lives" $R usb \
 	'	num "$have" && [ "$have" -ge "$CONF_ROOM_KB" ] || die' '	true || die'
 plant "a commit taken at its word, not read back from the file" $R usb \
-	'	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && return 0' '	return 0'
+	'	[ "$rc" = 0 ] && [ "$(flash_record)" = "$1" ] && [' '	return 0; ['
 plant "a commit that did not land left waiting in /tmp/.uci" $R usb \
 	'	uci -q revert fstab
 	if ! cmp' '	if ! cmp'
 plant "back says the stick can go while flash still expects it" $R usb \
 	'	commit_fstab "" || die "the data is back' '	commit_fstab "" || true "the data is back'
+plant "a commit that empties the file taken as landed" $R usb \
+	' && [ "$(fstab_others /etc/config/fstab)" = "$(fstab_others "$saved")" ] && return 0' ' && return 0'
+plant "a copy of fstab that failed taken for a copy" $R usb \
+	'	cp /etc/config/fstab "$saved" 2>/dev/null && cmp -s /etc/config/fstab "$saved" \' '	: > "$saved" \'
+plant "fstab not checked again after the copy" $R usb \
+	'	fstab_writable   # again:' '	:   # again:'
 # other users of the data directory
+plant "a path read as the last word of the line" $W usb \
+	't = substr($0, i + 4)   #' 't = $NF   #'
 plant "a process with a file open in the data directory ignored" $W usb \
 	'	[ -z "$u" ] || die "process $u has files open' '	true || die "process $u has files open'
 plant "a working directory in the data directory not counted" $W usb \
 	'		/ -> / {' '		/ -> / && $(NF - 2) !~ /cwd$/ {'
+plant "a lost+found with recovered files left behind on the stick" $B usb \
+	'	rmdir "$tmp/lost+found" 2>/dev/null' '	rm -rf "$tmp/lost+found"'
 # forget
 plant "forget without --yes" check_lost_stick_forgotten usb \
 	'	[ "${1:-}" = --yes ] || die "forget gives up' '	true || die "forget gives up'
