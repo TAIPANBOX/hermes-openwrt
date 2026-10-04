@@ -303,6 +303,17 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     in CI; teeth: `scripts/teeth-apk-owner.sh`, a uid 1001 tree built in the container's own
     filesystem). Also caught by gate-unlock `check_key_files_root_only` once it ran in CI.
 
+20. `@claude` 2026-10-04: a newer upstream Hermes is noticed without anyone looking. A daily
+    workflow (`.github/workflows/upstream-watch.yml`, job permissions `contents: read` and
+    `issues: write` only) runs `scripts/upstream-watch.sh`, which compares the tag
+    `package/upstream/upstream.env` pins with upstream's latest release by version order and
+    opens one issue for a newer one, never a second for the same release, open or closed. It
+    fails instead of passing when it cannot read upstream or this repository's issues. It never
+    moves the pin: a new upstream is built, gated and run on both routers first (gate:
+    `scripts/gate-upstream-watch.sh` against a stand-in `gh`, bound to
+    `features/upstream-watch.feature`, in CI's `scenarios` job and before each daily run;
+    teeth: `scripts/teeth-upstream-watch.sh`).
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/TAIPANBOX/hermes-openwrt/security/advisories/new
+    about: Anything that lets the agent change the router without an unlock, or reach a key or PIN.

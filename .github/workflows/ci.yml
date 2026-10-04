@@ -20,6 +20,8 @@ jobs:
         run: ./scripts/gate-scenarios-bound.sh
       - name: the repository names only the routers it is tested on
         run: ./scripts/gate-named-routers.sh && ./scripts/teeth-named-routers.sh
+      - name: the daily upstream check opens one issue per newer release, and fails when it cannot see
+        run: ./scripts/gate-upstream-watch.sh && ./scripts/teeth-upstream-watch.sh
 
   # There is nothing to unit test here: the payload is upstream's, and what this
   # repository contributes is the assembly and the service around it. So the only
@@ -78,13 +80,13 @@ jobs:
         run: ./package/luci-app-hermes/build.sh
 
       # hermes-agent depends on openwrt-mcp (0.21.5-r3), which OpenWrt's feed does not have, so
-      # every gate that installs it is handed an apk built from the companion's branch with that
-      # repository's own mkapk.sh. Pinned to the commit (on branch feat/owner-unlock), not the
-      # branch name, so a later push there cannot change what this build tests.
+      # every gate that installs it is handed an apk built from the fork's main with that
+      # repository's own mkapk.sh. Pinned to the commit tag v0.5.0-taipanbox.1 points at, the one
+      # the feed is built from, not the tag name, so moving the tag cannot change what this tests.
       - uses: actions/checkout@v4
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: 461ce9e88b3add5e0eee1b28cb8730e2d13ed8ab
+          ref: baf6669ea061f4caedde02c3c26fd03412e215c9
           path: openwrt-mcp-src
       - uses: actions/setup-go@v5
         with:

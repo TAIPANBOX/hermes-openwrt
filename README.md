@@ -60,8 +60,13 @@ export HERMES_HOME=/srv/hermes
 hermes cron create "0 * * * *" "Below is the router's hourly data. If everything is \
 normal, reply with exactly [SILENT]. Otherwise say in two lines what is wrong. Do not \
 call any tools." --name router-check --script router_check.sh \
-  --deliver telegram:<your numeric id> --reasoning-effort none
+  --deliver telegram:<your numeric id> --failure-deliver telegram:<your numeric id> \
+  --reasoning-effort none
 ```
+
+`--failure-deliver` matters here: when the model reports a problem with Hermes's own
+failure marker, the run counts as failed, and a failure delivered locally never reaches
+your phone (see [What a test chat shows](#what-a-test-chat-shows)).
 
 At one call an hour that is 24 calls a day. If your provider caps free requests per
 day, count the same way: one call per scripted check, a few per conversation, and
@@ -135,6 +140,65 @@ and creates the `hermes` account the agent runs as. Upgrading from a release bef
 OpenWrt 24.10 is not served: the package is built and tested for 25.12 only.
 
 No `--allow-untrusted` and no `--force` anywhere. That is the point of signing the feed.
+
+### Before you test
+
+- **The router.** Vanilla OpenWrt 25.12, not a vendor firmware, on an aarch64 router:
+  `cat /etc/apk/arch` has to print `aarch64_cortex-a53` or `aarch64_generic`. Nothing else
+  is built. The package is tested on a Flint 2 and a Brume 2.
+- **Memory.** 1 GB of RAM. The gateway alone holds about 180 MB before it does any work.
+- **Flash.** About 350 MB for the packages and the Python they bring, then the data
+  directory: 37 MB at the first start, growing from there. It can live on a USB stick
+  (see [Small flash](#small-flash-put-the-data-directory-on-a-usb-stick)).
+- **A model.** A key for an OpenAI-compatible provider, a free one included, or a ChatGPT
+  subscription (see [More than one provider](#more-than-one-provider)).
+- **A way back.** Keep a backup off the router (`sysupgrade -b /tmp/backup.tar.gz`, then
+  copy it away) and know how your router's recovery mode works before you start. On
+  2026-10-02 a Brume 2 under test did not come back from a reboot that followed an
+  unconfirmed change: no link on any port, and two power cycles did not help. It was
+  brought back through its U-Boot recovery page. The same sequence did not happen again,
+  neither in an emulated OpenWrt nor on that router, so the cause is not known.
+
+### Removing it
+
+```sh
+/etc/init.d/hermes-agent stop
+apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp
+```
+
+That removes the programs and the Python they brought. What you or the agent created
+stays, so the router can be put back the way it was by hand:
+
+```sh
+rm -rf /srv/hermes /etc/hermes-agent /etc/openwrt-mcp
+rm -f /etc/config/hermes /etc/apk/keys/hermes-openwrt.pem
+sed -i '/taipanbox.github.io\/hermes-openwrt/d' /etc/apk/repositories.d/customfeeds.list
+```
+
+If you moved the data directory, remove that one instead of `/srv/hermes`
+(`uci -q get hermes.main.data_dir` tells you where it is; read it before deleting
+`/etc/config/hermes`). The `hermes` account stays on purpose, so files it owned never pass
+to an account created later with the same id.
+
+## Testing it for us
+
+What helps most is what has not been measured yet:
+
+1. **Web search from a router.** Ask for something only a search can answer, with a model
+   that calls tools. The one scheduled job that should have searched ran without it.
+2. **A reminder set in plain words in a chat**, and whether it arrives on time.
+3. **The gateway's memory over days.** The longest run so far was 19 hours, and in its
+   last 14.5 the gateway grew from 204 to 215 MB, too short to tell a leak from warming
+   up. Every hour or so: `cat /sys/fs/cgroup/services/hermes-agent/instance1/memory.current`.
+4. **A scheduled job that hands its work to a subagent**, while changes are locked: is the
+   change refused?
+5. **Any aarch64 router other than the two above**, with its numbers.
+
+Report what happened in an [issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose):
+the template asks for the router, the versions and the log. Before you paste a log, look
+for keys and tokens in it; the package keeps them out of its own lines, but a model's
+reply or a command's output can carry anything. A security problem goes through
+[SECURITY.md](SECURITY.md) instead, not an issue.
 
 ## Measured on hardware
 
@@ -640,12 +704,14 @@ assistant, told what it cannot do, it said so at once, in one call.
 
 ### The owner profile: reading is free, changing needs you
 
-The package depends on [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp), which is
-not in OpenWrt's feed, so this repository's feed carries a build of it from the companion
-branch that has the owner's second factor
-(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`). The
-dependency has no version floor yet, because that branch still says 0.5.0, the number the
-release without the factor carries too.
+The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
+feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
+a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
+owner's second factor, built from the tag `v0.5.0-taipanbox.1` of the fork's `main`
+(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`). Its README
+documents the factor, the lockout and the enrolment; upstream's does not have them yet. The
+dependency has no version floor yet, because the fork still says 0.5.0, the number
+upstream's release without the factor carries too.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -853,7 +919,7 @@ What this does not do, measured and named:
 ### Pairing openwrt-mcp yourself
 
 In the assistant and root profiles the package neither pairs nor writes policies. The
-optional [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) connection adds
+optional [openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp) connection adds
 policy checks to calls sent through that server, and its policy does not constrain local
 file, terminal, plugins or delegated tools. Pair once on the router and grant a narrow,
 expiring window. openwrt-mcp refuses every tool it has not been granted, so a connection
@@ -884,8 +950,11 @@ was denied by policy. One scope shape needs care: openwrt-mcp matches a grant's 
 with Go's `path.Match`, so a scope on an anonymous UCI section reads its own `[0]` as a
 character class rather than a literal index. Grant `system.@system\[0\].description`,
 brackets escaped, not the unescaped form its own denial hint suggests (reported upstream
-as GlassOnTin/openwrt-mcp#3). That run predates the owner profile; the owner profile has
-been run only in OpenWrt's own rootfs in a container, not on a router.
+as GlassOnTin/openwrt-mcp#3). That run predates the owner profile. The owner profile has
+since run on a Brume 2 on 2026-10-02: a change asked for while locked was refused, a wrong
+`/unlock` from Telegram was refused and the right one accepted, and a change made in the
+window it opened (`uci_apply` then `uci_confirm` on the system description) went through.
+The gates run the rest of it in OpenWrt's own rootfs in a container.
 
 UCI also selects the primary model and OpenAI-compatible endpoint through
 `model.default`, `model.base_url` and `model.provider` in Hermes config. They are
@@ -980,7 +1049,7 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included
 - [x] Upstream's native Anthropic provider
 - [x] A Providers page: further providers with write-only keys, ChatGPT sign-in and sign-out
-- [ ] Track upstream releases automatically, which arrive every two to four days
+- [x] A daily check opens an issue when upstream tags a release newer than the pinned one (`scripts/upstream-watch.sh`); moving to it stays a reviewed change, built, gated and run on both routers first
 
 ## Prior art, and what is not ours
 

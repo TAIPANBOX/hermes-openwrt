@@ -1,0 +1,71 @@
+name: Test report
+description: What happened when you ran the package on your router, working or not.
+title: "Test report: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing. A report that something worked is as useful as one that it
+        did not, especially for what the README lists under "Testing it for us".
+
+        **Before you paste anything, look for keys, tokens, PINs and authenticator
+        secrets, and take them out.** A security problem goes through
+        [SECURITY.md](https://github.com/TAIPANBOX/hermes-openwrt/blob/main/SECURITY.md),
+        not an issue.
+  - type: input
+    id: router
+    attributes:
+      label: Router
+      description: The model, and what `cat /etc/apk/arch` prints.
+      placeholder: "e.g. a 1 GB aarch64 router, aarch64_cortex-a53"
+    validations:
+      required: true
+  - type: input
+    id: openwrt
+    attributes:
+      label: OpenWrt version
+      description: "`grep DISTRIB_RELEASE /etc/openwrt_release`"
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Package versions
+      description: "`apk list --installed | grep -E 'hermes|openwrt-mcp'`"
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Profile
+      description: "`uci get hermes.main.profile`"
+      options:
+        - owner
+        - assistant
+        - root
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and provider
+      description: Which model drove the agent, and through which provider. No key.
+  - type: textarea
+    id: what
+    attributes:
+      label: What you did, and what happened
+      description: The commands or chat messages, what you expected, and what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "`logread -e hermes | tail -n 100`, and for the agent itself `tail -n 100 /srv/hermes/logs/agent.log`. Keys and tokens taken out."
+      render: text
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Numbers, if you measured any
+      description: "Free memory (`free`), the gateway's memory (`cat /sys/fs/cgroup/services/hermes-agent/instance1/memory.current`), flash used (`df -h /`), how long an answer took."
