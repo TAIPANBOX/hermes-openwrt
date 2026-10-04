@@ -30,8 +30,9 @@ VPS or a desktop.
   reach. Upstream asks for 2 GB of memory with browser tools, twice what these routers
   have, so browser, vision and image generation are not packaged (see [What it will not do](#what-it-will-not-do)).
 - **It does reach the internet.** Hermes's web tools search and read ordinary pages
-  without a browser (on a router this is not measured yet: the one morning message that
-  should have used it ran without it), and the scripts behind a scheduled job fetch plain HTTP, which is measured.
+  without a browser, with no key of their own: on a Brume 2 on 2026-10-04 a free model
+  called `web_search` and then `web_extract` on the page it found, and answered correctly
+  in 45 s. The scripts behind a scheduled job fetch plain HTTP, which is measured too.
 - **The model runs elsewhere.** The router runs the agent; a provider you choose runs
   the model, a free one included.
 
@@ -41,7 +42,7 @@ What it is good at is the network it sits in, and staying on all the time.
 |---|---|---|
 | **Looking after the home network, from a phone** | In Telegram: "why is the internet slow?" The agent runs commands on the router and answers from what they printed, not from general advice. | Measured on both routers: a five-command diagnosis answered in 18 to 25 s |
 | **A watch that speaks only when something is wrong** | Every hour a script collects the router's numbers (loss and latency to the internet, DNS, free memory, flash, temperature) and the model reads them in one call. All normal, it stays silent; otherwise one message says what is wrong. | Ran every hour for 19 hours on a Brume 2 (2026-10-01/02), one model call per check, silent while all was normal. The one problem it saw (one ping of three lost) the model reported with Hermes's own failure marker, which a job delivering failures locally keeps silent: see [What a test chat shows](#what-a-test-chat-shows) |
-| **A morning message** | At 08:00: the weather, the exchange rate and one news item found by web search, in a few lines. | Delivered at 08:00 on 2026-10-02 in one model call; the small free model skipped the web search it was asked for, so search on a router is not measured yet |
+| **A morning message** | At 08:00: the weather, the exchange rate and one news item found by web search, in a few lines. | Delivered at 08:00 on 2026-10-02 in one model call, though the small free model skipped the web search it was asked for. Search itself measured on 2026-10-04: the same free model, told to use it, searched and read the page |
 | **An assistant that is always on** | Reminders and lists set in plain words in a chat, with no server to keep running: the router is on anyway. | Scheduling measured as above; reminders set from a chat not yet measured |
 
 **When to choose something else.** For an agent that browses, books, or works on sites
@@ -146,7 +147,7 @@ No `--allow-untrusted` and no `--force` anywhere. That is the point of signing t
 - **The router.** Vanilla OpenWrt 25.12, not a vendor firmware, on an aarch64 router:
   `cat /etc/apk/arch` has to print `aarch64_cortex-a53` or `aarch64_generic`. Nothing else
   is built. The package is tested on a Flint 2 and a Brume 2.
-- **Memory.** 1 GB of RAM. The gateway alone holds about 180 MB before it does any work.
+- **Memory.** 1 GB of RAM. The gateway alone holds about 200 MB before it does any work.
 - **Flash.** About 350 MB for the packages and the Python they bring, then the data
   directory: 37 MB at the first start, growing from there. It can live on a USB stick
   (see [Small flash](#small-flash-put-the-data-directory-on-a-usb-stick)).
@@ -160,8 +161,9 @@ No `--allow-untrusted` and no `--force` anywhere. That is the point of signing t
   only by flashing the vendor firmware through its U-Boot recovery page, which refused the
   OpenWrt image, and then OpenWrt again from the vendor firmware; the reflash lost the logs.
   Repeating the sequence did not reproduce it, neither in an emulated OpenWrt nor on that
-  router with the next build, so the cause is not known. Keep your router's vendor firmware
-  image at hand.
+  router with the next build, so the cause is not known. On 2026-10-04 the same sequence on
+  that router, on the published release, came back in 33 s with the change rolled back.
+  Keep your router's vendor firmware image at hand all the same.
 
 ### Removing it
 
@@ -195,16 +197,15 @@ directory is gone, as above.
 
 What helps most is what has not been measured yet:
 
-1. **Web search from a router.** Ask for something only a search can answer, with a model
-   that calls tools. The one scheduled job that should have searched ran without it.
-2. **A reminder set in plain words in a chat**, and whether it arrives on time.
-3. **The gateway's memory over days.** The longest run so far was 19 hours, and in its
+1. **A reminder set in plain words in a chat**, and whether it arrives on time.
+2. **The gateway's memory over days.** The longest run so far was 19 hours, and in its
    last 14.5 the gateway grew from 204 to 215 MB, too short to tell a leak from warming
    up. That figure is the gateway's own resident memory; every hour or so:
-   `grep VmRSS /proc/$(pgrep -f 'gateway run' | head -n 1)/status`.
-4. **A scheduled job that hands its work to a subagent**, while a window is open after
-   `/unlock`: is the change refused? A scheduled job's own change is.
-5. **Any aarch64 router other than the two above**, with its numbers.
+   `grep VmRSS /proc/$(pgrep -o -f 'main.py gateway')/status`.
+3. **Web search with the model you use.** It works on a router (see
+   [Re-run on the published release](#re-run-on-the-published-release-2026-10-04)), but
+   whether a model reaches for it unasked depends on the model.
+4. **Any aarch64 router other than the two above**, with its numbers.
 
 Report what happened in an [issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose):
 the template asks for the router, the versions and the log. Before you paste a log, look
@@ -245,6 +246,39 @@ runs five commands through the terminal tool and answers from what they printed.
 wall clock is mostly the model's own time.
 
 ![Measured on hardware](docs/measured.svg)
+
+### Re-run on the published release, 2026-10-04
+
+The same two routers, cleaned of every trace of the package first, then the
+[Install](#install) block above run as written against the published feed (agent 0.21.5-r5,
+LuCI 0.21.5-r1, openwrt-mcp from the fork), and put back as found afterwards. The model
+this time was `gpt-5.6-luna` through a ChatGPT subscription, so the conversation times are
+not comparable with the table above, which used `gpt-4o-mini`.
+
+| | Flint 2 | Brume 2 |
+|---|---|---|
+| the Install block, key and feed lines included | 24 s, 47 packages | 64 s, 50 packages |
+| flash, agent and LuCI page / with Telegram / after the first start | 345 / 357 / 396 MB | 343 / 354 / 393 MB |
+| gateway resident, 90 s after the first start | 202 MB | 203 MB |
+| `kill -9` of the gateway: procd has it back | 9 s | 10 s |
+| `reboot` with the service enabled: gateway running | 12 s after boot | 18 s after boot |
+| one conversation, end to end | 25 s | 32 s |
+| six conversations at once | 32 s, all answered | 46 s, all answered |
+| all of Hermes at six (cgroup, page cache included) | 400 MB | 453 MB |
+| temperature, fanless | 44 to 45 C | 42 to 44 C |
+
+Also on the Brume 2 that day: a change made through openwrt-mcp in an unlock window and not
+confirmed, then a reboot: back in 33 s, and openwrt-mcp rolled the change back at start
+("unconfirmed apply ... found at startup, rolling back"). Web search with a free model
+(`nvidia/nemotron-3-super-120b-a12b:free`): `web_search`, then `web_extract` on the page it
+found, a correct answer in 45 s and three model calls. Through the ChatGPT subscription the
+same question was answered by OpenAI's own search inside the model, with no Hermes tool
+called, and the answer was out of date.
+
+`hermes chat` run from an SSH shell has neither the model's key nor the router token: the
+service hands both to the gateway only. A question to the agent from a shell is refused by
+the provider (HTTP 401) and its openwrt-mcp calls by the daemon. Ask through Telegram, or
+create a one-off job, which the gateway runs (see [Scheduled jobs, in practice](#scheduled-jobs-in-practice)).
 
 ### How many agents fit alongside your other services
 
@@ -629,10 +663,16 @@ i8mm, exactly the case llama.cpp has no fast path for.
 
 **It will not fit a small router.** About 400 MB of flash on a new router, Python and the
 first-run helper included, rules out anything without real storage, and
-the gateway wants about 180 MB of RAM before it does any work. Below 1 GB,
-run [openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) on the router instead and
+the gateway wants about 200 MB of RAM before it does any work. Below 1 GB,
+run [openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp) on the router instead and
 keep Hermes on a machine with room. That is the better shape anyway: the router becomes a
-narrow, audited tool provider rather than the host of a Python runtime.
+narrow, audited tool provider rather than the host of a Python runtime. Measured on
+2026-10-04 on an `aarch64_cortex-a53` router with 512 MB of RAM and about 200 MB of free flash:
+`apk add openwrt-mcp` from this feed took 4 s and 4 MB of flash, and the daemon held 7.5 MB
+of memory. Hermes on a Flint 2 reached it through `ssh -N -L 8731:127.0.0.1:8730`, in the
+assistant profile with its own paired client and a read-only grant (see
+[Pairing openwrt-mcp yourself](#pairing-openwrt-mcp-yourself)), and answered with that
+router's board, hostname and uptime; its audit log shows the three reads.
 
 **Browser, vision, image generation and the wake-word stack are not packaged.** They pull
 heavy dependencies for capabilities a headless router does not have. `ffmpeg` is included,
@@ -925,7 +965,10 @@ What this does not do, measured and named:
   held back when it is the whole message, and replaced in the request when it is one line
   of several, which includes a number you pasted.
 - With `allow_all`, anyone may chat and none may unlock.
-- A scheduled job that hands its work to a subagent is not proven to be refused.
+- A scheduled job that hands its work to a subagent is refused too: on a Brume 2 on
+  2026-10-04, with a window open, a one-off job delegated a `uci_apply` to a subagent, the
+  subagent's call was refused with "a scheduled job cannot change the router", and
+  openwrt-mcp's audit log shows no change reaching it.
 - The window is root for its length, as above. The gateway's own environment holds the
   router token and is readable by any process of the `hermes` user, as invariant 7 says.
 
