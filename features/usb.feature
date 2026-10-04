@@ -6,8 +6,9 @@
 #                        on a USB stick is an option for people who would rather not have a
 #                        heavy service writing to storage they cannot replace, and it has to
 #                        be as simple as one command.
-#   @measured 2026-10-04 on a Flint 2 and a Brume 2 by /proc/diskstats over 1800 s, with the
-#                        data directory alone on a stick, ext4 mounted noinit_itable: about 1 GB a
+#   @measured 2026-10-04 on a Flint 2 and a Brume 2: sectors written to the stick, field 10
+#                        of `awk '$3 == "sda"' /proc/diskstats`, read before and after 1800 s,
+#                        with the data directory alone on it and ext4 mounted noinit_itable: about 1 GB a
 #                        day written by an idle gateway, journal included, against 2.3 and 5.7
 #                        GB a day that the routers themselves wrote to their eMMC in the same
 #                        half hours. What wears storage is what is written again and again,
@@ -88,9 +89,13 @@ Feature: Hermes's data moves to a USB stick with one command, and back
   Scenario: without the stick, nothing of Hermes writes inside, and each says why
     Given Hermes whose data was moved to a stick
     And the stick is not there
-    When the service starts, procd respawns the gateway, or the ChatGPT sign-in runs
+    When the service starts, procd respawns the gateway, a hermes command is pointed at the
+    And data directory, or the ChatGPT sign-in runs
     Then each refuses, says the stick holding Hermes's data is missing
     And nothing is written to the router's own storage
+    And the stick mounted on a parent of the data directory is not taken for it
+    And a record of the stick that is disabled or names no UUID is refused, never read as
+    And the data being inside
     And a different stick in its place is refused the same way
     And with the right stick mounted the start goes on
     # -> check_missing_stick_stops_the_start
@@ -101,6 +106,8 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     Then Hermes starts, and a stick late at boot needs no wait
     When the service is disabled and the stick is plugged in
     Then nothing starts
+    When another device comes while Hermes is stopped, or goes while it runs on its stick
+    Then nothing starts and nothing stops
     When the stick goes
     Then Hermes is stopped, so nothing restarts it on the router's own storage
     # -> check_stick_coming_and_going
@@ -112,3 +119,37 @@ Feature: Hermes's data moves to a USB stick with one command, and back
     And anything that lay underneath the mount point is kept aside, not deleted
     And the fstab entry is removed last, in one commit, and the agent starts with its data inside
     # -> check_back_returns_the_data_inside
+
+  Scenario: a move whose mount fails puts everything back
+    Given the stick cannot be mounted on the data directory once the copy is made
+    When the owner runs hermes-usb move
+    Then the command says nothing was switched
+    And the data is in the data directory as it was, with no copy left beside it
+    And no fstab entry was written, and the agent starts again where it was
+    # -> check_failed_mount_puts_everything_back
+
+  Scenario: a back that cannot finish puts the stick back
+    Given the copy brought inside cannot be put in place
+    When the owner runs hermes-usb back
+    Then the command says nothing was switched
+    And the stick is mounted on the data directory again, its data unchanged
+    And its fstab entry is still there, no half-made copy is left inside
+    And the agent starts again on the stick
+    # -> check_failed_back_puts_the_stick_back
+
+  Scenario: nothing starts on a move that is running or was interrupted
+    Given hermes-usb is moving the data, or a power cut left the copy it set aside
+    When the service starts or procd respawns the gateway
+    Then it refuses, and an interrupted move's copy is named
+    And a lock left by a hermes-usb that is gone does not block anything
+    And a new move refuses to run beside the copy left behind, and leaves it alone
+    # -> check_interrupted_or_running_move_starts_nothing
+
+  Scenario: a lost stick can be given up
+    Given the record of a stick that is not there any more
+    When the owner runs hermes-usb forget without --yes, or with the stick mounted
+    Then nothing is given up
+    When the owner runs hermes-usb forget --yes with the stick gone
+    Then the record is removed, the data on the stick is not touched
+    And Hermes starts again with an empty data directory inside
+    # -> check_lost_stick_forgotten

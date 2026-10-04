@@ -179,6 +179,13 @@ cat > "$OUT/usr/bin/hermes" <<'LAUNCHER'
 SITE=/usr/lib/hermes-agent/site-packages
 # Where upstream's skills, locales and MCP catalogue live; see the file itself.
 . /usr/lib/hermes-agent/hermes-env
+# Hermes's data on a USB stick (hermes-usb): a command pointed at that directory, as the README's
+# `HERMES_HOME=/srv/hermes hermes cron create ...` is, refuses rather than write under the empty
+# mount point of a stick that is not there.
+. /usr/lib/hermes-agent/hermes-usb-check
+if [ -n "${HERMES_HOME:-}" ] && [ "${HERMES_HOME%/}" = "$(uci -q get fstab.hermes_data.target 2>/dev/null)" ]; then
+	why=$(hermes_data_ok "${HERMES_HOME%/}") || { echo "hermes: $why" >&2; exit 1; }
+fi
 # The gateway runs as the user hermes (the owner and assistant profiles), so what it keeps in
 # its data directory belongs to that user. A command run from a root shell against that
 # directory, `HERMES_HOME=/srv/hermes hermes cron create ...` over SSH, would leave files

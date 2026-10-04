@@ -1,18 +1,24 @@
 #!/bin/sh
-# /etc/hotplug.d/block/90-hermes-usb -- after 10-mount has mounted or unmounted what the fstab
-# names: when the stick holding Hermes's data is mounted where it belongs, start Hermes if it is
-# enabled and not running; when it is gone, stop Hermes, so nothing restarts it on the router's
-# own storage. A stick that is late at boot is then simply started when it appears.
+# /etc/hotplug.d/block/90-hermes-usb -- runs after 10-mount has mounted or unmounted what the
+# fstab names, for every block device that comes or goes; it acts only on Hermes's own stick.
+#   add:    the device that arrived is the one now mounted on the data directory, and it is the
+#           stick of record: start Hermes if it is enabled and not running (a stick late at
+#           boot is then simply started when it appears)
+#   remove: the data directory no longer has the stick of record on it: stop Hermes, so nothing
+#           restarts it on the router's own storage. Another device going changes nothing.
 SERVICE=${HERMES_USB_SERVICE:-/etc/init.d/hermes-agent}
 [ -f /usr/lib/hermes-agent/hermes-usb-check ] || exit 0
 . /usr/lib/hermes-agent/hermes-usb-check
 [ -n "$(hermes_data_stick)" ] || exit 0
 dir=$(uci -q get fstab.hermes_data.target)
+[ -n "$dir" ] || exit 0
 case "$ACTION" in
 	add)
+		[ "$(hermes_mount_source "$dir")" = "/dev/${DEVNAME:-}" ] || exit 0
+		hermes_data_ok "$dir" >/dev/null || exit 0
 		"$SERVICE" enabled >/dev/null 2>&1 || exit 0
 		"$SERVICE" running >/dev/null 2>&1 && exit 0
-		hermes_data_ok "$dir" >/dev/null && "$SERVICE" start
+		"$SERVICE" start
 		;;
 	remove)
 		hermes_data_ok "$dir" >/dev/null || "$SERVICE" stop

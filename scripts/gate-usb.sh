@@ -22,9 +22,10 @@
 #   USB_PLUG=/path gate-usb.sh  another hotplug script over the installed one (teeth)
 #   USB_GW=/path gate-usb.sh    another gateway wrapper (teeth)
 #   USB_LOGIN=/path gate-usb.sh another hermes-login (teeth)
+#   USB_LAUNCHER=/path          another /usr/bin/hermes launcher (teeth)
 #   gate-usb.sh --selftest      the check names, for gate-scenarios-bound.sh
 set -u
-CHECKS='check_missing_tools_named_and_nothing_changed check_status_names_where_data_lives check_move_copies_and_restarts_on_the_stick check_move_refuses_a_device_in_use check_move_refuses_a_data_dir_set_up_by_hand check_copy_that_differs_switches_nothing check_move_refuses_a_stick_without_room check_format_only_when_asked_and_without_lazy_init check_missing_stick_stops_the_start check_stick_coming_and_going check_back_returns_the_data_inside'
+CHECKS='check_missing_tools_named_and_nothing_changed check_status_names_where_data_lives check_move_copies_and_restarts_on_the_stick check_move_refuses_a_device_in_use check_move_refuses_a_data_dir_set_up_by_hand check_copy_that_differs_switches_nothing check_move_refuses_a_stick_without_room check_format_only_when_asked_and_without_lazy_init check_missing_stick_stops_the_start check_stick_coming_and_going check_back_returns_the_data_inside check_failed_mount_puts_everything_back check_failed_back_puts_the_stick_back check_interrupted_or_running_move_starts_nothing check_lost_stick_forgotten'
 if [ "${1:-}" = "--selftest" ]; then for c in $CHECKS; do echo "$c"; done; exit 0; fi
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -43,6 +44,7 @@ EXTRA=""
 [ -n "${USB_PLUG:-}" ] && EXTRA="$EXTRA -v $USB_PLUG:/override/etc/hotplug.d/block/90-hermes-usb:ro"
 [ -n "${USB_GW:-}" ] && EXTRA="$EXTRA -v $USB_GW:/override/usr/sbin/hermes-gateway:ro"
 [ -n "${USB_LOGIN:-}" ] && EXTRA="$EXTRA -v $USB_LOGIN:/override/usr/sbin/hermes-login:ro"
+[ -n "${USB_LAUNCHER:-}" ] && EXTRA="$EXTRA -v $USB_LAUNCHER:/override/usr/bin/hermes:ro"
 echo "PASS: artefacts $(basename "$APK"), $(basename "$MCP")"
 
 # shellcheck disable=SC2086
@@ -52,7 +54,7 @@ set -u
 mkdir -p /var/lock /var/run /var/state /stub /tmp/cg
 apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/install.log 2>&1 || { tail -5 /tmp/install.log; echo "FAIL setup: the package would not install"; exit 1; }
 if [ -d /override ]; then (cd /override && find . -type f) | while read -r f; do mkdir -p "$(dirname "/${f#./}")"; cp "/override/$f" "/${f#./}"; done; fi
-chmod 0755 /usr/sbin/hermes-usb /etc/init.d/hermes-agent /usr/sbin/hermes-gateway /usr/sbin/hermes-login 2>/dev/null
+chmod 0755 /usr/sbin/hermes-usb /etc/init.d/hermes-agent /usr/sbin/hermes-gateway /usr/sbin/hermes-login /usr/bin/hermes 2>/dev/null
 for f in /usr/sbin/hermes-usb /usr/lib/hermes-agent/hermes-usb-check /etc/hotplug.d/block/90-hermes-usb; do
 	[ -f $f ] || { echo "FAIL: measured nothing: $f is not installed"; exit 1; }
 done
@@ -122,10 +124,11 @@ fstype() { block info $1 | sed -n 's/.*TYPE="\([^"]*\)".*/\1/p'; }
 uuid() { block info $1 | sed -n 's/.*UUID="\([^"]*\)".*/\1/p'; }
 owner() { ls -ld $1 | awk '{print $3}'; }
 on() { df -P $1 | awk 'NR == 2 { print $1 }'; }
+hermes_src() { awk -v d="$1" '{ for (i = 7; i <= NF; i++) if ($i == "-") { src = $(i + 2); break } if ($5 == d) last = src } END { print last }' /proc/self/mountinfo; }
 reset() {
 	touch /tmp/svc.stop; sleep 1; kill $(pgrep -f /stub/hermes-gw) 2>/dev/null; rm -f /tmp/svc.stop
 	umount $D 2>/dev/null; umount $D 2>/dev/null; umount /mnt/busy 2>/dev/null; umount /srv/other 2>/dev/null
-	rm -rf /srv/link /srv/real /srv/hermes.inside.* /srv/hermes.underneath.* /srv/.hermes-usb-back.*; detach
+	umount /srv 2>/dev/null; rm -rf /srv/link /srv/real /srv/hermes.hermes-usb-inside /srv/hermes.underneath.* /srv/.hermes-usb-back /var/lock/hermes-usb.lock; detach
 	for s in hermes_data byhand; do uci -q delete fstab.$s; done; uci commit fstab 2>/dev/null
 	uci -q delete hermes.main.data_dir; uci set hermes.main.enabled=0; uci commit hermes
 	rm -f /tmp/svc.log /tmp/stub.mode /tmp/stub.enabled; : > /tmp/cg/cgroup.procs; rmdir /var/lock/hermes-usb.lock 2>/dev/null
@@ -177,7 +180,7 @@ check_move_copies_and_restarts_on_the_stick() {
 	[ "$(cat $D/state.db.closed 2>/dev/null)" = "closed 1" ] || fail "the copy was made before the gateway's last write (the stick holds '$(cat $D/state.db.closed 2>/dev/null)')"
 	grep -q "^start .*data_on=$p" /tmp/svc.log || fail "the agent was not started again on the stick"
 	[ "$(uci -q get fstab.hermes_data.uuid)" = "$u" ] && [ "$(uci -q get fstab.hermes_data.target)" = "$D" ] || fail "fstab does not mount $u on $D"
-	[ -z "$(ls -d /srv/hermes.inside.* 2>/dev/null)" ] || fail "the copy set aside inside was left: $(ls -d /srv/hermes.inside.*)"
+	[ ! -e /srv/hermes.hermes-usb-inside ] || fail "the copy set aside inside was left"
 	touch /tmp/svc.stop; sleep 6; umount $D
 	[ -z "$(ls -A $D)" ] || fail "something was left inside under the mount point: $(ls -A $D | tr '\n' ' ')"
 	block mount >/dev/null 2>&1
@@ -309,6 +312,21 @@ check_missing_stick_stops_the_start() {
 	echo "$out" | grep -q "that stick is not mounted" || fail "the gateway wrapper did not say the stick is missing: $out"
 	out=$(hermes-login chatgpt 2>&1) && fail "hermes-login went ahead without the stick: $out"
 	echo "$out" | grep -q "that stick is not mounted" || fail "hermes-login did not say the stick is missing: $out"
+	out=$(HERMES_HOME=$D hermes cron list 2>&1) && fail "the hermes launcher went ahead on $D without the stick: $out"
+	echo "$out" | grep -q "that stick is not mounted" || fail "the hermes launcher did not say the stick is missing: $out"
+	# the right stick on a parent of the data directory is not the stick on it
+	mount $right /srv; mkdir -p $D 2>/dev/null
+	out=$(init_start)
+	echo "$out" | grep -q "that stick is not mounted" || fail "the stick on a parent of $D was taken for the stick on it: $out"
+	umount /srv
+	# a section disabled, or stripped of its UUID, is never read as "the data is inside"
+	uci set fstab.hermes_data.enabled=0; uci commit fstab
+	out=$(init_start)
+	echo "$out" | grep -q "section is disabled" || fail "a disabled section was read as the data being inside: $out"
+	uci set fstab.hermes_data.enabled=1; uci -q delete fstab.hermes_data.uuid; uci commit fstab
+	out=$(init_start)
+	echo "$out" | grep -q "names no UUID" || fail "a section without a UUID was read as the data being inside: $out"
+	stick_of_record $(uuid $right)
 	[ -z "$(ls -A $D)" ] || fail "something was written inside: $(ls -A $D | tr '\n' ' ')"
 	mount $wrong $D
 	out=$(init_start)
@@ -330,6 +348,15 @@ check_stick_coming_and_going() {
 	touch /tmp/svc.stop; sleep 6; rm -f /tmp/svc.log /tmp/stub.enabled /tmp/svc.stop
 	( ACTION=add DEVNAME=${p#/dev/}; . /etc/hotplug.d/block/90-hermes-usb )
 	grep -q '^start' /tmp/svc.log 2>/dev/null && fail "a disabled service was started by the stick"
+	# another device arriving while Hermes is stopped starts nothing; another one going while it
+	# runs on its stick stops nothing
+	touch /tmp/stub.enabled; rm -f /tmp/svc.log; stranger=$(stick 128 ext4)
+	( ACTION=add DEVNAME=${stranger#/dev/}; . /etc/hotplug.d/block/90-hermes-usb )
+	grep -q '^start' /tmp/svc.log 2>/dev/null && fail "another device arriving started Hermes"
+	/stub/svc start; rm -f /tmp/svc.log
+	( ACTION=remove DEVNAME=${stranger#/dev/}; . /etc/hotplug.d/block/90-hermes-usb )
+	grep -q '^stop' /tmp/svc.log 2>/dev/null && fail "another device going stopped Hermes"
+	touch /tmp/svc.stop; sleep 6; rm -f /tmp/svc.stop /tmp/svc.log
 	# the stick goes: block's hotplug has unmounted it, then ours stops Hermes
 	touch /tmp/stub.enabled; /stub/svc start; rm -f /tmp/svc.log
 	umount $D
@@ -356,6 +383,71 @@ check_back_returns_the_data_inside() {
 	grep -q hermes_data /etc/config/fstab && fail "the fstab entry is still there"
 	ls /srv/hermes.underneath.*/left-underneath >/dev/null 2>&1 || fail "what was underneath the mount point was not kept"
 	grep -q '^start' /tmp/svc.log || fail "the agent was not started again"
+}
+
+check_failed_mount_puts_everything_back() {
+	reset; seed
+	p=$(stick 128 ext4)
+	mkdir -p /tmp/badmount; printf '#!/bin/sh\nfor last; do :; done\n[ "$last" = %s ] && exit 32\nexec /bin/mount "$@"\n' $D > /tmp/badmount/mount; chmod 0755 /tmp/badmount/mount
+	out=$(PATH=/tmp/badmount:$PATH hermes-usb move $p 2>&1) && fail "move claimed success with the mount on $D failing: $out"
+	echo "$out" | grep -q "the data is still in $D" || fail "the failed mount was not reported as nothing switched: $out"
+	[ -z "$(hermes_src $D)" ] || fail "$D was left with something mounted on it"
+	untouched || fail "the data inside is not as it was"
+	[ ! -e $D.hermes-usb-inside ] || fail "the copy set aside was left beside $D"
+	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "the fstab section was written"
+	grep -q '^start' /tmp/svc.log || fail "the agent was not started again where it was"
+}
+
+check_failed_back_puts_the_stick_back() {
+	reset; seed
+	p=$(stick 128 ext4)
+	hermes-usb move $p >/dev/null 2>&1 || fail "the move before it failed"
+	sums $D > /tmp/stick.sums
+	mkdir -p /tmp/badmv; printf '#!/bin/sh\ncase "$1" in */.hermes-usb-back) exit 1 ;; esac\nexec /bin/mv "$@"\n' > /tmp/badmv/mv; chmod 0755 /tmp/badmv/mv
+	rm -f /tmp/svc.log
+	out=$(PATH=/tmp/badmv:$PATH hermes-usb back 2>&1) && fail "back claimed success with its copy unable to move in: $out"
+	echo "$out" | grep -q "nothing was switched" || fail "the failed back was not reported as nothing switched: $out"
+	[ "$(on $D)" = "$p" ] || fail "the stick was not mounted on $D again"
+	sums $D | cmp -s - /tmp/stick.sums || fail "the data on the stick changed"
+	grep -q hermes_data /etc/config/fstab || fail "the fstab section was removed though nothing came back"
+	[ ! -e /srv/.hermes-usb-back ] || fail "the half-made copy was left inside"
+	grep -q '^start' /tmp/svc.log || fail "the agent was not started again on the stick"
+}
+
+check_interrupted_or_running_move_starts_nothing() {
+	reset; touch /tmp/svc.stop; rm -rf $D; mkdir -p $D; chmod 0700 $D
+	# a move in progress: its lock holds a live pid
+	sleep 120 & live=$!; mkdir -p /var/lock/hermes-usb.lock; echo $live > /var/lock/hermes-usb.lock/pid
+	out=$(init_start)
+	echo "$out" | grep -q "is moving Hermes's data right now" || fail "the init started while hermes-usb held its lock: $out"
+	out=$(HERMES_HOME=$D /usr/sbin/hermes-gateway /etc/hermes-agent/provider.key 2>&1) && fail "the gateway wrapper started while hermes-usb held its lock"
+	kill $live 2>/dev/null; wait $live 2>/dev/null
+	# a lock left by a hermes-usb that is gone does not block
+	out=$(init_start)
+	echo "$out" | grep -q "is moving Hermes's data" && fail "a stale lock blocked the start: $out"
+	rm -rf /var/lock/hermes-usb.lock
+	# a copy an interrupted move set aside is named, and nothing starts
+	mkdir -p $D.hermes-usb-inside; echo x > $D.hermes-usb-inside/state.db
+	out=$(init_start)
+	echo "$out" | grep -q "$D.hermes-usb-inside" || fail "the copy left by an interrupted move was not named: $out"
+	p=$(stick 128 ext4)
+	out=$(hermes-usb move $p 2>&1) && fail "move went ahead beside a copy left by an interrupted move: $out"
+	[ -f $D.hermes-usb-inside/state.db ] || fail "the copy left by an interrupted move was touched"
+}
+
+check_lost_stick_forgotten() {
+	reset; touch /tmp/svc.stop; rm -rf $D; mkdir -p $D; chmod 0700 $D
+	p=$(stick 128 ext4); stick_of_record $(uuid $p)
+	out=$(hermes-usb forget 2>&1) && fail "forget went ahead without --yes: $out"
+	grep -q hermes_data /etc/config/fstab || fail "forget without --yes removed the record"
+	mount $p $D
+	out=$(hermes-usb forget --yes 2>&1) && fail "forget gave up a stick that is mounted: $out"
+	umount $D
+	out=$(hermes-usb forget --yes 2>&1) || fail "forget failed: $out"
+	grep -q hermes_data /etc/config/fstab && fail "the record is still there"
+	out=$(init_start)
+	echo "$out" | grep -q "Not starting" && fail "Hermes did not start inside after the stick was given up: $out"
+	return 0
 }
 
 run check_missing_tools_named_and_nothing_changed

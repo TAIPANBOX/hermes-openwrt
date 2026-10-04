@@ -49,7 +49,7 @@ jobs:
         # aarch64 is what a router actually is, and the architecture the wheel bet is
         # really about, so it is not optional.
         arch: [aarch64_generic]
-        suite: [core, runtime, teeth, usb, luci-teeth-0, luci-teeth-1, luci-teeth-2, luci-teeth-3, unlock, unlock-teeth-0, unlock-teeth-1, unlock-teeth-2, unlock-teeth-3]
+        suite: [core, runtime, teeth, usb, usb-teeth-0, usb-teeth-1, usb-teeth-2, usb-teeth-3, luci-teeth-0, luci-teeth-1, luci-teeth-2, luci-teeth-3, unlock, unlock-teeth-0, unlock-teeth-1, unlock-teeth-2, unlock-teeth-3]
     steps:
       - uses: actions/checkout@v4
 
@@ -148,9 +148,11 @@ jobs:
         if: matrix.suite == 'usb'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-usb.sh
 
-      - name: and that gate has teeth
-        if: matrix.suite == 'usb'
-        run: ARCH=${{ matrix.arch }} ./scripts/teeth-usb.sh
+      - name: and that gate has teeth, quarter ${{ matrix.suite }}
+        if: startsWith(matrix.suite, 'usb-teeth-')
+        env:
+          MATRIX_SUITE: ${{ matrix.suite }}
+        run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#usb-teeth-}/4 ./scripts/teeth-usb.sh
 
       # Every shard plants every fault and runs the gate for its own quarter of them, and each
       # checks that 33 were planted, so a fault dropped from the script fails all four.

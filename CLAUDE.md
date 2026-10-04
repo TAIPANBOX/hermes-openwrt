@@ -333,24 +333,30 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     is an option that one command sets up. `@claude` 2026-10-04, how: `hermes-usb move <partition>
     [--format]` moves the data directory (what is written again and again; the programs are written
     once) to an ext4 partition of a USB disk with nothing on that disk mounted. The one record that
-    the data is on a stick is the fstab section `hermes_data` (uuid, target), written in one commit
-    once the stick is mounted and checked, removed in one commit once the data is back inside. One
-    check, `/usr/lib/hermes-agent/hermes-usb-check`, reads it with `df -P` on the data directory
-    and `block info` on what is mounted there, and the init, the gateway wrapper procd respawns,
-    hermes-login and `/etc/hotplug.d/block/90-hermes-usb` all ask it: without the stick nothing of
-    Hermes starts or writes inside, the stick's arrival starts an enabled service, its departure
-    stops it. Before copying, hermes-usb waits for the gateway's process (read from upstream's JSON
-    pid record) and for the service's group to hold no process (read, not sized); it switches only
-    when every file's checksum and the file count match; the copy inside is set aside, not deleted,
-    until the stick is mounted where it belongs. It refuses, changing nothing, a device not on USB, a
+    the data is on a stick is the fstab section `hermes_data`, written in one commit once the stick
+    is mounted and checked, removed in one commit once the data is back inside; a section that
+    exists means "on a stick", so one disabled or without a UUID is refused, never read as "inside".
+    One check, `/usr/lib/hermes-agent/hermes-usb-check`, reads it, the top mount on the data
+    directory from `/proc/self/mountinfo`, hermes-usb's lock (with its pid) and the copies an
+    interrupted run leaves under fixed names; the init, the gateway wrapper procd respawns, the
+    `hermes` launcher when `HERMES_HOME` is the stick's directory, hermes-login and
+    `/etc/hotplug.d/block/90-hermes-usb` all ask it: without the stick nothing of Hermes starts or
+    writes inside; the stick's own arrival starts an enabled service, its departure stops it, other
+    devices change nothing. Before copying, hermes-usb waits for the gateway's process (read from
+    upstream's JSON pid record) and for the service's group to hold no process (read, not sized); it
+    switches only when every file's checksum and the file count match; it never moves into a
+    directory that exists, sets the inside copy aside until the stick is mounted and checked, and
+    puts everything back when a step fails. It refuses, changing nothing, a device not on USB, a
     whole disk, a disk with a partition mounted, a data directory that is a mount point, reached
     through a symbolic link, on another filesystem, named in the fstab or in a system tree, a stick
     too small (before `--format` erases it), another filesystem unless `--format` (every inode table
     written at once, no blocks reserved for root), and a router without the USB packages (it prints
-    the `apk add` line). `back` takes the data only from its own stick, keeps what lay underneath the
-    mount point, and removes the fstab section last (partly gated: `scripts/gate-usb.sh`, bound to
-    `features/usb.feature`, teeth `scripts/teeth-usb.sh`; not gated: a disk held by another device
-    and a partition in use as swap, which a loop device cannot show, and a power loss between steps).
+    the `apk add` line). `back` takes the data only from its own stick, keeps what lay underneath
+    the mount point, and removes the fstab section last; `forget --yes` gives up a stick that is not
+    mounted (partly gated: `scripts/gate-usb.sh`, bound to `features/usb.feature`, teeth
+    `scripts/teeth-usb.sh`; not gated: a disk held by another device and a partition in use as
+    swap, which a loop device cannot show, the moment of a power cut itself, INT and TERM, and
+    hermes-login's own wait for the sign-in, during which the stick is not asked again).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
