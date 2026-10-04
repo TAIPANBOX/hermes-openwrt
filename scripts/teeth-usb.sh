@@ -97,8 +97,8 @@ plant "move beside a copy an interrupted move left" $I usb \
 	'	left=$(hermes_data_leftovers "$data_dir"); [ -z "$left" ] || die' '	left=""; true || die'
 # back
 plant "back leaves the fstab entry" $B usb \
-	'	uci -q delete fstab.hermes_data
-	commit_fstab "" || die "the data is back' '	commit_fstab "" || die "the data is back'
+	'	# only now does the router stop expecting the stick: one commit
+	uci -q delete fstab.hermes_data' '	# only now does the router stop expecting the stick: one commit'
 plant "back deletes what is underneath" $B usb \
 	'		mv "$target" "$under" || { remount; die "could not set aside what lies under $target; the stick is mounted again, nothing was switched"; }' '		rm -rf "$target"'
 plant "a failed back leaves the stick unmounted" check_failed_back_puts_the_stick_back usb \
@@ -114,7 +114,7 @@ plant "a commit that did not land left waiting in /tmp/.uci" $R usb \
 	'	uci -q revert fstab
 	if ! cmp' '	if ! cmp'
 plant "back says the stick can go while flash still expects it" $R usb \
-	'	commit_fstab "" || die "the data is back' '	commit_fstab "" || true "the data is back'
+	'		die "the data is back in $target, but the stick'"'"'s record could not be removed' '		true "the data is back in $target, but the stick'"'"'s record could not be removed'
 plant "a commit that empties the file taken as landed" $R usb \
 	'		&& now=$(fstab_others /etc/config/fstab) && was=$(fstab_others "$saved") && [ "$now" = "$was" ]; then' '		; then'
 plant "a file uci cannot read taken for one it can" $R usb \

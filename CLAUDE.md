@@ -347,7 +347,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     switches only when every file's checksum and the file count match; it never moves into a
     directory that exists, sets the inside copy aside until the stick is mounted and checked, and
     puts everything back when a step fails. Every commit of the record is read back from
-    `/etc/config/fstab` itself, not through uci, whose reads include changes waiting in
+    `/etc/config/fstab` itself, not through uci's view of fstab, which includes changes waiting in
     `/tmp/.uci`: `@measured` 2026-10-04 in `openwrt/rootfs:aarch64_generic-25.12.4`, a `uci commit
     fstab` onto a full tmpfs bound over `/etc/config` returned 0 and left the file 0 bytes. So it
     needs 256 KiB free there first, refuses while someone else's fstab changes wait uncommitted
@@ -355,7 +355,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     in RAM, and reads the result with uci itself (a copy under another package name, so the
     changes waiting for fstab in `/tmp/.uci` play no part, and refused while a change waits there
     under the copy's own name): a commit that did not land, the record not as asked, any other section changed,
-    or a file uci cannot parse, a file left empty or cut off inside a value included, is undone
+    or a file uci cannot parse, a file cut off inside a value included, or left empty where it held
+    more than the record, is undone
     (the change reverted, the file put back from that copy by a rename) before switching anything;
     `back` whose record removal does not land says so and leaves Hermes refusing to start inside;
     when the file could not be put back either, each command says so and names the copy it kept
@@ -380,7 +381,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     maps a file in it without keeping it open; a process whose root directory is in it, which is
     looked for and not gated; a power cut while the file is put back; another `uci commit fstab`,
     from LuCI or a shell, landing in the moment between the copy and the read-back, which is then
-    taken for a failed commit and put back over).
+    taken for a failed commit and put back over; a deletion of the record staged in uci and not
+    committed, which the start check reads as done).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
