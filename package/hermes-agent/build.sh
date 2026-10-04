@@ -179,11 +179,13 @@ cat > "$OUT/usr/bin/hermes" <<'LAUNCHER'
 SITE=/usr/lib/hermes-agent/site-packages
 # Where upstream's skills, locales and MCP catalogue live; see the file itself.
 . /usr/lib/hermes-agent/hermes-env
-# Hermes's data on a USB stick (hermes-usb): a command pointed at that directory, as the README's
-# `HERMES_HOME=/srv/hermes hermes cron create ...` is, refuses rather than write under the empty
-# mount point of a stick that is not there.
+# Hermes's data on a USB stick (hermes-usb): a command pointed at that directory from a root shell,
+# as the README's `HERMES_HOME=/srv/hermes hermes cron create ...` is, refuses rather than write
+# under the empty mount point of a stick that is not there. Only root asks: the user hermes cannot
+# read a device's UUID, and the gateway, which runs this as hermes, was asked by its wrapper, as
+# root, a moment before (a Brume 2 showed it on 2026-10-04, when the gateway refused its own stick).
 . /usr/lib/hermes-agent/hermes-usb-check
-if [ -n "${HERMES_HOME:-}" ] && [ "${HERMES_HOME%/}" = "$(uci -q get fstab.hermes_data.target 2>/dev/null)" ]; then
+if [ "$(id -u)" = 0 ] && [ -n "${HERMES_HOME:-}" ] && [ "${HERMES_HOME%/}" = "$(uci -q get fstab.hermes_data.target 2>/dev/null)" ]; then
 	why=$(hermes_data_ok "${HERMES_HOME%/}") || { echo "hermes: $why" >&2; exit 1; }
 fi
 # The gateway runs as the user hermes (the owner and assistant profiles), so what it keeps in

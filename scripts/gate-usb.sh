@@ -99,7 +99,7 @@ export HERMES_USB_SERVICE=/stub/svc HERMES_USB_CGROUP=/tmp/cg
 
 # Loop devices are the kernel's, shared with whatever else the Docker host runs, so only the
 # ones this gate attached are ever detached, and spare device nodes are made up front.
-i=0; while [ $i -lt 64 ]; do [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i; i=$((i + 1)); done
+i=0; while [ $i -lt 64 ]; do [ -e /dev/loop$i ] || mknod -m 0600 /dev/loop$i b 7 $i; i=$((i + 1)); done
 : > /tmp/ours
 # disk $1 MiB, $2 partitions ("1" or "2"): prints the loop device; partition nodes are made
 disk() {
@@ -107,8 +107,9 @@ disk() {
 	if [ "$2" = 2 ]; then printf ',%sM,83\n,,83\n' $(( $1 / 2 )) | sfdisk -q $f >/dev/null 2>&1; else printf ',,83\n' | sfdisk -q $f >/dev/null 2>&1; fi
 	l=$(losetup -f --show -P $f); echo "$l $f" >> /tmp/ours
 	for p in /sys/class/block/${l#/dev/}p*; do
-		[ -e "$p/dev" ] || continue; n=/dev/$(basename $p); [ -e $n ] || mknod $n b $(cut -d: -f1 $p/dev) $(cut -d: -f2 $p/dev)
+		[ -e "$p/dev" ] || continue; n=/dev/$(basename $p); [ -e $n ] || mknod -m 0600 $n b $(cut -d: -f1 $p/dev) $(cut -d: -f2 $p/dev)
 	done
+	chmod 0600 $l ${l}p* 2>/dev/null   # as a router's block devices are: root's alone
 	echo $l
 }
 stick() {  # $1 MiB, $2 mkfs type or "none": prints the first partition of a one-partition disk
@@ -188,6 +189,10 @@ check_move_copies_and_restarts_on_the_stick() {
 	out=$(init_start)
 	echo "$out" | grep -q "Not starting" && fail "the init refused the stick hermes-usb set up: $out"
 	[ "$(owner $D)" = hermes ] || fail "the init did not go on to give $D to hermes: $out"
+	# the gateway runs the hermes launcher as the user hermes, who cannot read a device's UUID
+	# (seen on a Brume 2 on 2026-10-04: the gateway refused its own stick); it must go on
+	out=$(HERMES_HOME=$D /usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes /usr/bin/hermes --version 2>&1)
+	echo "$out" | grep -q "Hermes Agent" || fail "the launcher, run as hermes the way the gateway runs it, refused the stick: $out"
 }
 
 check_move_refuses_a_device_in_use() {

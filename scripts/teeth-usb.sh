@@ -128,6 +128,8 @@ plant "the wrapper does not ask (procd's respawn)" $S gw \
 	'why=$(hermes_data_ok "$HERMES_HOME") || { echo "hermes-gateway: $why. Not starting." >&2; exit 1; }' ':'
 plant "hermes-login does not ask" $S login \
 	'why=$(hermes_data_ok "$data_dir") || { echo "hermes-login: $why" >&2; exit 1; }' ':'
+plant "the launcher asks as hermes too (it cannot read a UUID)" $M launcher \
+	'if [ "$(id -u)" = 0 ] && [ -n "${HERMES_HOME:-}" ]' 'if [ -n "${HERMES_HOME:-}" ]'
 plant "the launcher does not ask" $S launcher \
 	'	why=$(hermes_data_ok "${HERMES_HOME%/}") || { echo "hermes: $why" >&2; exit 1; }' '	:'
 # hotplug

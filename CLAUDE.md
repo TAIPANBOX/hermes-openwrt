@@ -339,7 +339,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     One check, `/usr/lib/hermes-agent/hermes-usb-check`, reads it, the top mount on the data
     directory from `/proc/self/mountinfo`, hermes-usb's lock (with its pid) and the copies an
     interrupted run leaves under fixed names; the init, the gateway wrapper procd respawns, the
-    `hermes` launcher when `HERMES_HOME` is the stick's directory, hermes-login and
+    `hermes` launcher run as root when `HERMES_HOME` is the stick's directory, hermes-login and
     `/etc/hotplug.d/block/90-hermes-usb` all ask it: without the stick nothing of Hermes starts or
     writes inside; the stick's own arrival starts an enabled service, its departure stops it, other
     devices change nothing. Before copying, hermes-usb waits for the gateway's process (read from
@@ -356,7 +356,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     mounted (partly gated: `scripts/gate-usb.sh`, bound to `features/usb.feature`, teeth
     `scripts/teeth-usb.sh`; not gated: a disk held by another device and a partition in use as
     swap, which a loop device cannot show, the moment of a power cut itself, INT and TERM, and
-    hermes-login's own wait for the sign-in, during which the stick is not asked again).
+    hermes-login's own wait for the sign-in, during which the stick is not asked again, and a
+    command the user `hermes` runs by hand, since that user cannot read a device's UUID).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
