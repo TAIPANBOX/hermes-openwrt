@@ -19,7 +19,7 @@
 <rect x="0" y="0" width="1280" height="4" fill="url(#accent)"/>
 
 <text x="48" y="60" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" font-weight="600" fill="#e6edf3">Hermes on a USB stick</text>
-<text x="48" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, Hermes 0.21.5-r5 from the signed feed, measured 2026-10-04</text>
+<text x="48" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, Hermes 0.21.5 (r5 from the signed feed; hermes-usb from r6), measured 2026-10-04</text>
 
 <!-- left: Beryl AX -->
 <rect x="48" y="118" width="580" height="360" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
@@ -59,7 +59,7 @@
 <rect x="92" y="296" width="500" height="1" fill="#1b2331"/>
 <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
   <text x="92" y="324" fill="#69788b">install onto the stick</text>  <text x="300" y="324" fill="#e6edf3">75 s, 325 MB</text>
-  <text x="92" y="348" fill="#69788b">written to internal flash</text><text x="300" y="348" fill="#3fb950">0 KB</text>
+  <text x="92" y="348" fill="#69788b">internal flash used</text><text x="300" y="348" fill="#3fb950">unchanged</text>
   <text x="92" y="372" fill="#69788b">gateway resident</text>         <text x="300" y="372" fill="#e6edf3">202 MB</text>
   <text x="92" y="396" fill="#69788b">free memory, gateway up</text>  <text x="300" y="396" fill="#e3b341">156 MB</text>
   <text x="92" y="420" fill="#69788b">one conversation</text>         <text x="300" y="420" fill="#e6edf3">35 s, free never under 113 MB</text>
@@ -75,24 +75,24 @@
   <text x="700" y="198" font-size="15" font-weight="600" fill="#e6edf3">Data directory only</text>
   <text x="700" y="220" font-size="12" fill="#69788b">/srv/hermes on the stick,</text>
   <text x="700" y="238" font-size="12" fill="#69788b">the programs stay inside.</text>
-  <text x="700" y="262" font-size="12" fill="#9aa7b8">Needs ~350 MB of flash.</text>
-  <text x="700" y="284" font-size="12" fill="#9aa7b8">Stick missing: Hermes starts</text>
-  <text x="700" y="300" font-size="12" fill="#9aa7b8">on internal storage.</text>
+  <text x="700" y="262" font-size="12" fill="#9aa7b8">One command. ~350 MB inside.</text>
+  <text x="700" y="284" font-size="12" fill="#9aa7b8">Stick missing: Hermes waits,</text>
+  <text x="700" y="300" font-size="12" fill="#9aa7b8">the router runs as usual.</text>
 
   <rect x="954" y="170" width="250" height="132" rx="10" fill="#0f1520" stroke="#30363d"/>
   <text x="974" y="198" font-size="15" font-weight="600" fill="#e6edf3">Everything (extroot)</text>
   <text x="974" y="220" font-size="12" fill="#69788b">OpenWrt's whole writable layer</text>
   <text x="974" y="238" font-size="12" fill="#69788b">on the stick; firmware inside.</text>
-  <text x="974" y="262" font-size="12" fill="#9aa7b8">Needs no free flash at all.</text>
+  <text x="974" y="262" font-size="12" fill="#9aa7b8">About 1 MB inside, for USB.</text>
   <text x="974" y="284" font-size="12" fill="#9aa7b8">Stick missing: the router boots</text>
   <text x="974" y="300" font-size="12" fill="#9aa7b8">its own layer, no Hermes.</text>
 </g>
 
 <text x="680" y="336" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600" letter-spacing="0.6">WHAT THE GATEWAY WRITES, IDLE</text>
 <g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
-  <text x="680" y="364" fill="#69788b">PLACEHOLDER_ROW1_LABEL</text><text x="1204" y="364" fill="#e6edf3" text-anchor="end">PLACEHOLDER_ROW1</text>
-  <text x="680" y="388" fill="#69788b">PLACEHOLDER_ROW2_LABEL</text><text x="1204" y="388" fill="#e6edf3" text-anchor="end">PLACEHOLDER_ROW2</text>
-  <text x="680" y="412" fill="#69788b">PLACEHOLDER_ROW3_LABEL</text><text x="1204" y="412" fill="#e6edf3" text-anchor="end">PLACEHOLDER_ROW3</text>
-  <text x="680" y="444" font-size="12" fill="#69788b">PLACEHOLDER_NOTE</text>
+  <text x="680" y="364" fill="#69788b">Hermes data, Flint 2</text><text x="1204" y="364" fill="#e6edf3" text-anchor="end">1.1 GB a day</text>
+  <text x="680" y="388" fill="#69788b">Hermes data, Brume 2</text><text x="1204" y="388" fill="#e6edf3" text-anchor="end">1.0 GB a day</text>
+  <text x="680" y="412" fill="#69788b">the routers themselves, same half hours</text><text x="1204" y="412" fill="#e3b341" text-anchor="end">2.3 and 5.7 GB a day</text>
+  <text x="680" y="444" font-size="12" fill="#69788b">ext4 journal included; extroot on a Brume 2, Hermes running: 0 KB to eMMC</text>
 </g>
 </svg>

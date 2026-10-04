@@ -152,7 +152,7 @@ No `--allow-untrusted` and no `--force` anywhere. That is the point of signing t
   profile and openwrt-mcp connected; what the difference is made of is not measured).
 - **Flash.** About 350 MB for the packages and the Python they bring, then the data
   directory: 37 MB at the first start, growing from there. It can live on a USB stick
-  (see [Small flash](#small-flash-put-the-data-directory-on-a-usb-stick)).
+  (see [Hermes on a USB stick](#hermes-on-a-usb-stick)).
 - **A model.** A key for an OpenAI-compatible provider, a free one included: the service
   does not start without one. A ChatGPT subscription can be added beside it and picked
   with `/model`, not used instead of it (see [More than one provider](#more-than-one-provider)).
@@ -371,36 +371,90 @@ provider, Anthropic's own included: its OpenAI-compatible endpoint takes an Anth
 (`https://api.anthropic.com/v1`, measured 2026-09-25). As a further provider, below,
 Anthropic runs on upstream's native transport, which the package now carries.
 
-### Small flash: put the data directory on a USB stick
+### Hermes on a USB stick
 
-On a router that has never had Hermes, the install also brings Python, ffmpeg and ripgrep
-from OpenWrt's own feed. Measured on 2026-09-25 on both routers, from a router cleaned of
-every trace of the package: the agent and its web page took 332 MB of flash on the
-Brume 2 and 337 MB on the Flint 2, 343 and 348 MB with the Telegram add-on. The first
-start then puts 37 MB into the data directory, 32 MB of it a helper (`tirith`) the agent
-downloads, which makes 382 and 387 MB in all. Sessions, memory and a SQLite journal grow
-there from then on, so budget at least 400 MB plus room to grow. On a router with 8 MB or
-128 MB of flash that does not fit, and even where it fits, the writes land on the same
-flash the firmware lives on.
+![Hermes on a USB stick: a GL-MT3000 Beryl AX running Hermes from a stick, and the two ways to put Hermes on USB](docs/usb-stick.svg)
 
-![Moving the data directory to a USB stick](docs/usb.svg)
+Hermes installs to the router's own storage by default. What wears flash is what is written
+again and again, and for Hermes that is its data directory (sessions,
+memory, logs, its state database); the programs are written once, at install. Measured on
+2026-10-04 with the data directory alone on a stick: an idle gateway wrote about 1.1 GB a day
+on the Flint 2 and 1.0 GB a day on the Brume 2, the ext4 journal included. In the same half
+hours the routers themselves wrote 2.3 and 5.7 GB a day to their own eMMC.
+
+A stick is an option for anyone who would rather keep a service's writes on something they can
+replace, and the only way in for a router with too little flash. There are two ways.
+
+**The data on a stick: `hermes-usb`.** One command moves the data directory to a stick and
+mounts it there at every boot; the programs stay inside, and the router never depends on the
+stick. Without it Hermes does not start, and says why, rather than start empty on the
+router's own storage; everything else on the router runs as before.
 
 ```sh
-apk add kmod-usb-storage kmod-fs-ext4 block-mount e2fsprogs
-
-mkfs.ext4 -F -L hermes-data /dev/sda1
-mkdir -p /mnt/usb && mount /dev/sda1 /mnt/usb
-/etc/init.d/hermes-agent stop
-cp -a /srv/hermes/. /mnt/usb/ && umount /mnt/usb
-
-uci set fstab.hermes=mount
-uci set fstab.hermes.uuid="$(block info /dev/sda1 | grep -o 'UUID="[^"]*"' | cut -d'"' -f2)"
-uci set fstab.hermes.target='/srv/hermes'
-uci set fstab.hermes.options='rw,noatime'
-uci set fstab.hermes.enabled='1'
-uci commit fstab && /etc/init.d/fstab boot
-/etc/init.d/hermes-agent start
+apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
+block info                            # the stick's partition: /dev/sda1 here
+hermes-usb move /dev/sda1 --format    # erases that partition, makes ext4, moves the data
+hermes-usb status
 ```
+
+`hermes-usb back` brings the data inside again, and the stick can then be removed. Without
+`--format` it takes only an empty ext4 partition. It refuses, changing nothing, a partition
+that is mounted anywhere, a stick without room for the data plus 64 MiB, and a router
+without the packages above, whose `apk add` line it prints. Measured on 2026-10-04 on the
+Flint 2 with a 128 GB stick: the move with `--format` took 259 s, nearly all of it formatting,
+because `--format` writes every inode table at once (a freshly made ext4 otherwise goes on
+writing by itself for hours, which looks exactly like a service wearing the stick); 373 files
+moved; after a reboot the gateway was running with its data on the stick 14 s into the boot;
+with the stick unmounted the service refused to start and nothing was written inside.
+
+**Everything on a stick: extroot.** OpenWrt's own way to put the router's whole writable
+layer on a stick: every package installed afterwards, Hermes or any other, lands there, and
+the internal flash keeps only the firmware. It is the way in for a router with too little
+flash, such as the Beryl AX, and it moves the router's configuration to the stick too. A
+configured router keeps its settings: they are copied to the stick before the switch.
+
+```sh
+apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
+mkfs.ext4 -F -L hermes-root -E lazy_itable_init=0,lazy_journal_init=0 /dev/sda1   # erases it
+[ -f /etc/config/fstab ] || block detect | uci import fstab
+UUID=$(block info /dev/sda1 | grep -o 'UUID="[^"]*"' | cut -d'"' -f2)
+ORIG=$(block info | sed -n -e '/MOUNT="\S*\/overlay"/s/:\s.*$//p')
+uci set fstab.extroot=mount; uci set fstab.extroot.uuid="$UUID"; uci set fstab.extroot.target=/overlay
+uci set fstab.rwm=mount; uci set fstab.rwm.device="$ORIG"; uci set fstab.rwm.target=/rwm
+uci commit fstab
+mkdir -p /mnt/x && mount /dev/sda1 /mnt/x && tar -C /overlay -cf - . | tar -C /mnt/x -xf - && umount /mnt/x
+reboot
+```
+
+After the reboot `df -h /` shows the stick's size; then install Hermes with the
+[Install](#install) block as usual. Measured on 2026-10-04, with the stick made without the
+`-E` option (it only stops the background writing described below) and, on the Beryl AX,
+formatted whole as `/dev/sda`:
+
+| | Beryl AX (512 MB, NAND) | Brume 2 (1 GB, eMMC) |
+|---|---|---|
+| the Install block, onto the stick | 75 s, 52 packages, 325 MB | 59 s, 52 packages, 320 MB |
+| internal flash during the install | space used unchanged, 828 KB | 0 MB written |
+| internal flash, Hermes running, 10 min | | 0 KB written |
+| gateway resident / memory left free | 202 MB / 156 MB | |
+| one conversation (five commands, free model) | 35 s, never under 113 MB free | |
+| more than one conversation at once | not measured | |
+
+On 512 MB, one conversation at a time fits and the margin is thin. Undoing it differs by
+storage. On the Beryl AX (NAND) the internal layer is mounted at `/rwm`, so removing the
+`extroot` and `rwm` sections from `/rwm/upper/etc/config/fstab` and rebooting undoes it,
+measured. On the Brume 2 (eMMC, the internal layer an f2fs on a loop device) OpenWrt 25.12
+mounts no `/rwm` and the internal layer cannot be reached while the router runs from the
+stick: take the stick out and power the router off and on. Measured on 2026-10-04: the
+router came up on its own layer, as it was at the switch ("extroot: cannot find device ...
+switching to f2fs overlay"), with its network and Tailscale working. The Flint 2 mounts its
+internal layer at `/rom/overlay`, where the commands above do not apply as written; extroot
+was not tried there.
+
+A freshly made ext4 writes on its own for hours (`ext4lazyinit`): on 2026-10-04 a new
+128 GB stick took about 140 KiB/s with Hermes stopped. Make it with `-E
+lazy_itable_init=0,lazy_journal_init=0`, as both commands here do, before reading anything
+into a stick's write counters.
 
 ### Two defects the hardware found
 
@@ -1070,6 +1124,8 @@ OpenWrt's own published rootfs and then asks the running system.
 | `gate-runtime.sh` | 61 tests against the installed upstream payload: actual model HTTP response, platform tool defaults, MCP configuration, credential handover, UCI re-applied after a model switched from a chat, override refusals, bounded respawn, kernel-enforced memory limits including lifting one, the profiles, who each runs the gateway and its helpers as, what the agent is told, `hermes-drop` and the launcher, the owner profile's openwrt-mcp policies and the second factor's settings, the per-turn limit on model calls, and further providers: what upstream resolves and /model offers, their keys, names and ownership |
 | `teeth-runtime.py` | 85 product mutations must fail their named test; missing subjects refuse verification and the restored product must pass |
 | `gate-unlock.sh` | 35 checks, one per scenario in `features/unlock.feature`, all implemented, in OpenWrt's own rootfs with `hermes-agent`, its Telegram add-on, `luci-app-hermes` and `openwrt-mcp` installed. Fourteen are about the agent and the router: it runs as `hermes` with groups dropped and no way back, the key files are root-only, the memory ceiling is applied before the drop, an upgrade hands a root-era data directory over, root is opt-in and warned, a router with no `/srv` starts the agent (run under the umask a boot uses, with the real gateway checked as `hermes`), a parent the agent cannot enter is named and left as it was, reads need no unlock, a change while locked is refused and the agent told how to unlock, no factor means no change policy, the model is offered neither `mfa_unlock` nor `mfa_lock`, one agent's unlock does not open another's, an unconfirmed change is undone after a reboot, and no private key is granted. Eighteen run the real gateway with Telegram on, the real adapter and plugin and the real daemon, against two stand-ins (`scripts/unlock-harness.py`): a Bot API that records what the bot sent and deleted, and a model endpoint that records every request: each factor alone and both, the PIN's slow salted hash, five wrong tries and the lockout, a code used once, the window ending by itself, `/lock`, the message deleted before the daemon is asked and never sent to the model, an unlock while busy in each of the three busy modes, an unlock edited into a message, a bare PIN or code, nothing in any log at DEBUG, a group, someone outside the allowlist, a scheduled job refused with a window open, and the agent told, on the request after an unlock, that the window is open (never the PIN), no longer told after `/lock`, a lockout or the window running out, and a scheduled job never told. Three are the setup (`scripts/security-harness.py`, with a QR decoder of its own in `scripts/qr_decode.py` that checks every block's Reed-Solomon syndromes, so "decodable" means a phone could read it): through rpcd and ubus, as LuCI calls it, the QR decodes to the otpauth address for `hermes-main` and nothing is in force until a code is entered, a wrong code leaves it pending, `set_factor totp` is refused before and accepted after, a second start gives different material and leaves the first in force, and the code of the enrolled phone then unlocks after the agent restarts while the unactivated one does not; the README's own SSH commands, and the config file the package ships, give the same two steps, and they print the address and a QR block that decodes to it, pending until the current code of that secret; and the PIN goes in on standard input only, with nine bad PINs writing nothing, in no reply, file, log or program argument or environment, never read back, and unlocking afterwards |
+| `gate-usb.sh` | 8 checks, one per scenario in `features/usb.feature`, in OpenWrt's own rootfs with a stick made of an image file on a loop device and the real `mkfs`, `mount`, `block` and fstab: `hermes-usb status` names where the data lives; `move` waits for the gateway's last write (a stand-in shaped like the real shutdown, which drops its pid file first), copies every file unchanged, mounts the stick by UUID from fstab, restarts the agent on it and removes the copy inside; it refuses, changing nothing, a partition in use, a stick without room, another filesystem unless `--format`, and a router without the USB packages, printing their `apk add` line; `--format` writes every inode table at once; the installed init will not start, and writes nothing, when the stick is missing; `back` brings everything inside again |
+| `teeth-usb.sh` | eleven faults, each caught by its check: no wait for the gateway, a wait for its pid file only, `back` without the wait, the copy inside left behind, a partition in use taken, no room check, another filesystem formatted unasked, lazy inode tables, no check for the USB packages, `back` leaving the fstab entry, and an init that starts without the stick |
 | `gate-scenarios-bound.sh` | every scenario in `features/` names a check that runs, and every check is described by a scenario |
 | `gate-named-routers.sh` | the tracked tree names no router but the two it is tested on, by name or by model number |
 | `teeth.sh` | plants five faults and requires a different check to catch each one |
@@ -1120,6 +1176,7 @@ the same one: a gate proves what it was pointed at, and a router is not a contai
 - [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included
 - [x] Upstream's native Anthropic provider
 - [x] A Providers page: further providers with write-only keys, ChatGPT sign-in and sign-out
+- [x] Hermes's data on a USB stick with one command, `hermes-usb` (0.21.5-r6), and no start without the stick; extroot measured on a Beryl AX and a Brume 2
 - [x] A daily check opens an issue when upstream tags a release newer than the pinned one (`scripts/upstream-watch.sh`); moving to it stays a reviewed change, built, gated and run on both routers first
 
 ## Prior art, and what is not ours

@@ -28,7 +28,14 @@ PY
 }
 
 plant "no wait for the gateway to go" check_move_copies_and_restarts_on_the_stick usb \
-	'while [ -e "$1/gateway.pid" ] && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done' ':'
+	'while busy "$1" && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done' ':'
+plant "a wait for the pid file only" check_move_copies_and_restarts_on_the_stick usb \
+	'	[ -n "$gw" ] && [ -d "/proc/$gw" ] && return 0
+	[ -s "$CGROUP/cgroup.procs" ] && return 0' ''
+plant "back without the wait" check_back_returns_the_data_inside usb \
+	'	stop_gateway "$data_dir"
+	mkdir -p "$tmp"' '	"$SERVICE" stop >/dev/null 2>&1
+	mkdir -p "$tmp"'
 plant "the copy inside left behind" check_move_copies_and_restarts_on_the_stick usb \
 	'find "$data_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +' ':'
 plant "a device in use taken anyway" check_move_refuses_a_device_in_use usb \

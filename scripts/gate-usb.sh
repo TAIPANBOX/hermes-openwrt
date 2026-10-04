@@ -40,25 +40,41 @@ apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/install.log 2>&1 || { tail -5 
 [ -x /usr/sbin/hermes-usb ] || { echo "FAIL: measured nothing: /usr/sbin/hermes-usb is not installed"; exit 1; }
 apk add losetup dumpe2fs >/dev/null 2>&1 || { echo "FAIL setup: losetup and dumpe2fs would not install"; exit 1; }
 
-# The stand-in service. stop: the "gateway" goes 3 s later, as the real one takes its time.
+# The stand-in service, shaped like the real gateway's shutdown as a Flint 2 showed it on
+# 2026-10-04: told to stop, it removes its pid file after a second, and only three seconds
+# later makes its last write and exits: state.db.closed counts the shutdowns ("closed N"), as
+# the real one closes its database. After one move the stick must say "closed 1", after the
+# move and back the router's own storage "closed 2"; a copy taken when the pid file went holds
+# the count before.
+cat > /stub/gw <<'GW'
+#!/bin/sh
+D=$1
+echo wal > "$D/state.db-wal"
+while [ ! -e /tmp/svc.stop ]; do sleep 1; done
+sleep 1; rm -f "$D/gateway.pid" "$D/gateway.sock"; echo "pidfile-gone $(date +%s)" >> /tmp/svc.log
+sleep 3; n=$(cut -d" " -f2 "$D/state.db.closed" 2>/dev/null); echo "closed $(( ${n:-0} + 1 ))" > "$D/state.db.closed"; rm -f "$D/state.db-wal"; echo "gone $(date +%s)" >> /tmp/svc.log
+GW
 cat > /stub/svc <<'SVC'
 #!/bin/sh
 D=$(uci -q get hermes.main.data_dir); [ -n "$D" ] || D=/srv/hermes
 case "$1" in
-	stop)  echo "stop $(date +%s)" >> /tmp/svc.log; ( sleep 3; rm -f "$D/gateway.pid" "$D/gateway.sock"; echo "gone $(date +%s)" >> /tmp/svc.log ) & ;;
-	start) echo "start $(date +%s) data_on=$(awk -v d="$D" '$2 == d { print $1 }' /proc/mounts)" >> /tmp/svc.log; echo 4242 > "$D/gateway.pid" ;;
+	stop)  echo "stop $(date +%s)" >> /tmp/svc.log; touch /tmp/svc.stop ;;
+	start) rm -f /tmp/svc.stop; echo "start $(date +%s) data_on=$(awk -v d="$D" '$2 == d { print $1 }' /proc/mounts)" >> /tmp/svc.log
+	       sh /stub/gw "$D" </dev/null >/dev/null 2>&1 & echo $! > "$D/gateway.pid" ;;
 esac
 SVC
 chmod 0755 /stub/svc
 export HERMES_USB_SERVICE=/stub/svc
 
 D=/srv/hermes
+sums() { ( cd $1 && find . -type f ! -name gateway.pid ! -name state.db-wal ! -name state.db.closed -exec md5sum {} + | sort -k 2 ); }
 seed() {  # a data directory that looks like the agent's, with a running gateway's pid file
-	rm -rf $D; mkdir -p $D/sessions $D/logs; chmod 0700 $D
+	rm -rf $D; mkdir -p $D/sessions $D/logs; chmod 0700 $D; rm -f $D/state.db.closed
 	head -c 300000 /dev/urandom > $D/state.db; echo '{"a":1}' > $D/config.yaml
 	for i in 1 2 3 4 5; do head -c 20000 /dev/urandom > $D/sessions/s$i.json; done
-	echo log > $D/logs/agent.log; echo 4242 > $D/gateway.pid
-	( cd $D && find . -type f ! -name gateway.pid -exec md5sum {} + | sort -k 2 ) > /tmp/seed.sums
+	echo log > $D/logs/agent.log
+	sums $D > /tmp/seed.sums
+	/stub/svc start; rm -f /tmp/svc.log
 }
 # Loop devices are the kernel's, shared with whatever else the Docker host runs, so only the
 # ones this gate attached are ever detached, and spare device nodes are made up front.
@@ -71,7 +87,7 @@ stick() {  # $1 MiB, $2 mkfs type or "none"; prints the loop device
 	echo $l
 }
 detach() { while read -r l f; do umount $l 2>/dev/null; losetup -d $l 2>/dev/null; rm -f $f; done < /tmp/ours; : > /tmp/ours; }
-reset() { umount $D 2>/dev/null; umount /mnt/busy 2>/dev/null; detach; uci -q delete fstab.hermes_data; uci commit fstab 2>/dev/null; uci -q delete hermes.main.data_uuid; uci commit hermes; rm -f /tmp/svc.log; }
+reset() { touch /tmp/svc.stop; sleep 1; kill $(pgrep -f /stub/gw) 2>/dev/null; rm -f /tmp/svc.stop; umount $D 2>/dev/null; umount /mnt/busy 2>/dev/null; detach; uci -q delete fstab.hermes_data; uci commit fstab 2>/dev/null; uci -q delete hermes.main.data_uuid; uci commit hermes; rm -f /tmp/svc.log; }
 SELECTED=" ${ONLY:-} "
 run() { if [ -n "${ONLY:-}" ]; then case "$SELECTED" in *" $1 "*) ;; *) return 0 ;; esac; fi; CUR=$1; ( set -u; "$1" ) && echo "PASS $1" || { echo "FAIL $1"; FAILED=1; }; }
 fail() { echo "  $CUR: $*"; exit 1; }
@@ -85,7 +101,7 @@ check_missing_tools_named_and_nothing_changed() {
 	echo "$out" | grep -q 'apk add kmod-usb-storage block-mount kmod-fs-ext4' || fail "the apk add line is missing: $out"
 	[ ! -f /etc/config/fstab ] || ! grep -q hermes_data /etc/config/fstab || fail "fstab was changed"
 	[ -z "$(uci -q get hermes.main.data_uuid)" ] || fail "data_uuid was set"
-	( cd $D && find . -type f ! -name gateway.pid -exec md5sum {} + | sort -k 2 ) | cmp -s - /tmp/seed.sums || fail "the data changed"
+	sums $D | cmp -s - /tmp/seed.sums || fail "the data changed"
 }
 tools() { apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs >/dev/null 2>&1 || { echo "FAIL setup: the USB tools would not install"; exit 1; }; }
 
@@ -100,7 +116,8 @@ check_move_copies_and_restarts_on_the_stick() {
 	l=$(stick 128 ext4); u=$(block info $l | sed -n 's/.*UUID="\([^"]*\)".*/\1/p')
 	out=$(hermes-usb move $l 2>&1) || fail "move failed: $out"
 	[ "$(awk -v d=$D '$2 == d { print $1 }' /proc/mounts)" = "$l" ] || fail "$D is not on $l"
-	( cd $D && find . -type f ! -name gateway.pid -exec md5sum {} + | sort -k 2 ) | cmp -s - /tmp/seed.sums || fail "the data on the stick differs"
+	sums $D | cmp -s - /tmp/seed.sums || fail "the data on the stick differs"
+	[ "$(cat $D/state.db.closed 2>/dev/null)" = "closed 1" ] || fail "the copy was made before the gateway's last write (the stick holds '$(cat $D/state.db.closed 2>/dev/null)')"
 	# the gateway's own pid file must not have been copied: the copy began after it went
 	grep -q '^gone' /tmp/svc.log || fail "the stand-in never saw the gateway go"
 	st=$(sed -n 's/^start \([0-9]*\).*/\1/p' /tmp/svc.log | tail -1); [ -n "$st" ] || fail "the service was not started again"
@@ -118,20 +135,20 @@ check_move_refuses_a_device_in_use() {
 	out=$(hermes-usb move $l 2>&1) && fail "move went ahead: $out"
 	echo "$out" | grep -q "is mounted on /mnt/busy" || fail "the reason was not named: $out"
 	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"
-	( cd $D && find . -type f ! -name gateway.pid -exec md5sum {} + | sort -k 2 ) | cmp -s - /tmp/seed.sums || fail "the data changed"
+	sums $D | cmp -s - /tmp/seed.sums || fail "the data changed"
 	umount /mnt/busy
 }
 
 check_move_refuses_a_stick_without_room() {
 	reset; seed
 	head -c 9000000 /dev/urandom > $D/big.bin
-	( cd $D && find . -type f ! -name gateway.pid -exec md5sum {} + | sort -k 2 ) > /tmp/seed.sums
+	sums $D > /tmp/seed.sums
 	l=$(stick 16 ext4)
 	out=$(HERMES_USB_MARGIN_KB=4096 hermes-usb move $l 2>&1) && fail "move went ahead: $out"
 	echo "$out" | grep -q "KiB free and needs" || fail "the size was not named: $out"
 	grep -q hermes_data /etc/config/fstab 2>/dev/null && fail "fstab was changed"
 	[ -e /tmp/svc.log ] && grep -q '^stop' /tmp/svc.log && fail "the service was stopped for a move that could not happen"
-	( cd $D && find . -type f ! -name gateway.pid -exec md5sum {} + | sort -k 2 ) | cmp -s - /tmp/seed.sums || fail "the data changed"
+	sums $D | cmp -s - /tmp/seed.sums || fail "the data changed"
 }
 
 check_format_only_when_asked_and_without_lazy_init() {
@@ -168,7 +185,8 @@ check_back_returns_the_data_inside() {
 	rm -f /tmp/svc.log
 	out=$(hermes-usb back 2>&1) || fail "back failed: $out"
 	[ -z "$(awk -v d=$D '$2 == d { print $1 }' /proc/mounts)" ] || fail "$D is still a mount point"
-	( cd $D && find . -type f ! -name gateway.pid -exec md5sum {} + | sort -k 2 ) | cmp -s - /tmp/seed.sums || fail "the data inside differs"
+	sums $D | cmp -s - /tmp/seed.sums || fail "the data inside differs"
+	[ "$(cat $D/state.db.closed 2>/dev/null)" = "closed 2" ] || fail "the copy was made before the gateway's last write (inside holds '$(cat $D/state.db.closed 2>/dev/null)')"
 	grep -q hermes_data /etc/config/fstab && fail "the fstab entry is still there"
 	[ -z "$(uci -q get hermes.main.data_uuid)" ] || fail "data_uuid is still set"
 	grep -q '^start' /tmp/svc.log || fail "the service was not started again"

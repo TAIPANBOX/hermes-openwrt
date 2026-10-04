@@ -12,14 +12,17 @@
 # (extroot) is a different, larger change, described in the README.
 #
 # Lessons this carries, each from a run on 2026-10-04:
-#   - the service's stop returns before the gateway has exited; copying then trips over its
-#     pid and socket files as they vanish. Wait for gateway.pid to go first.
+#   - the service's stop returns before the gateway has exited, and the gateway removes its
+#     pid file early in its shutdown and closes its database after: copying then trips over
+#     files as they vanish (gateway.pid, then state.db-wal). Wait for the process itself, and
+#     for the service's memory group to empty, not for the pid file.
 #   - a freshly made ext4 keeps writing for hours on its own (lazy inode-table init), which
 #     looks like a service wearing the stick. --format writes the tables at once instead.
 #   - a stick formatted whole has no partition 1; name the partition the stick actually has.
 set -u
 NAME=hermes-usb
 SERVICE=${HERMES_USB_SERVICE:-/etc/init.d/hermes-agent}
+CGROUP=${HERMES_USB_CGROUP:-/sys/fs/cgroup/services/hermes-agent/instance1}
 MARGIN_KB=${HERMES_USB_MARGIN_KB:-65536}
 TOOLS='kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs'
 
@@ -50,11 +53,18 @@ need_tools() {
 	exit 2
 }
 
+busy() {  # anything of the gateway's still alive: its pid file, its process, its group
+	[ -e "$1/gateway.pid" ] && return 0
+	[ -n "$gw" ] && [ -d "/proc/$gw" ] && return 0
+	[ -s "$CGROUP/cgroup.procs" ] && return 0
+	return 1
+}
 stop_gateway() {
+	gw=$(cat "$1/gateway.pid" 2>/dev/null)
 	"$SERVICE" stop >/dev/null 2>&1
 	i=0
-	while [ -e "$1/gateway.pid" ] && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
-	[ -e "$1/gateway.pid" ] && { "$SERVICE" start >/dev/null 2>&1; die "the gateway did not stop within 60 s; nothing was moved"; }
+	while busy "$1" && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
+	busy "$1" && { "$SERVICE" start >/dev/null 2>&1; die "the gateway did not stop within 60 s; nothing was moved"; }
 	return 0
 }
 
@@ -65,8 +75,10 @@ status() {
 		say "$data_dir is on $dev (UUID $(uuid_of "$dev")), $(size_kb "$data_dir") KiB used, $(df -k "$data_dir" | awk 'NR == 2 { print $4 }') KiB free"
 	elif [ -n "$want" ]; then
 		say "$data_dir should be on the stick with UUID $want, and that stick is not mounted; Hermes will not start until it is"
-	else
+	elif [ -d "$data_dir" ]; then
 		say "$data_dir is on the router's own storage, $(size_kb "$data_dir") KiB used"
+	else
+		say "$data_dir does not exist yet; it is made at the agent's first start, on the router's own storage"
 	fi
 }
 
