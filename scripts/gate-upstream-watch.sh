@@ -7,7 +7,7 @@
 #   WATCH=/path gate-upstream-watch.sh another copy of it (teeth-upstream-watch.sh uses it)
 #   gate-upstream-watch.sh --selftest  the checks it runs, for gate-scenarios-bound.sh
 set -u
-CHECKS='check_quiet_when_pinned_is_latest check_issue_when_upstream_is_newer check_no_second_issue check_quiet_when_pinned_is_ahead check_refuses_when_upstream_unreadable check_refuses_when_issues_unreadable'
+CHECKS='check_quiet_when_pinned_is_latest check_issue_when_upstream_is_newer check_no_second_issue check_quiet_when_pinned_is_ahead check_refuses_when_upstream_unreadable check_refuses_when_issues_unreadable check_refuses_unrecognised_tag'
 if [ "${1:-}" = "--selftest" ]; then
 	for c in $CHECKS; do echo "$c"; done
 	exit 0
@@ -20,23 +20,36 @@ WATCH=${WATCH:-$HERE/upstream-watch.sh}
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin"
-# The stand-in. FAKE_LATEST is upstream's latest tag ('' reads as empty, FAIL makes the
-# call fail), FAKE_LIST=FAIL makes listing the issues fail, and $T/titles holds the titles
-# of issues that exist, one per line. Every call is appended to $T/calls, and an issue
-# create also writes its body to $T/body.
+# The stand-in answers as GitHub would, arguments included, so a watcher that drops one
+# gets what the real `gh` would give it. FAKE_LATEST is upstream's latest tag ('' reads as
+# empty, FAIL makes the call fail); without `--jq .tag_name` the release comes back as
+# JSON, as it does from GitHub. FAKE_LIST=FAIL makes listing the issues fail; $T/titles
+# holds the issues that exist, one "open|closed<TAB>title" per line, and without
+# `--state all` only the open ones are listed. Without `--repo` the call fails. Every
+# call is appended to $T/calls; an issue create writes its title to $T/title and its
+# body to $T/body.
 cat > "$T/bin/gh" <<'GH'
 #!/bin/sh
 printf '%s\n' "$*" >> "$GATE_T/calls"
+has() { case " $ARGS " in *" $1 "*) return 0 ;; esac; return 1; }
+ARGS="$*"
 case "$1 $2" in
 	"api repos/"*)
 		[ "$FAKE_LATEST" = FAIL ] && { echo "HTTP 502" >&2; exit 1; }
-		printf '%s\n' "$FAKE_LATEST" ;;
+		if has "--jq .tag_name"; then printf '%s\n' "$FAKE_LATEST"
+		else printf '{"tag_name":"%s","assets":[{"download_count":%s}]}\n' "$FAKE_LATEST" "$$"; fi ;;
 	"issue list")
+		has "--repo $EXPECT_REPO" || { echo "stand-in gh: no --repo $EXPECT_REPO" >&2; exit 1; }
 		[ "${FAKE_LIST:-}" = FAIL ] && { echo "HTTP 502" >&2; exit 1; }
-		[ -f "$GATE_T/titles" ] && cat "$GATE_T/titles"; exit 0 ;;
+		[ -f "$GATE_T/titles" ] || exit 0
+		if has "--state all"; then cut -f2 "$GATE_T/titles"; else grep '^open	' "$GATE_T/titles" | cut -f2; fi ;;
 	"issue create")
+		has "--repo $EXPECT_REPO" || { echo "stand-in gh: no --repo $EXPECT_REPO" >&2; exit 1; }
 		while [ $# -gt 0 ]; do
-			case "$1" in --body) printf '%s\n' "$2" > "$GATE_T/body"; shift ;; esac
+			case "$1" in
+				--body) printf '%s\n' "$2" > "$GATE_T/body"; shift ;;
+				--title) printf '%s\n' "$2" > "$GATE_T/title"; shift ;;
+			esac
 			shift
 		done
 		echo "https://github.com/x/y/issues/1" ;;
@@ -54,9 +67,9 @@ ENV
 fail=0
 # $1 check, $2 upstream's latest, $3 titles that exist (may be empty)
 run() {
-	rm -f "$T/calls" "$T/body" "$T/titles"
+	rm -f "$T/calls" "$T/body" "$T/title" "$T/titles"
 	[ -n "$3" ] && printf '%s\n' "$3" > "$T/titles"
-	OUT=$(GATE_T="$T" FAKE_LATEST="$2" PATH="$T/bin:$PATH" UPSTREAM_ENV="$T/upstream.env" \
+	OUT=$(GATE_T="$T" EXPECT_REPO=TAIPANBOX/hermes-openwrt FAKE_LATEST="$2" PATH="$T/bin:$PATH" UPSTREAM_ENV="$T/upstream.env" \
 		GITHUB_REPOSITORY=TAIPANBOX/hermes-openwrt sh "$WATCH" 2>&1)
 	RC=$?
 }
@@ -72,15 +85,23 @@ else bad check_quiet_when_pinned_is_latest "exit $RC, $(created) issue(s) create
 
 run check_issue_when_upstream_is_newer v2026.10.3 ""
 if [ "$RC" -eq 0 ] && [ "$(created)" = 1 ] \
-	&& grep '^issue create' "$T/calls" | grep -q 'v2026.10.3' \
-	&& grep '^issue create' "$T/calls" | grep -q 'v2026.9.24' \
+	&& grep -q 'v2026.10.3' "$T/title" 2>/dev/null \
+	&& grep -q 'v2026.9.24' "$T/title" 2>/dev/null \
 	&& grep -q 'both routers' "$T/body" 2>/dev/null; then
 	pass check_issue_when_upstream_is_newer
 else bad check_issue_when_upstream_is_newer "exit $RC, $(created) issue(s) created, or the title or body is wrong"; fi
 
-run check_no_second_issue v2026.10.3 "Upstream Hermes v2026.10.3 is out (packaged: v2026.9.24)"
-if [ "$RC" -eq 0 ] && asked && [ "$(created)" = 0 ]; then pass check_no_second_issue
-else bad check_no_second_issue "exit $RC, $(created) issue(s) created for a release that already has one"; fi
+TAB=$(printf '\t')
+ok=1
+# open, closed, and closed with the pin moved on since (the title names the old pin)
+for existing in "open${TAB}Upstream Hermes v2026.10.3 is out (packaged: v2026.9.24)" \
+                "closed${TAB}Upstream Hermes v2026.10.3 is out (packaged: v2026.9.24)" \
+                "closed${TAB}Upstream Hermes v2026.10.3 is out (packaged: v2026.9.21)"; do
+	run check_no_second_issue v2026.10.3 "$existing"
+	{ [ "$RC" -eq 0 ] && asked && [ "$(created)" = 0 ]; } || { ok=0; echo "  with [$existing]: exit $RC, $(created) created"; }
+done
+if [ "$ok" = 1 ]; then pass check_no_second_issue
+else bad check_no_second_issue "a release that already has an issue got another"; fi
 
 run check_quiet_when_pinned_is_ahead v2026.9.21 ""
 if [ "$RC" -eq 0 ] && asked && [ "$(created)" = 0 ]; then pass check_quiet_when_pinned_is_ahead
@@ -100,5 +121,10 @@ unset FAKE_LIST
 if [ "$RC" -ne 0 ] && [ "$(created)" = 0 ] && printf '%s\n' "$OUT" | grep -q 'cannot read the issues'; then
 	pass check_refuses_when_issues_unreadable
 else bad check_refuses_when_issues_unreadable "exit $RC, $(created) issue(s) created without knowing which exist"; fi
+
+run check_refuses_unrecognised_tag v0.22.0 ""
+if [ "$RC" -ne 0 ] && [ "$(created)" = 0 ] && printf '%s\n' "$OUT" | grep -q 'cannot compare'; then
+	pass check_refuses_unrecognised_tag
+else bad check_refuses_unrecognised_tag "exit $RC, $(created) issue(s) created for a tag it cannot order"; fi
 
 exit "$fail"

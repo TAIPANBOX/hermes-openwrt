@@ -29,6 +29,7 @@ Feature: A newer upstream Hermes is noticed without anyone looking
 
   Scenario: the same release never opens a second issue, even after the first was closed
     Given an issue for that release already exists, open or closed
+    And the pin may have moved since that issue was opened
     When the daily check runs again
     Then it opens no issue
     # -> check_no_second_issue
@@ -52,3 +53,10 @@ Feature: A newer upstream Hermes is noticed without anyone looking
     Then it fails and says it could not read the issues
     And it opens no issue, since it cannot know whether one exists
     # -> check_refuses_when_issues_unreadable
+
+  Scenario: a tag in a form the check cannot order fails instead of going quiet
+    Given upstream's latest release is tagged outside the vYEAR.MONTH.DAY form
+    When the daily check runs
+    Then it fails and says it cannot compare that tag
+    And it opens no issue
+    # -> check_refuses_unrecognised_tag

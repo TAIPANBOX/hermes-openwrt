@@ -23,22 +23,31 @@ if [ -z "$latest" ]; then
 	exit 1
 fi
 
-# Upstream tags are CalVer (v2026.9.24), so version order is the order to compare by.
+# Upstream tags are CalVer (v2026.9.24), so version order is the order to compare by. A tag
+# in another form would sort below the pin and silence this check for good, so it fails.
+for t in "$latest" "$HERMES_TAG"; do
+	echo "$t" | grep -Eq '^v[0-9]{4}(\.[0-9]+)+$' || {
+		echo "upstream-watch: cannot compare '$t' with a vYEAR.MONTH.DAY tag; look at it by hand" >&2
+		exit 1
+	}
+done
 newest=$(printf '%s\n%s\n' "$HERMES_TAG" "$latest" | sort -V | tail -n 1)
 if [ "$latest" = "$HERMES_TAG" ] || [ "$newest" = "$HERMES_TAG" ]; then
 	echo "upstream-watch: upstream's latest is $latest; the package pins $HERMES_TAG. Nothing to do."
 	exit 0
 fi
 
-title="Upstream Hermes $latest is out (packaged: $HERMES_TAG)"
-# Closed issues count too: a release someone decided to skip is not news again.
+prefix="Upstream Hermes $latest is out ("
+title="${prefix}packaged: $HERMES_TAG)"
+# Closed issues count too: a release someone decided to skip is not news again. The match is
+# on the release alone, since the pin in an older issue's title may have moved since.
 # Every title is read rather than searched for: the search index can lag an issue opened
 # minutes ago, and a repository with this few issues reads them all in one call.
 titles=$(gh issue list --repo "$REPO" --state all --limit 1000 --json title --jq '.[].title') || {
 	echo "upstream-watch: cannot read the issues of $REPO, so cannot tell whether $latest has one" >&2
 	exit 1
 }
-if printf '%s\n' "$titles" | grep -F -x -q -- "$title"; then
+if printf '%s\n' "$titles" | cut -c1-${#prefix} | grep -F -x -q -- "$prefix"; then
 	echo "upstream-watch: an issue for $latest already exists. Nothing to do."
 	exit 0
 fi

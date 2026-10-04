@@ -1,7 +1,9 @@
 #!/bin/sh
 # teeth-upstream-watch.sh -- gate-upstream-watch.sh has to fail on a watcher that opens a
-# second issue for the same release, one that passes when it cannot read upstream, and
-# one that takes any different tag for a newer one; and pass the watcher as it is.
+# second issue for the same release (closed ones and an older pin in the title included),
+# one that reads the release or the issues without the arguments GitHub needs, one that
+# passes when it cannot read upstream or the issues, one that takes any different tag for
+# a newer one or goes quiet on a tag it cannot order; and pass the watcher as it is.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 GATE=$HERE/gate-upstream-watch.sh
@@ -29,7 +31,19 @@ PY
 }
 
 plant "a second issue for the same release" check_no_second_issue \
-	'grep -F -x -q -- "$title"; then' 'false; then'
+	'grep -F -x -q -- "$prefix"; then' 'false; then'
+plant "closed issues not listed" check_no_second_issue \
+	'--state all --limit' '--limit'
+plant "an older issue matched on its whole title, pin included" check_no_second_issue \
+	'cut -c1-${#prefix} | grep -F -x -q -- "$prefix"' 'grep -F -x -q -- "$title"'
+plant "the release read without --jq" check_quiet_when_pinned_is_latest \
+	'--jq .tag_name' ''
+plant "the issue opened without --repo" check_issue_when_upstream_is_newer \
+	'gh issue create --repo "$REPO"' 'gh issue create'
+plant "a tag it cannot order goes quiet" check_refuses_unrecognised_tag \
+	"look at it by hand\" >&2
+		exit 1" "look at it by hand\" >&2
+		exit 0"
 plant "an unreadable upstream passes" check_refuses_when_upstream_unreadable \
 	"from \$UPSTREAM\" >&2
 	exit 1" "from \$UPSTREAM\" >&2

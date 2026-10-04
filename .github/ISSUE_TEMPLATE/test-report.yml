@@ -44,6 +44,7 @@ body:
         - owner
         - assistant
         - root
+        - admin (the old name of root)
     validations:
       required: true
   - type: input

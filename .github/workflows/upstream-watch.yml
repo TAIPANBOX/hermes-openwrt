@@ -9,6 +9,11 @@ on:
 
 permissions: {}
 
+# A manual run that overlaps the scheduled one could otherwise open the same issue twice.
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
 jobs:
   watch:
     runs-on: ubuntu-latest

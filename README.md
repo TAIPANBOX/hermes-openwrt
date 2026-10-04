@@ -60,13 +60,13 @@ export HERMES_HOME=/srv/hermes
 hermes cron create "0 * * * *" "Below is the router's hourly data. If everything is \
 normal, reply with exactly [SILENT]. Otherwise say in two lines what is wrong. Do not \
 call any tools." --name router-check --script router_check.sh \
-  --deliver telegram:<your numeric id> --failure-deliver telegram:<your numeric id> \
-  --reasoning-effort none
+  --deliver telegram:<your numeric id> --reasoning-effort none
 ```
 
-`--failure-deliver` matters here: when the model reports a problem with Hermes's own
-failure marker, the run counts as failed, and a failure delivered locally never reaches
-your phone (see [What a test chat shows](#what-a-test-chat-shows)).
+Leave `--failure-deliver` out, so failures go where `--deliver` sends results. When the
+model reports a problem with Hermes's own failure marker the run counts as failed, and
+`--failure-deliver local` would keep that alert off your phone (see
+[What a test chat shows](#what-a-test-chat-shows)).
 
 At one call an hour that is 24 calls a day. If your provider caps free requests per
 day, count the same way: one call per scripted check, a few per conversation, and
@@ -150,14 +150,18 @@ No `--allow-untrusted` and no `--force` anywhere. That is the point of signing t
 - **Flash.** About 350 MB for the packages and the Python they bring, then the data
   directory: 37 MB at the first start, growing from there. It can live on a USB stick
   (see [Small flash](#small-flash-put-the-data-directory-on-a-usb-stick)).
-- **A model.** A key for an OpenAI-compatible provider, a free one included, or a ChatGPT
-  subscription (see [More than one provider](#more-than-one-provider)).
+- **A model.** A key for an OpenAI-compatible provider, a free one included: the service
+  does not start without one. A ChatGPT subscription can be added beside it and picked
+  with `/model`, not used instead of it (see [More than one provider](#more-than-one-provider)).
 - **A way back.** Keep a backup off the router (`sysupgrade -b /tmp/backup.tar.gz`, then
   copy it away) and know how your router's recovery mode works before you start. On
   2026-10-02 a Brume 2 under test did not come back from a reboot that followed an
-  unconfirmed change: no link on any port, and two power cycles did not help. It was
-  brought back through its U-Boot recovery page. The same sequence did not happen again,
-  neither in an emulated OpenWrt nor on that router, so the cause is not known.
+  unconfirmed change: no link on any port, and two power cycles did not help. It came back
+  only by flashing the vendor firmware through its U-Boot recovery page, which refused the
+  OpenWrt image, and then OpenWrt again from the vendor firmware; the reflash lost the logs.
+  Repeating the sequence did not reproduce it, neither in an emulated OpenWrt nor on that
+  router with the next build, so the cause is not known. Keep your router's vendor firmware
+  image at hand.
 
 ### Removing it
 
@@ -166,19 +170,26 @@ No `--allow-untrusted` and no `--force` anywhere. That is the point of signing t
 apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp
 ```
 
-That removes the programs and the Python they brought. What you or the agent created
-stays, so the router can be put back the way it was by hand:
+That removes the programs and the Python they brought. What stays is what the package made
+at install and what changed while it ran: the data directory, the keys in
+`/etc/hermes-agent`, `/etc/config/hermes` and `/etc/config/openwrt-mcp` once either was
+changed (the owner profile rewrites the second at every start), openwrt-mcp's state in
+`/etc/openwrt-mcp`, the feed's key and line, and the `hermes` account. To take all of it
+away:
 
 ```sh
-rm -rf /srv/hermes /etc/hermes-agent /etc/openwrt-mcp
-rm -f /etc/config/hermes /etc/apk/keys/hermes-openwrt.pem
+d=$(uci -q get hermes.main.data_dir); rm -rf "${d:-/srv/hermes}"
+rm -rf /etc/hermes-agent /etc/openwrt-mcp
+rm -f /etc/config/hermes /etc/config/openwrt-mcp /etc/apk/keys/hermes-openwrt.pem
 sed -i '/taipanbox.github.io\/hermes-openwrt/d' /etc/apk/repositories.d/customfeeds.list
+sed -i '/^hermes:/d' /etc/passwd /etc/shadow /etc/group
+/etc/init.d/rpcd restart
 ```
 
-If you moved the data directory, remove that one instead of `/srv/hermes`
-(`uci -q get hermes.main.data_dir` tells you where it is; read it before deleting
-`/etc/config/hermes`). The `hermes` account stays on purpose, so files it owned never pass
-to an account created later with the same id.
+If you used openwrt-mcp before this package, keep `/etc/openwrt-mcp` and its config: they
+hold your other clients' pairings. The account is kept by `apk del` on purpose, so files it
+owned never pass to an account created later with the same id; remove it only once its data
+directory is gone, as above.
 
 ## Testing it for us
 
@@ -189,9 +200,10 @@ What helps most is what has not been measured yet:
 2. **A reminder set in plain words in a chat**, and whether it arrives on time.
 3. **The gateway's memory over days.** The longest run so far was 19 hours, and in its
    last 14.5 the gateway grew from 204 to 215 MB, too short to tell a leak from warming
-   up. Every hour or so: `cat /sys/fs/cgroup/services/hermes-agent/instance1/memory.current`.
-4. **A scheduled job that hands its work to a subagent**, while changes are locked: is the
-   change refused?
+   up. That figure is the gateway's own resident memory; every hour or so:
+   `grep VmRSS /proc/$(pgrep -f 'gateway run' | head -n 1)/status`.
+4. **A scheduled job that hands its work to a subagent**, while a window is open after
+   `/unlock`: is the change refused? A scheduled job's own change is.
 5. **Any aarch64 router other than the two above**, with its numbers.
 
 Report what happened in an [issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose):
@@ -559,9 +571,9 @@ the package, and each of them looks like one the first time.
 - Each new conversation prints a notice that no home channel is set. `/sethome` once makes that
   chat the home channel, which is where the results of scheduled jobs go.
 - A scheduled check that finds a problem can answer with Hermes's own failure marker, so the run
-  is recorded as failed, and with failures delivered locally the alert is silent. Deliver a
-  check's failures to Telegram with `--failure-deliver telegram:<id>` (your numeric id), and do
-  not take one lost ping for a problem.
+  is recorded as failed, and with `--failure-deliver local` the alert is silent. Leave
+  `--failure-deliver` out, so failures follow `--deliver`, and do not take one lost ping for a
+  problem.
 - A small free model may skip a tool it was told to use (a morning digest ran with one model
   call and no web search) or answer from the conversation instead of acting. The model is the
   first thing to change when an agent will not act.
@@ -707,9 +719,10 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, built from the tag `v0.5.0-taipanbox.1` of the fork's `main`
-(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`). Its README
-documents the factor, the lockout and the enrolment; upstream's does not have them yet. The
+owner's second factor, from the code tagged `v0.5.0-taipanbox.1` on the fork's `main`
+(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`). Upstream has
+the code factor and its enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the
+lockout, `mfa_lock` and the two-step enrolment are the fork's, and its README documents them. The
 dependency has no version floor yet, because the fork still says 0.5.0, the number
 upstream's release without the factor carries too.
 
