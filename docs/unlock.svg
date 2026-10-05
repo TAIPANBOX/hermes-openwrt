@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="An unlock: the owner sends /unlock in the private chat; the bot deletes the message first; openwrt-mcp checks the factor; a window opens for changes; a change that is not confirmed rolls back, after a reboot too">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
+</defs>
+<rect width="1280" height="400" fill="url(#bg)"/><rect width="1280" height="400" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+<style>@keyframes lit{0%,3.0%{opacity:.28}7.0%,25.0%{opacity:1}32.0%,100%{opacity:.28}}.st{animation:lit 10s ease-in-out infinite}.s0{animation-delay:0.0s}.s1{animation-delay:2.0s}.s2{animation-delay:4.0s}.s3{animation-delay:6.0s}.s4{animation-delay:8.0s}@media (prefers-reduced-motion:reduce){.st{animation:none}}</style>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">The owner unlock</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">In the owner profile the agent reads the router freely; a change waits for this. Each step is a check in gate-unlock.sh.</text>
+<g class="st s0">
+<rect x="48" y="120" width="220" height="170" rx="10" fill="#0f1520" stroke="#4493f8"/>
+<circle cx="78" cy="154" r="14" fill="none" stroke="#4493f8" stroke-width="2"/>
+<text x="78" y="159" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#4493f8" font-weight="600" text-anchor="middle">1</text>
+<text x="102" y="160" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">You send</text>
+<text x="66" y="202" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">/unlock 4821</text>
+<text x="66" y="224" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">in the private chat</text>
+<text x="66" y="268" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#4493f8">only allowlisted ids</text>
+</g>
+<g class="st s1">
+<rect x="288" y="120" width="220" height="170" rx="10" fill="#0f1520" stroke="#2dd4bf"/>
+<circle cx="318" cy="154" r="14" fill="none" stroke="#2dd4bf" stroke-width="2"/>
+<text x="318" y="159" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#2dd4bf" font-weight="600" text-anchor="middle">2</text>
+<text x="342" y="160" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Deleted first</text>
+<text x="306" y="202" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">the message is removed</text>
+<text x="306" y="224" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">before anything else</text>
+<text x="306" y="268" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#2dd4bf">never sent to the model</text>
+</g>
+<g class="st s2">
+<rect x="528" y="120" width="220" height="170" rx="10" fill="#0f1520" stroke="#2dd4bf"/>
+<circle cx="558" cy="154" r="14" fill="none" stroke="#2dd4bf" stroke-width="2"/>
+<text x="558" y="159" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#2dd4bf" font-weight="600" text-anchor="middle">3</text>
+<text x="582" y="160" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Factor checked</text>
+<text x="546" y="202" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">by openwrt-mcp: PIN,</text>
+<text x="546" y="224" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">app code or both</text>
+<text x="546" y="268" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#2dd4bf">5 wrong: 15 min lockout</text>
+</g>
+<g class="st s3">
+<rect x="768" y="120" width="220" height="170" rx="10" fill="#0f1520" stroke="#d29922"/>
+<circle cx="798" cy="154" r="14" fill="none" stroke="#d29922" stroke-width="2"/>
+<text x="798" y="159" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#d29922" font-weight="600" text-anchor="middle">4</text>
+<text x="822" y="160" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Window open</text>
+<text x="786" y="202" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">15 minutes of changes</text>
+<text x="786" y="224" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">every call audited</text>
+<text x="786" y="268" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#d29922">root for its length</text>
+</g>
+<g class="st s4">
+<rect x="1008" y="120" width="220" height="170" rx="10" fill="#0f1520" stroke="#3fb950"/>
+<circle cx="1038" cy="154" r="14" fill="none" stroke="#3fb950" stroke-width="2"/>
+<text x="1038" y="159" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600" text-anchor="middle">5</text>
+<text x="1062" y="160" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Not confirmed?</text>
+<text x="1026" y="202" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">the change is undone</text>
+<text x="1026" y="224" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">by itself</text>
+<text x="1026" y="268" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">after a reboot too</text>
+</g>
+<text x="48" y="340" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">/lock closes the window at once. A scheduled job is refused even inside a window.</text>
+<text x="48" y="366" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">What it does not protect: an open window lets the agent change anything for its length. docs/security.md names every limit.</text>
+</svg>

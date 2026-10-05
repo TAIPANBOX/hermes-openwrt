@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="Install: trust the feed, add the packages, give it a model, start it; then Telegram, the owner unlock and a USB stick are optional">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
+</defs>
+<rect width="1280" height="400" fill="url(#bg)"/><rect width="1280" height="400" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+<style>@keyframes flow{to{stroke-dashoffset:-24}}.flow{stroke-dasharray:8 4;animation:flow 1.2s linear infinite}@media (prefers-reduced-motion:reduce){.flow{animation:none}}</style>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">Install</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Four steps on the router over SSH, or the same through LuCI. Times measured on 2026-10-04 (Flint 2 / Brume 2).</text>
+<rect x="48" y="116" width="266" height="148" rx="10" fill="#0f1520" stroke="#30363d"/>
+<rect x="48" y="116" width="4" height="148" rx="2" fill="#2dd4bf"/>
+<text x="70" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="17" fill="#e6edf3" font-weight="600">1  Trust the feed</text>
+<text x="70" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">its key in /etc/apk/keys</text>
+<text x="70" y="204" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">one repository line</text>
+<text x="70" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">no --allow-untrusted</text>
+<path class="flow" d="M318,190 L346,190" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="352" y="116" width="266" height="148" rx="10" fill="#0f1520" stroke="#30363d"/>
+<rect x="352" y="116" width="4" height="148" rx="2" fill="#2dd4bf"/>
+<text x="374" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="17" fill="#e6edf3" font-weight="600">2  apk add</text>
+<text x="374" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">hermes-agent, luci-app-hermes</text>
+<text x="374" y="204" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">pulls in openwrt-mcp</text>
+<text x="374" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">24 s / 64 s</text>
+<path class="flow" d="M622,190 L650,190" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="656" y="116" width="266" height="148" rx="10" fill="#0f1520" stroke="#30363d"/>
+<rect x="656" y="116" width="4" height="148" rx="2" fill="#2dd4bf"/>
+<text x="678" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="17" fill="#e6edf3" font-weight="600">3  Give it a model</text>
+<text x="678" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">key: root-only file, 0600</text>
+<text x="678" y="204" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">base_url and model in UCI</text>
+<text x="678" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">any OpenAI-compatible</text>
+<path class="flow" d="M926,190 L954,190" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="960" y="116" width="266" height="148" rx="10" fill="#0f1520" stroke="#30363d"/>
+<rect x="960" y="116" width="4" height="148" rx="2" fill="#2dd4bf"/>
+<text x="982" y="150" font-family="ui-sans-serif,system-ui,sans-serif" font-size="17" fill="#e6edf3" font-weight="600">4  Start it</text>
+<text x="982" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">enabled=1, restart</text>
+<text x="982" y="204" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">gateway runs as user hermes</text>
+<text x="982" y="244" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">about 200 MB resident</text>
+<text x="48" y="304" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600">OPTIONAL</text>
+<rect x="48" y="316" width="376" height="52" rx="8" fill="#0f1520" stroke="#30363d" stroke-dasharray="4 3"/>
+<text x="66" y="338" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Telegram add-on</text>
+<text x="66" y="358" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">+2 s, 12 MB; outbound only</text>
+<rect x="448" y="316" width="376" height="52" rx="8" fill="#0f1520" stroke="#30363d" stroke-dasharray="4 3"/>
+<text x="466" y="338" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">Owner unlock</text>
+<text x="466" y="358" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">PIN and/or app code, the owner sets it</text>
+<rect x="848" y="316" width="376" height="52" rx="8" fill="#0f1520" stroke="#30363d" stroke-dasharray="4 3"/>
+<text x="866" y="338" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">USB stick</text>
+<text x="866" y="358" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">hermes-usb, or extroot for small flash</text>
+</svg>
