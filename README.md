@@ -216,6 +216,8 @@ product and require a check to catch each one.
 | `gate-unlock.sh` | the owner unlock end to end, from Telegram and from LuCI |
 | `gate-usb.sh` | `hermes-usb` with real sticks made of loop devices |
 | `gate-telegram.sh`, `gate-upstream.sh`, `gate-feed.sh` | the add-on, the pinned upstream, the signed feed |
+| `gate-upstream-watch.sh` | the daily check that opens one issue when upstream tags a newer release |
+| `gate-apk-owner.sh`, `gate-relabel.sh` | every file in every package is root's; the `aarch64_cortex-a53` package differs from the generic one only in its label |
 | `gate-figures.sh` | these figures drawn from their data; every picture, link and anchor resolves |
 
 What each check proves, one by one: [docs/checks.md](docs/checks.md).

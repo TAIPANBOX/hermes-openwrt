@@ -104,6 +104,8 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] A Providers page: further providers with write-only keys, ChatGPT sign-in and sign-out
 - [x] Hermes's data on a USB stick with one command, `hermes-usb` (0.21.5-r6), and no start without the stick; extroot measured on a Beryl AX and a Brume 2
 - [x] A daily check opens an issue when upstream tags a release newer than the pinned one (`scripts/upstream-watch.sh`); moving to it stays a reviewed change, built, gated and run on both routers first
+- [x] An upgrade leaves the service's start at boot as the owner set it; only an install switches it on (0.21.5-r7)
+- [x] An endpoint on the LAN starts: the wrapper exports `CUSTOM_BASE_URL` equal to the endpoint in UCI (0.21.5-r8)
 
 ## Prior art, and what is not ours
 
