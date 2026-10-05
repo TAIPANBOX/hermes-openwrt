@@ -223,6 +223,9 @@ for keys and tokens in it; the package keeps them out of its own lines, but a mo
 reply or a command's output can carry anything. A security problem goes through
 [SECURITY.md](SECURITY.md) instead, not an issue.
 
+To change the code yourself, [CONTRIBUTING.md](CONTRIBUTING.md) says how to build what CI
+builds, which checks cover which part, and what a pull request is held to.
+
 ## Measured on hardware
 
 Every figure in this section was measured on two routers with **Hermes 0.21.5**, the
