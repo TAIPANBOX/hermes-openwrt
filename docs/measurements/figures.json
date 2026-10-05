@@ -54,14 +54,17 @@
   },
   "routers": {
     "title": "The three test routers",
-    "subtitle": "Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, hermes-agent 0.21.5-r5 from the signed feed, measured 2026-10-03 and 2026-10-04",
+    "subtitle": "Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, hermes-agent 0.21.5 from the signed feed, measured 2026-10-03 to 2026-10-05",
     "rows": [
       "install from the feed",
       "flash it takes",
       "gateway resident",
       "one conversation",
       "conversations at once",
-      "free memory, one conversation"
+      "free memory, one conversation",
+      "kill -9: procd has it back",
+      "reboot: gateway running by",
+      "temperature, fanless"
     ],
     "boxes": [
       {
@@ -72,7 +75,8 @@
           "MT7986  4x Cortex-A53",
           "1 GB RAM   8 GB eMMC",
           "2x 2.5G + 4x 1G, USB 3",
-          "Wi-Fi 6, four antennas"
+          "Wi-Fi 6, four antennas",
+          "Hermes on the internal eMMC"
         ],
         "values": [
           "24 s, 47 packages",
@@ -80,7 +84,10 @@
           "202 MB",
           "25 s",
           "6, all answered in 32 s",
-          "528 MB at the lowest"
+          "528 MB at the lowest",
+          "9 s",
+          "26 s after boot",
+          "44 to 45 C"
         ],
         "warn": []
       },
@@ -92,7 +99,8 @@
           "MT7981  2x Cortex-A53",
           "1 GB RAM   8 GB eMMC",
           "1x 2.5G + 1x 1G, USB 3",
-          "wired only, no radio"
+          "wired only, no radio",
+          "Hermes on the internal eMMC"
         ],
         "values": [
           "64 s, 50 packages",
@@ -100,7 +108,10 @@
           "203 MB",
           "32 s",
           "6, all answered in 46 s",
-          "445 MB at the lowest"
+          "445 MB at the lowest",
+          "10 s",
+          "21 s after boot",
+          "42 to 44 C"
         ],
         "warn": []
       },
@@ -112,7 +123,8 @@
           "MT7981  2x Cortex-A53",
           "512 MB RAM   256 MB NAND",
           "1x 2.5G + 1x 1G, USB 3",
-          "Wi-Fi 6, a 32 GB stick"
+          "Wi-Fi 6, a 32 GB stick",
+          "Hermes on the stick (extroot)"
         ],
         "values": [
           "75 s, 52 packages",
@@ -120,17 +132,70 @@
           "202 MB",
           "35 s",
           "one at a time fits",
-          "113 MB at the lowest"
+          "113 MB at the lowest",
+          "11 s",
+          "24 s after boot",
+          "58 to 60 C"
         ],
         "warn": [
           4,
-          5
+          5,
+          8
         ]
       }
     ],
     "notes": [
-      "Flint 2 and Brume 2: the install on internal storage; a turn by gpt-5.6-luna through a ChatGPT subscription, without the gateway in front; free memory from the 2026-10-03 fit run.",
-      "Beryl AX: every package on the stick (extroot), internal flash unchanged; a free model through the gateway. Temperatures and the 2026-09-25 figures are in the tables below."
+      "Flint 2 and Brume 2: 2026-10-04, agent r5 on internal storage; a turn by gpt-5.6-luna through a ChatGPT subscription, without the gateway in front; free memory from the 2026-10-03 fit run.",
+      "Beryl AX: every package on the stick (extroot), internal flash unchanged; a free model through the gateway; 2026-10-04 (r5), and kill -9, reboot and temperature 2026-10-05 (r8)."
+    ]
+  },
+  "usb_choice": {
+    "title": "Where Hermes goes: the router's flash or a USB stick",
+    "subtitle": "Ask the router first:  df -m /overlay   (free flash, MB). Figures measured 2026-10-04 on the Flint 2, the Brume 2 and the Beryl AX.",
+    "question": "free flash on /overlay?",
+    "ways": [
+      {
+        "tag": "450 MB or more",
+        "title": "Internal flash",
+        "sub": "the default, nothing to add",
+        "lines": [
+          "about 350 MB of packages,",
+          "then the data directory,",
+          "which writes about 1 GB",
+          "a day there, idle"
+        ],
+        "stick": "no stick involved",
+        "undo": "apk del, as any package",
+        "color": "teal"
+      },
+      {
+        "tag": "450 MB or more, writes off the flash",
+        "title": "Data on the stick",
+        "sub": "hermes-usb, one command",
+        "lines": [
+          "programs stay inside,",
+          "data on an ext4 partition",
+          "move: 33 s on 32 GB,",
+          "263 s on 128 GB (--format)"
+        ],
+        "stick": "stick out: Hermes stays off, the router runs",
+        "undo": "hermes-usb back",
+        "color": "blue"
+      },
+      {
+        "tag": "under 450 MB, e.g. a Beryl AX",
+        "title": "Everything on the stick",
+        "sub": "extroot, OpenWrt's own way",
+        "lines": [
+          "every package on the stick,",
+          "internal flash unchanged",
+          "install: 75 s, 325 MB",
+          "on a 512 MB Beryl AX"
+        ],
+        "stick": "stick out: the router boots its own layer",
+        "undo": "NAND: /rwm fstab; eMMC: power cycle",
+        "color": "amber"
+      }
     ]
   }
 }

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="540" viewBox="0 0 1280 540" role="img" aria-label="Where Hermes goes: the router's flash or a USB stick. 450 MB or more: Internal flash (the default, nothing to add); 450 MB or more, writes off the flash: Data on the stick (hermes-usb, one command); under 450 MB, e.g. a Beryl AX: Everything on the stick (extroot, OpenWrt's own way)">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
+</defs>
+<rect width="1280" height="540" fill="url(#bg)"/><rect width="1280" height="540" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">Where Hermes goes: the router's flash or a USB stick</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Ask the router first:  df -m /overlay   (free flash, MB). Figures measured 2026-10-04 on the Flint 2, the Brume 2 and the Beryl AX.</text>
+<rect x="490" y="108" width="300" height="46" rx="23" fill="#0f1520" stroke="#e6edf3"/>
+<text x="640" y="137" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" fill="#e6edf3" text-anchor="middle">free flash on /overlay?</text>
+<path d="M640,154 C640,188 232,178 232,188" stroke="#2dd4bf" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="72" y="192" width="320" height="24" rx="12" fill="#0b1018" stroke="#2dd4bf"/>
+<text x="232" y="209" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#2dd4bf" text-anchor="middle">450 MB or more</text>
+<rect x="48" y="222" width="368" height="290" rx="12" fill="#0f1520" stroke="#2dd4bf"/>
+<rect x="48" y="222" width="368" height="5" rx="2.5" fill="#2dd4bf"/>
+<text x="72" y="260" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3" font-weight="600">Internal flash</text>
+<text x="72" y="282" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">the default, nothing to add</text>
+<text x="72" y="318" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">about 350 MB of packages,</text>
+<text x="72" y="340" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">then the data directory,</text>
+<text x="72" y="362" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">which writes about 1 GB</text>
+<text x="72" y="384" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">a day there, idle</text>
+<rect x="72" y="418" width="320" height="1" fill="#30363d"/>
+<text x="72" y="444" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="#2dd4bf" font-weight="600">WITHOUT THE STICK</text>
+<text x="72" y="462" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#e6edf3">no stick involved</text>
+<text x="72" y="486" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="#2dd4bf" font-weight="600">UNDO</text>
+<text x="72" y="502" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">apk del, as any package</text>
+<path d="M640,154 C640,188 640,178 640,188" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="480" y="192" width="320" height="24" rx="12" fill="#0b1018" stroke="#4493f8"/>
+<text x="640" y="209" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#4493f8" text-anchor="middle">450 MB or more, writes off the flash</text>
+<rect x="456" y="222" width="368" height="290" rx="12" fill="#0f1520" stroke="#4493f8"/>
+<rect x="456" y="222" width="368" height="5" rx="2.5" fill="#4493f8"/>
+<text x="480" y="260" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3" font-weight="600">Data on the stick</text>
+<text x="480" y="282" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">hermes-usb, one command</text>
+<text x="480" y="318" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">programs stay inside,</text>
+<text x="480" y="340" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">data on an ext4 partition</text>
+<text x="480" y="362" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">move: 33 s on 32 GB,</text>
+<text x="480" y="384" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">263 s on 128 GB (--format)</text>
+<rect x="480" y="418" width="320" height="1" fill="#30363d"/>
+<text x="480" y="444" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="#4493f8" font-weight="600">WITHOUT THE STICK</text>
+<text x="480" y="462" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#e6edf3">stick out: Hermes stays off, the router runs</text>
+<text x="480" y="486" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="#4493f8" font-weight="600">UNDO</text>
+<text x="480" y="502" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">hermes-usb back</text>
+<path d="M640,154 C640,188 1048,178 1048,188" stroke="#d29922" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="888" y="192" width="320" height="24" rx="12" fill="#0b1018" stroke="#d29922"/>
+<text x="1048" y="209" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#d29922" text-anchor="middle">under 450 MB, e.g. a Beryl AX</text>
+<rect x="864" y="222" width="368" height="290" rx="12" fill="#0f1520" stroke="#d29922"/>
+<rect x="864" y="222" width="368" height="5" rx="2.5" fill="#d29922"/>
+<text x="888" y="260" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3" font-weight="600">Everything on the stick</text>
+<text x="888" y="282" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">extroot, OpenWrt's own way</text>
+<text x="888" y="318" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">every package on the stick,</text>
+<text x="888" y="340" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">internal flash unchanged</text>
+<text x="888" y="362" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">install: 75 s, 325 MB</text>
+<text x="888" y="384" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">on a 512 MB Beryl AX</text>
+<rect x="888" y="418" width="320" height="1" fill="#30363d"/>
+<text x="888" y="444" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="#d29922" font-weight="600">WITHOUT THE STICK</text>
+<text x="888" y="462" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#e6edf3">stick out: the router boots its own layer</text>
+<text x="888" y="486" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" fill="#d29922" font-weight="600">UNDO</text>
+<text x="888" y="502" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">NAND: /rwm fstab; eMMC: power cycle</text>
+</svg>

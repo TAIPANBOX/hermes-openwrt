@@ -225,7 +225,7 @@ def draw_beryl(x, y):
 
 
 def routers(d):
-    w, card_h, gap, top = 1280, 200, 16, 112
+    w, card_h, gap, top = 1280, 258, 16, 112
     h = top + 3 * (card_h + gap) + 64
     out = frame(w, h, d["title"] + ": " + ", ".join(b["name"] for b in d["boxes"]))
     out[1:1] = ['<defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%">'
@@ -236,7 +236,7 @@ def routers(d):
     for i, b in enumerate(d["boxes"]):
         y = top + i * (card_h + gap)
         out.append(f'<rect x="48" y="{y}" width="1184" height="{card_h}" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>')
-        out += draw[b["draw"]](64, y + 20)
+        out += draw[b["draw"]](64, y + (card_h - 166) // 2)
         out.append(text(424, y + 48, b["model"], 20, weight="600"))
         out.append(text(424, y + 70, b["name"], 14, MUTED))
         for k, line in enumerate(b["spec"]):
@@ -252,10 +252,42 @@ def routers(d):
     return "\n".join(out) + "\n"
 
 
+def usb_choice(d):
+    w, h = 1280, 540
+    out = frame(w, h, d["title"] + ". " + "; ".join(f'{x["tag"]}: {x["title"]} ({x["sub"]})' for x in d["ways"]))
+    out.append(text(48, 58, d["title"], 26, weight="600"))
+    out.append(text(48, 84, d["subtitle"], 14, MUTED))
+    cols = {"teal": TEAL, "blue": BLUE, "amber": AMBER}
+    qx, qy, qw = 490, 108, 300
+    out.append(f'<rect x="{qx}" y="{qy}" width="{qw}" height="46" rx="23" fill="{PANEL}" stroke="{FG}"/>')
+    out.append(text(qx + qw // 2, qy + 29, d["question"], 15, FG, MONO, anchor="middle"))
+    bw, gap, x0, by = 368, 40, 48, 222
+    for i, way in enumerate(d["ways"]):
+        x = x0 + i * (bw + gap)
+        c = cols[way["color"]]
+        cx = x + bw // 2
+        out.append(f'<path d="M{qx + qw // 2},{qy + 46} C{qx + qw // 2},{qy + 80} {cx},{qy + 70} {cx},{by - 34}" stroke="{c}" stroke-width="2" fill="none" marker-end="url(#arrow)"/>')
+        out.append(f'<rect x="{x + 24}" y="{by - 30}" width="{bw - 48}" height="24" rx="12" fill="#0b1018" stroke="{c}"/>')
+        out.append(text(cx, by - 13, way["tag"], 12, c, MONO, anchor="middle"))
+        out.append(f'<rect x="{x}" y="{by}" width="{bw}" height="290" rx="12" fill="{PANEL}" stroke="{c}"/>')
+        out.append(f'<rect x="{x}" y="{by}" width="{bw}" height="5" rx="2.5" fill="{c}"/>')
+        out.append(text(x + 24, by + 38, way["title"], 19, weight="600"))
+        out.append(text(x + 24, by + 60, way["sub"], 13, MUTED))
+        for k, line in enumerate(way["lines"]):
+            out.append(text(x + 24, by + 96 + k * 22, line, 13, LABEL, MONO))
+        out.append(f'<rect x="{x + 24}" y="{by + 196}" width="{bw - 48}" height="1" fill="{EDGE}"/>')
+        out.append(text(x + 24, by + 222, "WITHOUT THE STICK", 11, c, weight="600"))
+        out.append(text(x + 24, by + 240, way["stick"], 12, FG))
+        out.append(text(x + 24, by + 264, "UNDO", 11, c, weight="600"))
+        out.append(text(x + 24, by + 280, way["undo"], 12, FG, MONO))
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs")
     data = json.load(open(os.path.join(ROOT, "docs", "measurements", "figures.json"), encoding="utf-8"))
-    figures = {"boxes.svg": routers(data["routers"]), "rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock()}
+    figures = {"usb-choice.svg": usb_choice(data["usb_choice"]), "boxes.svg": routers(data["routers"]), "rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock()}
     for name, svg in figures.items():
         with open(os.path.join(outdir, name), "w", encoding="utf-8") as f:
             f.write(svg)

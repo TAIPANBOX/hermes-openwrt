@@ -407,7 +407,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     and shows the measured runs as figures and tables; the long explanations live under `docs/`,
     and `docs/agent-install.md` is the install written for an agent, as checks and the output
     each must give. `@claude` 2026-10-05, how it stays true: the README's own figures
-    (`docs/boxes.svg`, `docs/rerun.svg`, `docs/install-flow.svg`, `docs/unlock.svg`) are drawn by
+    (`docs/usb-choice.svg`, `docs/boxes.svg`, `docs/rerun.svg`, `docs/install-flow.svg`, `docs/unlock.svg`) are drawn by
     `scripts/figures.py` from `docs/measurements/figures.json` and committed as drawn, and every
     picture, relative link and #anchor in README.md, CONTRIBUTING.md, SECURITY.md and docs/*.md
     resolves (gate: `scripts/gate-figures.sh`, bound to `features/docs.feature`, in CI's

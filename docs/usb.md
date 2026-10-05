@@ -101,6 +101,9 @@ formatted whole as `/dev/sda`:
 | gateway resident / memory left free | 202 MB / 156 MB | |
 | one conversation (a diagnosis through the terminal tool, free model) | 35 s, never under 113 MB free | |
 | more than one conversation at once | not measured | |
+| `kill -9` of the gateway: procd has it back (2026-10-05, agent r8) | 11 s | |
+| `reboot` with the service enabled: gateway running by (2026-10-05) | 24 s after boot | |
+| temperature, fanless, idle and during one conversation (2026-10-05) | 58 to 60 C | |
 
 On 512 MB, one conversation at a time fits and the margin is thin. Undoing it differs by
 storage. On the Beryl AX (NAND) the internal layer is mounted at `/rwm`, so removing the
