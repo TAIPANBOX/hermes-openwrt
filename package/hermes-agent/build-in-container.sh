@@ -100,7 +100,9 @@ esac
 # 0.21.5-r6: hermes-usb moves the data directory to a USB stick and back (status, move
 # <partition> [--format], back), and the init will not start when the data belongs on a stick
 # that is not mounted, rather than start empty on the router's own storage.
-PKGREL=${PKGREL:-6}
+#
+# 0.21.5-r7: an upgrade no longer switches the start at boot back on; only an install does.
+PKGREL=${PKGREL:-7}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -193,11 +195,15 @@ if ! user_exists hermes; then
 	home=$(uci -q get hermes.main.data_dir)
 	user_add hermes "$uid" "$gid" "Hermes Agent" "${home:-/srv/hermes}" /bin/false
 fi
-/etc/init.d/hermes-agent enable
 ACCOUNT
 {
 	printf '#!/bin/sh\n'
 	cat "$WORK/account.sh"
+	# The start at boot is switched on when the package is installed and never on an upgrade,
+	# as OpenWrt's own default_postinst does (it enables unless PKG_UPGRADE=1): an owner who
+	# switched it off keeps it off across upgrades. Until r7 the enable sat in the shared
+	# fragment, so every upgrade switched it back on (a Brume 2, 2026-10-05).
+	printf '/etc/init.d/hermes-agent enable\n'
 	printf '# Deliberately not started: the package ships disabled with no key and no model, and a\n'
 	printf '# service that cannot work should not spend the first boot logging that it cannot.\n'
 	printf 'exit 0\n'

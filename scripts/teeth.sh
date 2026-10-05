@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Five faults, each one a real change could introduce, each caught by a different
+# Six faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -37,6 +37,8 @@ fi
 cleanup() {
 	[ -f /tmp/shim.bak ] && cp /tmp/shim.bak "$SITE/webbrowser.py" 2>/dev/null
 	[ -f /tmp/postinstall.bak ] && cp /tmp/postinstall.bak "$W/post-install" 2>/dev/null
+	[ -f /tmp/postupgrade.bak ] && cp /tmp/postupgrade.bak "$W/post-upgrade" 2>/dev/null
+	chmod 0755 "$W/post-upgrade" 2>/dev/null || true
 	[ -f /tmp/wrap.bak ] && cp /tmp/wrap.bak "$W/tree/usr/sbin/hermes-gateway" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
 	# The init is restored from the repository rather than from a backup: a backup taken
@@ -55,6 +57,7 @@ repack() {
 		--info "description:deliberately broken build, teeth.sh" \
 		--info "depends:$1" \
 		--script "post-install:/work/post-install" \
+		--script "post-upgrade:/work/post-upgrade" \
 		--script "pre-deinstall:/work/pre-deinstall" \
 		--files /work/tree --output /work/mutant.apk >/dev/null 2>&1
 }
@@ -136,10 +139,23 @@ repack "$DEPS_OK"
 expect_red "the key handed to procd's env" check_key_not_in_procd_env
 cp /tmp/init.bak "$INIT"
 
+# ---- fault 6: an upgrade that switches the start at boot back on ----
+# The shape the package had until r7: post-upgrade ran the same enable as post-install, so
+# an owner's `disable` lasted only until the next apk upgrade.
+cp "$W/post-upgrade" /tmp/postupgrade.bak
+grep -q '/etc/init.d/hermes-agent enable' "$W/post-upgrade" && {
+	echo "teeth: fault 6 planted nothing; post-upgrade enables the service already" >&2; exit 1; }
+awk '$0 == "exit 0" { print "/etc/init.d/hermes-agent enable" } { print }' /tmp/postupgrade.bak > "$W/post-upgrade"; chmod 0755 "$W/post-upgrade"
+grep -q '/etc/init.d/hermes-agent enable' "$W/post-upgrade" || {
+	echo "teeth: fault 6 planted nothing; post-upgrade no longer ends with exit 0" >&2; exit 1; }
+repack "$DEPS_OK"
+expect_red "an upgrade that enables the service" check_upgrade_keeps_boot_start
+cp /tmp/postupgrade.bak "$W/post-upgrade"; chmod 0755 "$W/post-upgrade"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 5 faults, 5 distinct checks, green restored"
+echo "teeth: 6 faults, 6 distinct checks, green restored"
