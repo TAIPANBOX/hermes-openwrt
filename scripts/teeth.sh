@@ -70,7 +70,7 @@ expect_red() {
 	if APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1; then
 		echo "TEETH FAIL: $name left the gate green"; cat /tmp/teeth.out; exit 1
 	fi
-	if ! grep -q "$want" /tmp/teeth.out; then
+	if ! grep -q "^FAIL .*$want" /tmp/teeth.out; then
 		echo "TEETH FAIL: $name went red, but not at $want"; grep FAIL /tmp/teeth.out | head -3; exit 1
 	fi
 	echo "teeth ok: $name -> $want"

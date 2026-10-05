@@ -267,7 +267,9 @@ else
 fi
 
 # ---- 8. a hand-edited config survives reinstall ----
-# Losing this on a router means losing every setting on a routine upgrade, silently.
+# Losing this on a router means losing every setting on a reinstall, silently. This is the
+# install path (post-install); what an upgrade's post-upgrade does to the start at boot is
+# check 12, and its effect on this file is not checked.
 # Adding the same file again rewrites nothing (apk 3.0.5 answers OK and leaves every file as it
 # is), so the reinstall is a removal and an install, and a probe in one of the package's own
 # files proves the install really wrote them again.
