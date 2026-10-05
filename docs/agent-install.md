@@ -13,16 +13,19 @@ its full output to the person you work for. Never improvise around a failed chec
 
 - Do not ask for, type, print, log or store a **PIN** or an **authenticator secret**. The owner
   sets them in step 6 themselves.
-- Do not put an API key or a Telegram token on a command line other than the `printf` shown
-  below (a shell builtin, so it never appears in the process list), in UCI, in a log or in your
-  reply. Do not read a key file back to check it; check its mode instead.
+- Do not put an API key or a Telegram token on any command line, yours or the router's. A
+  command you send as `ssh router "..."` becomes the argv of the router's `sh -c`, which any
+  account on the router can read in `/proc`, the agent's own `hermes` user included, and it
+  stays in your tool log. Secrets go in on standard input only (step 3), or the person pastes
+  them into LuCI. Never in UCI, a log or your reply, and never read a key file back: check its
+  mode instead.
 - Do not run `apk add hermes-agent=<version>`. It pins that version in `/etc/apk/world`, and
   every later upgrade silently keeps it. Undo with `apk add hermes-agent` (no version), then
   `apk upgrade`.
 - Do not use `--allow-untrusted` or `--force`. The feed is signed; if apk refuses it, something
   is wrong.
 - Do not reboot, restart the network or power-cycle a router unless the person said you may,
-  for that action.
+  for that action. Do not upgrade packages other than Hermes's own without asking.
 - Do not set `hermes.main.profile=root` or `hermes.telegram.allow_all=1` unless the person asked
   for exactly that. Both widen what the agent on the router can do.
 
@@ -42,8 +45,9 @@ wget -q --spider https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem &
 
 - A different architecture: stop. Nothing else is built.
 - Not 25.12, or no `apk`: stop. The package is for vanilla OpenWrt 25.12 only.
-- 512 MB of memory, or under 450 MB free flash: Hermes fits only with the packages on a USB
-  stick (extroot, [usb.md](usb.md)), one conversation at a time. Ask the person before going on.
+- 512 MB of memory: one conversation at a time fits, with little to spare. Tell the person.
+- Under 450 MB free flash: the packages go on a USB stick first (extroot, [usb.md](usb.md)).
+  Ask the person before going on.
 - No `memory` controller: the service would refuse to start. Stop.
 
 Ask the person for a backup first if they have none: `sysupgrade -b /tmp/backup.tar.gz`, then
@@ -78,8 +82,17 @@ endpoint works; the model must support native tool calling (measured: `openai/gp
 `anthropic/claude-haiku-4.5`, `google/gemini-2.5-flash`, `qwen/qwen3-8b` work;
 `google/gemma-3-12b-it` does not, see [measured.md](measured.md)).
 
+Put the key in without it touching a command line. Either the person pastes it into
+**Services -> Hermes Agent -> Settings** (write-only), or, where the key is in a file on your
+machine (`key.txt`, one line), send it on standard input:
+
 ```sh
-printf '%s' '<the key>' > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key
+ssh root@<router> 'umask 077; cat > /etc/hermes-agent/provider.key' < key.txt
+```
+
+Then the model, on the router:
+
+```sh
 uci set hermes.main.base_url='<endpoint, e.g. https://openrouter.ai/api/v1>'
 uci set hermes.main.model='<model id>'
 uci commit hermes
@@ -96,6 +109,7 @@ uci get hermes.main.base_url; uci get hermes.main.model   # expect: what the per
 
 ```sh
 uci set hermes.main.enabled=1 && uci commit hermes
+logger -t hermes-runbook start      # a marker, so the checks below read only this start
 /etc/init.d/hermes-agent restart
 sleep 30
 ```
@@ -104,12 +118,12 @@ sleep 30
 
 ```sh
 pgrep -f 'main.py gateway' >/dev/null && echo running          # expect: running
-logread -e hermes | grep -cE 'refus|Not starting|not starting'  # expect: 0
-ps w | grep -m1 '[m]ain.py gateway' | awk '{print $2}'          # expect: hermes
+logread | awk '/hermes-runbook: start/{n=0;f=1} f&&/hermes/&&/refus|ot starting/{n++} END{print n+0}'   # expect: 0
+[ "$(awk '/^Uid/{print $2}' /proc/$(pgrep -o -f 'main.py gateway')/status)" = "$(id -u hermes)" ] && echo as-hermes   # expect: as-hermes
 uci get hermes.main.profile                                     # expect: owner
 ```
 
-Not running: read `logread -e hermes | tail -n 40` and match the line in
+Not running: read `logread | sed -n '/hermes-runbook: start/,$p' | tail -n 40` and match the line in
 [Failures](#failures). The gateway takes 4 to 5 s to exec and about 200 MB of memory.
 
 ## 5. Telegram (only if the person wants it)
@@ -117,16 +131,19 @@ Not running: read `logread -e hermes | tail -n 40` and match the line in
 Ask the person for the bot token (from @BotFather) and their numeric Telegram id (from
 @userinfobot). Only that id will be answered.
 
+The token goes in the same way as the key: pasted into LuCI by the person, or on standard
+input from a file (`ssh root@<router> 'umask 077; cat > /etc/hermes-agent/telegram.token' < token.txt`).
+
 ```sh
 apk add hermes-agent-telegram
-printf '%s' '<bot token>' > /etc/hermes-agent/telegram.token && chmod 600 /etc/hermes-agent/telegram.token
 uci set hermes.telegram.enabled=1
 uci add_list hermes.telegram.allow_user_id='<numeric id>'
+logger -t hermes-runbook start
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
-**Check:** `logread -e hermes | grep -c 'telegram is enabled but'` prints `0`, and the gateway is
-running as in step 4. Then ask the person to send the bot a message; the first reply in a new
+**Check:** after 30 s, `logread | awk '/hermes-runbook: start/{n=0;f=1} f&&/telegram is enabled but/{n++} END{print n+0}'`
+prints `0`, and the gateway is running as in step 4. Then ask the person to send the bot a message; the first reply in a new
 conversation may be Hermes's own onboarding question, which is expected.
 
 ## 6. Letting it change the router (the owner does this, not you)
@@ -154,8 +171,9 @@ Moves the data directory (what is written repeatedly) to a stick; the programs s
 ```sh
 apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
 block info                          # find the stick's partition, e.g. /dev/sda1; confirm with the person
+grep '^/dev/sda' /proc/mounts       # mounted already (block-mount does that)? umount it first
 hermes-usb move /dev/sda1 --format  # ERASES that partition: only with the person's yes for this device
-hermes-usb status                   # expect: the data is on the stick
+hermes-usb status                   # expect: /srv/hermes is on /dev/sda1 (UUID ...), ... KiB free
 ```
 
 Never point it at the router's own storage or a whole disk; it refuses both. To bring the data
@@ -163,8 +181,11 @@ back: `hermes-usb back`. Details: [usb.md](usb.md).
 
 ## Upgrading
 
+Only Hermes's own packages; the rest of the router is the person's to upgrade.
+
 ```sh
-apk update && apk upgrade
+apk update
+apk upgrade hermes-agent luci-app-hermes openwrt-mcp    # add hermes-agent-telegram if it is installed
 /etc/init.d/hermes-agent restart
 apk list --installed | grep '^hermes-agent-'   # expect: the newest r<n> in the feed
 grep hermes-agent /etc/apk/world               # expect: hermes-agent, with no "=" in it
@@ -180,7 +201,8 @@ hermes-usb status 2>/dev/null       # if the data is on a stick: hermes-usb back
 apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp
 ```
 
-This keeps the data directory, the keys, the configuration and the `hermes` account on
+Ask first whether openwrt-mcp served other clients before Hermes; if it did, leave it out of
+`apk del`. This keeps the data directory, the keys, the configuration and the `hermes` account on
 purpose. Remove those only if the person asks for everything gone:
 [install-notes.md](install-notes.md#removing-it) has the commands and what to keep when
 openwrt-mcp served other clients.
@@ -201,6 +223,8 @@ Lines the service writes to `logread`, what they mean, and what to do.
 | `telegram is enabled but there is no token in ...` / `not shaped like a Telegram token` | the token file | step 5 |
 | `telegram is enabled but no user is allowed to talk to it` | no allowlist | step 5, `allow_user_id` |
 | `'hermes' cannot write in ...` / `cannot enter ...` | the data directory is on FAT, read-only, or a parent is closed | point `hermes.main.data_dir` at ext4, f2fs or the overlay |
+| `... Not starting.` naming a stick, a lock or a copy left by hermes-usb | the data is on a USB stick that is not there, or a move was interrupted | `hermes-usb status`; plug the stick in, or report what it names |
+| `hermes.security.factor must be ...`, `... window and lockout are durations ...`, `... max_failures must be ...` | a bad value in `hermes.security` | report it to the owner; the factor is theirs |
 | `there is no user 'hermes'` | the account is missing | report it; reinstalling hermes-agent recreates it (its install and upgrade scripts both make the account), with the person's yes |
 | `could not start openwrt-mcp` / `could not pair hermes-main` | openwrt-mcp failed | `logread -e openwrt-mcp`; report it |
 | the gateway starts, then stops five times within minutes | procd's bounded respawn gave up after repeated failures | read the first refusal above it |

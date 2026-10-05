@@ -10,8 +10,9 @@ n=0
 
 fresh() {
 	rm -rf "$T/r"; mkdir -p "$T/r"
-	# the whole tree git knows (untracked files included), so every link has its target
-	(cd "$SRC" && git ls-files -z --cached --others --exclude-standard | xargs -0 tar cf -) | tar xf - -C "$T/r"
+	# the tree as committed, so a file lying around locally cannot make a link resolve that CI
+	# would find broken
+	(cd "$SRC" && git ls-files -z --cached | xargs -0 tar cf -) | tar xf - -C "$T/r"
 }
 expect() { # name, want rc (0 pass, 1 fail), the check whose line must say so
 	name=$1 want=$2 check=$3

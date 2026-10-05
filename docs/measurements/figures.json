@@ -1,7 +1,7 @@
 {
   "rerun": {
     "title": "Re-run on the published release",
-    "subtitle": "The README's install block run as written against the feed, vanilla OpenWrt 25.12.5, agent 0.21.5-r5, 2026-10-04",
+    "subtitle": "Install step 1 and the Telegram add-on, run as written against the feed; vanilla OpenWrt 25.12.5, agent 0.21.5-r5, 2026-10-04",
     "routers": ["Flint 2", "Brume 2"],
     "time_s": [
       ["install: key, feed line, apk add", 24, 64],

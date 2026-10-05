@@ -29,7 +29,7 @@ and read ordinary web pages.
 | Use | Status |
 |---|---|
 | Ask the router from Telegram ("why is the internet slow?"); it runs commands and answers from their output | measured on both routers, 18 to 25 s |
-| An hourly check that speaks only when something is wrong | ran 19 hours on a Brume 2, one model call per check |
+| An hourly check that speaks only when something is wrong | ran 19 hours on a Brume 2, one model call per check; [one way it stays silent](docs/use.md#scheduled-jobs-in-practice) |
 | A morning message (weather, rate, one news item) | delivered on time; a small free model skipped the search |
 | Reminders set in plain words in a chat | not measured yet |
 
@@ -63,6 +63,10 @@ No `--allow-untrusted` and no `--force`: that is the point of signing the feed. 
 pulls in `openwrt-mcp` from the same feed and creates the `hermes` account the agent runs as.
 
 **2. Give it a model and start it.** The service ships switched off.
+
+Typed in an SSH session on the router, `printf` is a shell builtin and the key never reaches a
+command line another process can read; sending the same line as `ssh router "..."` would put
+it in one.
 
 ```sh
 printf '%s' 'sk-...' > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key
@@ -107,7 +111,8 @@ uci commit hermes && /etc/init.d/hermes-agent restart
 Then `/unlock` in the private chat opens a 15-minute window. That window is root for its
 length: [how it works and what it does not protect](docs/security.md).
 
-**Upgrading.** `apk update && apk upgrade`, then `/etc/init.d/hermes-agent restart`: an upgrade
+**Upgrading.** `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (and
+`hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`: an upgrade
 does not restart a running gateway, and it leaves the start at boot as you set it. Do not
 install a fixed version with `apk add hermes-agent=<version>`: that pins it in
 `/etc/apk/world`, and later upgrades silently keep the old one.
@@ -129,8 +134,8 @@ written as checks an agent runs and the output it must see.
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](docs/rerun.svg)
 
-The install block above, run as written against the published feed on two routers on vanilla
-OpenWrt 25.12.5, each cleaned first and put back as found afterwards. Every figure, its date,
+Step 1 above and the Telegram add-on, run as written against the published feed on two
+routers on vanilla OpenWrt 25.12.5 (the model added by hand, through a ChatGPT subscription), each cleaned first and put back as found afterwards. Every figure, its date,
 its model and its method, with the earlier runs, load tests and how many agents fit:
 [docs/measured.md](docs/measured.md).
 
@@ -185,7 +190,7 @@ What helps most is what has not been measured yet:
 3. **Web search with the model you use.** It works on a router (see
    [the re-run](docs/measured.md#re-run-on-the-published-release-2026-10-04)), but
    whether a model reaches for it unasked depends on the model.
-4. **Any aarch64 router other than the two above**, with its numbers.
+4. **Any aarch64 router other than the Flint 2, Brume 2 and Beryl AX**, with its numbers.
 
 Report what happened in an [issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose):
 the template asks for the router, the versions and the log. Before you paste a log, look

@@ -36,7 +36,7 @@ wall clock is mostly the model's own time.
 ## Re-run on the published release, 2026-10-04
 
 The same two routers, with the package, Python, ffmpeg and their configuration removed first
-and earlier data moved aside, then the [Install](../README.md#install) block above run as written
+and earlier data moved aside, then the README's install block of that day (now step 1 of [Install](../README.md#install), with the Telegram add-on) run as written
 against the published feed (agent 0.21.5-r5, LuCI 0.21.5-r1, openwrt-mcp from the fork).
 Afterwards their configuration, keys and data were put back as found, and the packages left
 at the published release. The model this time was `gpt-5.6-luna` through a ChatGPT
