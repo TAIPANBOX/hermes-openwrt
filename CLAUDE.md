@@ -73,6 +73,23 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    conflicting dotenv/provider/pool/header settings refuse startup and preserve operator
    credentials. Explicit job/channel overrides and fallback chains retain upstream
    semantics (gate: `scripts/gate-runtime.sh`).
+   `@decided 2026-10-05`: an endpoint on the LAN works as UCI names it, with nothing added by
+   hand to the agent's `.env`. `@claude` 2026-10-05, how (0.21.5-r8): the wrapper exports
+   `CUSTOM_BASE_URL` equal to the UCI endpoint, because upstream's auxiliary clients (the
+   session title among them) resolve bare `custom`, which takes `model.base_url` off loopback
+   only when `model.provider` is `custom` (upstream #14676), and ours is `uci`: such an endpoint
+   fell to OpenRouter's default address with no key and the preflight refused every start. The
+   preflight protects `CUSTOM_BASE_URL` like `OPENAI_BASE_URL`; a `.env` line with the same
+   address, written exactly as UCI has it, is accepted. `@claude` 2026-10-05, a side effect named
+   and kept: upstream reads `CUSTOM_BASE_URL` first on every route that ends in its OpenRouter
+   fallback, so an `openrouter` route (a fallback entry, a job) and a local-server alias with no
+   endpoint of its own resolve to the UCI endpoint with the main key, never the OpenRouter key;
+   a fallback to OpenRouter therefore does not leave the UCI endpoint. `@measured` 2026-10-05 by `./scripts/gate-runtime.sh
+   RuntimeTests.test_endpoint_on_the_lan_starts_and_answers` against 0.21.5-r7: red, on
+   "startup refused (AuthError)", the line a Flint 2 logged the same day (gate:
+   `scripts/gate-runtime.sh` `check_endpoint_on_the_lan_starts_and_answers`,
+   `check_dotenv_cannot_move_the_endpoint_the_wrapper_names`,
+   `check_routes_that_would_reach_openrouter_stay_on_the_lan_endpoint`; teeth: `scripts/teeth-runtime.py`).
 9. Runtime, LuCI and unlock scenarios bind both ways to the checks that run them, and
    product mutations must turn their named test red with green restored and empty
    discovery refused (gate: `scripts/gate-scenarios-bound.sh`, `scripts/teeth-runtime.py`,

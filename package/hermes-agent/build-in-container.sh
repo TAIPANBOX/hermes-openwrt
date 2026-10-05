@@ -102,7 +102,11 @@ esac
 # that is not mounted, rather than start empty on the router's own storage.
 #
 # 0.21.5-r7: an upgrade no longer switches the start at boot back on; only an install does.
-PKGREL=${PKGREL:-7}
+#
+# 0.21.5-r8: an endpoint on the LAN starts. The wrapper exports CUSTOM_BASE_URL equal to the UCI
+# endpoint, so upstream's bare `custom` (its auxiliary clients) resolves there with the main key
+# instead of falling to OpenRouter's default with none; the preflight keeps a .env off it.
+PKGREL=${PKGREL:-8}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
