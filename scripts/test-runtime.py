@@ -616,6 +616,7 @@ class RuntimeTests(unittest.TestCase):
         # container's loopback device so the agent can reach it.
         host = "198.51.100.10"
         subprocess.run(["ip", "addr", "replace", host + "/32", "dev", "lo"], check=True, capture_output=True)
+        self.addCleanup(subprocess.run, ["ip", "addr", "del", host + "/32", "dev", "lo"], capture_output=True)
         url, received = self.fake_endpoint(host)
         self.assertEqual(self.configure(endpoint=url).returncode, 0)
         started = self.wrapper_env(url)
@@ -661,6 +662,24 @@ class RuntimeTests(unittest.TestCase):
         dotenv.write_text(f"CUSTOM_BASE_URL={url}\n")
         started = self.wrapper_env(url)
         self.assertEqual(started.returncode, 0, started.stderr)
+
+    def test_routes_that_would_reach_openrouter_stay_on_the_lan_endpoint(self):
+        # CUSTOM_BASE_URL is upstream's first rung for every route that ends in its OpenRouter
+        # fallback, not only bare `custom`: an `openrouter` route (a fallback entry, a job) and a
+        # local-server alias with no endpoint of its own now resolve to the UCI endpoint too.
+        # That is the price of the export, and what holds is that no key leaves for a host UCI
+        # did not name: the main key goes to the UCI endpoint, the OpenRouter key goes nowhere.
+        url = "http://198.51.100.10:4110/v1"
+        self.assertEqual(self.configure(endpoint=url).returncode, 0)
+        started = self.wrapper_env(url, key="main-key-canary")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        gateway = dict(json.loads(started.stdout), OPENROUTER_API_KEY="openrouter-key-canary")
+        code = ("from hermes_cli.runtime_provider import resolve_runtime_provider as r\n"
+                "for name in ('openrouter', 'ollama', 'custom'):\n"
+                "    x = r(requested=name)\n"
+                f"    assert (x['base_url'].rstrip('/'), x['api_key']) == ({url!r}, 'main-key-canary'), (name, x)\n")
+        resolved = subprocess.run(["python3", "-c", code], env=gateway, check=False, capture_output=True, text=True)
+        self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
 
     def _service_instance_json(self, provider=False):
         extra = ("printf '%s' 'claude-canary-runtime' > /etc/hermes-agent/claude.key; "
@@ -1699,13 +1718,13 @@ start_service; echo "start=$?"
         # environment is the one the wrapper hands the gateway, CUSTOM_BASE_URL included.
         for endpoint in ("https://openrouter.ai/api/v1", "http://127.0.0.1:9/v1", "http://198.51.100.10:4110/v1"):
             self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+            started = self.wrapper_env(endpoint, key="main-key-canary")
+            self.assertEqual(started.returncode, 0, started.stderr)
+            gateway = json.loads(started.stdout)
             for how in ("button", "typed"):
                 with self.subTest(endpoint=endpoint, how=how):
                     check = subprocess.run(["python3", "-c", self.SWITCH_CHECK, endpoint, how], check=False,
-                                           capture_output=True, text=True,
-                                           env=dict(self.env, OPENAI_API_KEY="main-key-canary",
-                                                    OPENAI_BASE_URL=endpoint, CUSTOM_BASE_URL=endpoint,
-                                                    HERMES_MODEL="runtime-model"))
+                                           capture_output=True, text=True, env=gateway)
                     self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
 
     def test_provider_on_the_main_endpoint_uses_its_own_key(self):

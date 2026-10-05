@@ -286,15 +286,22 @@ Feature: What is set on the router is what the gateway runs with
     And the agent's .env says nothing about it
     When the service starts
     Then the start goes ahead
-    And every call the agent makes, its own turn and the session title alike, reaches that endpoint with the model and key UCI names
+    And both calls one turn makes, the turn itself and the session title, reach that endpoint with the model and key UCI names
     # -> check_endpoint_on_the_lan_starts_and_answers
 
   Scenario: a .env line cannot move that endpoint, and one that repeats it is kept
     Given UCI names an endpoint on the LAN
     When the agent's .env names another address for it
     Then the start is refused, naming the setting and never its value, and the file is left as it was
-    And when the .env names the same address as UCI, as a hand-made way round this did, the service starts
+    And when the .env names the same address as UCI, written exactly as UCI has it, as a hand-made way round this did, the service starts
     # -> check_dotenv_cannot_move_the_endpoint_the_wrapper_names
+
+  Scenario: routes that would have gone to OpenRouter's default go to the UCI endpoint, with the main key
+    Given UCI names an endpoint on the LAN, and an OpenRouter key is also in the gateway's environment
+    When something asks upstream for OpenRouter, a local-server alias with no endpoint of its own, or bare custom
+    Then each one resolves to the UCI endpoint with the main key
+    And the OpenRouter key is not sent there
+    # -> check_routes_that_would_reach_openrouter_stay_on_the_lan_endpoint
 
   Scenario: a model switched from a chat lasts until the next start
     Given a chat switched the model globally, which upstream saves into its configuration
