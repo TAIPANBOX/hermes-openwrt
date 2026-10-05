@@ -37,6 +37,19 @@ For an agent that browses, books or signs in, run Hermes on a machine with 2 GB 
 router can still serve it as a narrow, audited tool provider through
 [openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp). More: [docs/use.md](docs/use.md).
 
+## Where it installs: the router's flash or a USB stick
+
+![Where Hermes goes: internal flash by default, its data on a USB stick with hermes-usb, or every package on the stick with extroot when the flash is too small](docs/usb-choice.svg)
+
+| | When | What it takes | Without the stick | Undo |
+|---|---|---|---|---|
+| **Internal flash**, the default | 450 MB or more free on `/overlay` | nothing beyond [Install](#install) | no stick involved | `apk del` |
+| **Data on the stick**, `hermes-usb` | the same, and you would rather keep the repeated writes off the router's flash | the USB packages, then one command | Hermes stays off and says why; the router runs as usual | `hermes-usb back` |
+| **Everything on the stick**, extroot | under 450 MB free, such as a Beryl AX (256 MB of NAND) | OpenWrt's extroot (format, fstab, copy, one reboot), then [Install](#install) as usual | the router boots its own layer, without Hermes | NAND: drop the two fstab sections under `/rwm` and reboot; eMMC: pull the stick and power-cycle |
+
+The commands for both are [further down](#on-a-usb-stick), every step and its measurements in
+[docs/usb.md](docs/usb.md).
+
 ## Measured on hardware
 
 ![The three test routers, Flint 2, Brume 2 and Beryl AX, each with the same six measurements](docs/boxes.svg)
@@ -176,6 +189,9 @@ For a router with too little flash, extroot puts every package on the stick. Mea
 | gateway resident / memory left free | 202 MB / 156 MB | |
 | one conversation (a diagnosis through the terminal tool, free model) | 35 s, never under 113 MB free | |
 | more than one conversation at once | not measured | |
+| `kill -9` of the gateway: procd has it back (2026-10-05, agent r8) | 11 s | |
+| `reboot` with the service enabled: gateway running by (2026-10-05) | 24 s after boot | |
+| temperature, fanless, idle and during one conversation (2026-10-05) | 58 to 60 C | |
 
 Both ways, step by step: [docs/usb.md](docs/usb.md).
 

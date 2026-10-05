@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="824" viewBox="0 0 1280 824" role="img" aria-label="The three test routers: GL.iNet Flint 2, Wi-Fi router, GL.iNet Brume 2, wired gateway, GL.iNet Beryl AX, travel size">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="998" viewBox="0 0 1280 998" role="img" aria-label="The three test routers: GL.iNet Flint 2, Wi-Fi router, GL.iNet Brume 2, wired gateway, GL.iNet Beryl AX, travel size">
 <defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/></filter></defs>
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
@@ -6,12 +6,12 @@
   <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
   <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
 </defs>
-<rect width="1280" height="824" fill="url(#bg)"/><rect width="1280" height="824" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="998" fill="url(#bg)"/><rect width="1280" height="998" fill="url(#grid)" opacity="0.5"/>
 <rect width="1280" height="4" fill="url(#accent)"/>
 <text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">The three test routers</text>
-<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, hermes-agent 0.21.5-r5 from the signed feed, measured 2026-10-03 and 2026-10-04</text>
-<rect x="48" y="112" width="1184" height="200" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
-<g transform="translate(64,132)">
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, hermes-agent 0.21.5 from the signed feed, measured 2026-10-03 to 2026-10-05</text>
+<rect x="48" y="112" width="1184" height="258" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<g transform="translate(64,158)">
 <rect x="44" y="0" width="13" height="104" rx="6.5" fill="#2b3544"/>
 <rect x="47" y="6" width="3" height="90" rx="1.5" fill="#3a4658"/>
 <rect x="108" y="0" width="13" height="104" rx="6.5" fill="#2b3544"/>
@@ -53,7 +53,8 @@
 <text x="424" y="236" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 GB RAM   8 GB eMMC</text>
 <text x="424" y="258" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">2x 2.5G + 4x 1G, USB 3</text>
 <text x="424" y="280" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Wi-Fi 6, four antennas</text>
-<rect x="704" y="136" width="1" height="152" fill="#1b2331"/>
+<text x="424" y="302" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Hermes on the internal eMMC</text>
+<rect x="704" y="136" width="1" height="210" fill="#1b2331"/>
 <text x="728" y="158" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
 <text x="964" y="158" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">24 s, 47 packages</text>
 <text x="728" y="182" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
@@ -66,8 +67,14 @@
 <text x="964" y="254" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">6, all answered in 32 s</text>
 <text x="728" y="278" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
 <text x="964" y="278" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">528 MB at the lowest</text>
-<rect x="48" y="328" width="1184" height="200" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
-<g transform="translate(64,348)">
+<text x="728" y="302" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">kill -9: procd has it back</text>
+<text x="964" y="302" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">9 s</text>
+<text x="728" y="326" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">reboot: gateway running by</text>
+<text x="964" y="326" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">26 s after boot</text>
+<text x="728" y="350" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">temperature, fanless</text>
+<text x="964" y="350" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">44 to 45 C</text>
+<rect x="48" y="386" width="1184" height="258" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<g transform="translate(64,432)">
 <rect x="34" y="34" width="252" height="118" rx="22" fill="#d6d8e4"/>
 <rect x="48" y="34" width="224" height="13" rx="6.5" fill="#e6e7ef"/>
 <text x="78" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="7" fill="#6d7486" text-anchor="middle">POWER</text>
@@ -82,27 +89,34 @@
 <rect x="212" y="115" width="12" height="5" fill="#d6d8e4"/>
 <rect x="64" y="152" width="24" height="5" rx="2" fill="#8a90a0"/><rect x="232" y="152" width="24" height="5" rx="2" fill="#8a90a0"/>
 </g>
-<text x="424" y="376" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" fill="#e6edf3" font-weight="600">GL-MT2500</text>
-<text x="424" y="398" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Brume 2, wired gateway</text>
-<text x="424" y="430" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">MT7981  2x Cortex-A53</text>
-<text x="424" y="452" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 GB RAM   8 GB eMMC</text>
-<text x="424" y="474" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1x 2.5G + 1x 1G, USB 3</text>
-<text x="424" y="496" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">wired only, no radio</text>
-<rect x="704" y="352" width="1" height="152" fill="#1b2331"/>
-<text x="728" y="374" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
-<text x="964" y="374" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">64 s, 50 packages</text>
-<text x="728" y="398" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
-<text x="964" y="398" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">393 MB, internal</text>
-<text x="728" y="422" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">gateway resident</text>
-<text x="964" y="422" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">203 MB</text>
-<text x="728" y="446" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">one conversation</text>
-<text x="964" y="446" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">32 s</text>
-<text x="728" y="470" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">conversations at once</text>
-<text x="964" y="470" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">6, all answered in 46 s</text>
-<text x="728" y="494" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
-<text x="964" y="494" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">445 MB at the lowest</text>
-<rect x="48" y="544" width="1184" height="200" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
-<g transform="translate(102,568)">
+<text x="424" y="434" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" fill="#e6edf3" font-weight="600">GL-MT2500</text>
+<text x="424" y="456" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Brume 2, wired gateway</text>
+<text x="424" y="488" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">MT7981  2x Cortex-A53</text>
+<text x="424" y="510" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 GB RAM   8 GB eMMC</text>
+<text x="424" y="532" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1x 2.5G + 1x 1G, USB 3</text>
+<text x="424" y="554" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">wired only, no radio</text>
+<text x="424" y="576" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Hermes on the internal eMMC</text>
+<rect x="704" y="410" width="1" height="210" fill="#1b2331"/>
+<text x="728" y="432" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
+<text x="964" y="432" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">64 s, 50 packages</text>
+<text x="728" y="456" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
+<text x="964" y="456" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">393 MB, internal</text>
+<text x="728" y="480" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">gateway resident</text>
+<text x="964" y="480" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">203 MB</text>
+<text x="728" y="504" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">one conversation</text>
+<text x="964" y="504" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">32 s</text>
+<text x="728" y="528" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">conversations at once</text>
+<text x="964" y="528" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">6, all answered in 46 s</text>
+<text x="728" y="552" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
+<text x="964" y="552" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">445 MB at the lowest</text>
+<text x="728" y="576" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">kill -9: procd has it back</text>
+<text x="964" y="576" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">10 s</text>
+<text x="728" y="600" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">reboot: gateway running by</text>
+<text x="964" y="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">21 s after boot</text>
+<text x="728" y="624" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">temperature, fanless</text>
+<text x="964" y="624" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">42 to 44 C</text>
+<rect x="48" y="660" width="1184" height="258" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<g transform="translate(102,710)">
 <rect x="214" y="14" width="24" height="98" rx="12" fill="#8d9eb1"/>
 <rect x="2" y="0" width="28" height="112" rx="14" fill="#a7b7c9"/>
 <text transform="translate(20,62) rotate(-90)" font-family="ui-sans-serif,system-ui,sans-serif" font-size="9" font-weight="600" fill="#6d7d8f" text-anchor="middle">WiFi 6</text>
@@ -121,25 +135,32 @@
 <rect x="34" y="148" width="22" height="5" rx="2" fill="#6d7d8f"/>
 <rect x="188" y="148" width="22" height="5" rx="2" fill="#6d7d8f"/>
 </g>
-<text x="424" y="592" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" fill="#e6edf3" font-weight="600">GL-MT3000</text>
-<text x="424" y="614" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Beryl AX, travel size</text>
-<text x="424" y="646" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">MT7981  2x Cortex-A53</text>
-<text x="424" y="668" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">512 MB RAM   256 MB NAND</text>
-<text x="424" y="690" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1x 2.5G + 1x 1G, USB 3</text>
-<text x="424" y="712" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Wi-Fi 6, a 32 GB stick</text>
-<rect x="704" y="568" width="1" height="152" fill="#1b2331"/>
-<text x="728" y="590" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
-<text x="964" y="590" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">75 s, 52 packages</text>
-<text x="728" y="614" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
-<text x="964" y="614" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">325 MB, on the stick</text>
-<text x="728" y="638" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">gateway resident</text>
-<text x="964" y="638" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">202 MB</text>
-<text x="728" y="662" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">one conversation</text>
-<text x="964" y="662" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">35 s</text>
-<text x="728" y="686" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">conversations at once</text>
-<text x="964" y="686" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">one at a time fits</text>
-<text x="728" y="710" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
-<text x="964" y="710" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">113 MB at the lowest</text>
-<text x="48" y="778" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">Flint 2 and Brume 2: the install on internal storage; a turn by gpt-5.6-luna through a ChatGPT subscription, without the gateway in front; free memory from the 2026-10-03 fit run.</text>
-<text x="48" y="798" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">Beryl AX: every package on the stick (extroot), internal flash unchanged; a free model through the gateway. Temperatures and the 2026-09-25 figures are in the tables below.</text>
+<text x="424" y="708" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" fill="#e6edf3" font-weight="600">GL-MT3000</text>
+<text x="424" y="730" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Beryl AX, travel size</text>
+<text x="424" y="762" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">MT7981  2x Cortex-A53</text>
+<text x="424" y="784" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">512 MB RAM   256 MB NAND</text>
+<text x="424" y="806" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1x 2.5G + 1x 1G, USB 3</text>
+<text x="424" y="828" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Wi-Fi 6, a 32 GB stick</text>
+<text x="424" y="850" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Hermes on the stick (extroot)</text>
+<rect x="704" y="684" width="1" height="210" fill="#1b2331"/>
+<text x="728" y="706" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
+<text x="964" y="706" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">75 s, 52 packages</text>
+<text x="728" y="730" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
+<text x="964" y="730" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">325 MB, on the stick</text>
+<text x="728" y="754" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">gateway resident</text>
+<text x="964" y="754" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">202 MB</text>
+<text x="728" y="778" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">one conversation</text>
+<text x="964" y="778" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">35 s</text>
+<text x="728" y="802" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">conversations at once</text>
+<text x="964" y="802" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">one at a time fits</text>
+<text x="728" y="826" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
+<text x="964" y="826" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">113 MB at the lowest</text>
+<text x="728" y="850" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">kill -9: procd has it back</text>
+<text x="964" y="850" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">11 s</text>
+<text x="728" y="874" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">reboot: gateway running by</text>
+<text x="964" y="874" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">24 s after boot</text>
+<text x="728" y="898" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">temperature, fanless</text>
+<text x="964" y="898" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">58 to 60 C</text>
+<text x="48" y="952" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">Flint 2 and Brume 2: 2026-10-04, agent r5 on internal storage; a turn by gpt-5.6-luna through a ChatGPT subscription, without the gateway in front; free memory from the 2026-10-03 fit run.</text>
+<text x="48" y="972" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">Beryl AX: every package on the stick (extroot), internal flash unchanged; a free model through the gateway; 2026-10-04 (r5), and kill -9, reboot and temperature 2026-10-05 (r8).</text>
 </svg>

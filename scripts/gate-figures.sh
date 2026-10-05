@@ -25,7 +25,7 @@ fi
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=${ROOT:-$(cd "$HERE/.." && pwd)}
-FIGURES="boxes.svg rerun.svg install-flow.svg unlock.svg"
+FIGURES="usb-choice.svg boxes.svg rerun.svg install-flow.svg unlock.svg"
 rc=0
 
 check_figures_match_their_data() {
