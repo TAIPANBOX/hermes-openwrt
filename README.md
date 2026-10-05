@@ -37,6 +37,15 @@ For an agent that browses, books or signs in, run Hermes on a machine with 2 GB 
 router can still serve it as a narrow, audited tool provider through
 [openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp). More: [docs/use.md](docs/use.md).
 
+## The routers it runs on
+
+![The three test routers, Flint 2, Brume 2 and Beryl AX, each with the same nine measurements](docs/boxes.svg)
+
+Three GL.iNet routers on **vanilla OpenWrt 25.12.5**, not their vendor firmware, chosen as three
+shapes of one job: a Wi-Fi router, a wired gateway, and a 512 MB travel router that keeps Hermes
+on a USB stick. Each card holds every figure for that router; each was cleaned of the package
+first and put back as found. How every figure was taken: [docs/measured.md](docs/measured.md).
+
 ## Where it installs: the router's flash or a USB stick
 
 ![Where Hermes goes: internal flash by default, its data on a USB stick with hermes-usb, or every package on the stick with extroot when the flash is too small](docs/usb-choice.svg)
@@ -44,20 +53,149 @@ router can still serve it as a narrow, audited tool provider through
 | | When | What it takes | Without the stick | Undo |
 |---|---|---|---|---|
 | **Internal flash**, the default | 450 MB or more free on `/overlay` | nothing beyond [Install](#install) | no stick involved | `apk del` |
-| **Data on the stick**, `hermes-usb` | the same, and you would rather keep the repeated writes off the router's flash | the USB packages, then one command | Hermes stays off and says why; the router runs as usual | `hermes-usb back` |
-| **Everything on the stick**, extroot | under 450 MB free, such as a Beryl AX (256 MB of NAND) | OpenWrt's extroot (format, fstab, copy, one reboot), then [Install](#install) as usual | the router boots its own layer, without Hermes | NAND: drop the two fstab sections under `/rwm` and reboot; eMMC: pull the stick and power-cycle |
+| **Data on the stick**, `hermes-usb` | the same, and you would rather keep the repeated writes off the router's flash | the USB packages, then one command (below) | Hermes stays off and says why; the router runs as usual | `hermes-usb back` |
+| **Everything on the stick**, extroot | under 450 MB free, such as the Beryl AX (256 MB of NAND) | OpenWrt's extroot (format, fstab, copy, one reboot), then [Install](#install) as usual | the router boots its own layer, without Hermes | NAND: drop the two fstab sections under `/rwm` and reboot; eMMC: pull the stick and power-cycle |
 
-The commands for both are [further down](#on-a-usb-stick), every step and its measurements in
-[docs/usb.md](docs/usb.md).
+The data on a stick, after [Install](#install):
+
+```sh
+apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
+block info                            # the stick's partition: /dev/sda1 here
+hermes-usb move /dev/sda1 --format    # erases that partition, makes ext4, moves the data
+hermes-usb status
+```
+
+Extroot's commands, what each refuses, and every measurement: [docs/usb.md](docs/usb.md).
+
+## Install
+
+| You need | |
+|---|---|
+| **Router** | vanilla OpenWrt 25.12 (not a vendor firmware) on aarch64: `cat /etc/apk/arch` prints `aarch64_cortex-a53` or `aarch64_generic`. Tested on a Flint 2, a Brume 2 and a Beryl AX |
+| **Memory** | 1 GB. On 512 MB one conversation at a time fits, with little to spare |
+| **Flash** | about 350 MB for the packages, then the data directory (37 MB at the first start, growing). Short of flash: [a USB stick](#where-it-installs-the-routers-flash-or-a-usb-stick) |
+| **A model** | a key for any OpenAI-compatible provider, free ones included; the service does not start without one |
+| **A way back** | a backup kept off the router (`sysupgrade -b /tmp/backup.tar.gz`), and your router's vendor firmware at hand |
+
+![Install: trust the feed, add the packages, give it a model, start it](docs/install-flow.svg)
+
+**1. Trust the feed and install.**
+
+```sh
+wget -O /etc/apk/keys/hermes-openwrt.pem \
+  https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem
+
+echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/packages.adb" \
+  >> /etc/apk/repositories.d/customfeeds.list
+
+apk update && apk add hermes-agent luci-app-hermes
+```
+
+No `--allow-untrusted` and no `--force`: that is the point of signing the feed. `hermes-agent`
+pulls in `openwrt-mcp` from the same feed and creates the `hermes` account the agent runs as.
+
+**2. Give it a model and start it.** The service ships switched off.
+
+Typed in an SSH session on the router, `printf` is a shell builtin and the key never reaches a
+command line another process can read; sending the same line as `ssh router "..."` would put
+it in one.
+
+```sh
+printf '%s' 'sk-...' > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key
+uci set hermes.main.base_url='https://openrouter.ai/api/v1'   # any OpenAI-compatible endpoint
+uci set hermes.main.model='openai/gpt-4o-mini'               # pick one that calls tools
+uci set hermes.main.enabled=1
+uci commit hermes && /etc/init.d/hermes-agent restart
+logread -e hermes | tail -n 20
+```
+
+Or in the browser: **Services -> Hermes Agent -> Settings**. The key is a root-only file and the
+page can write it but never read it back. Which models can drive it is measured
+[below](#which-models-can-drive-it).
+
+**3. Reach it from a phone** (optional).
+
+![A phone talks to Telegram, the router polls Telegram outbound, and an allowlist decides who is answered](docs/telegram.svg)
+
+The router opens no port: it polls Telegram outbound, so it works behind NAT and CGNAT. Only the
+numeric ids you allow are answered, and the service refuses to start with nobody allowed rather
+than answer nobody in silence. The token is a root-only file, like the key.
+
+```sh
+apk add hermes-agent-telegram
+printf '%s' '<token from @BotFather>' > /etc/hermes-agent/telegram.token
+chmod 600 /etc/hermes-agent/telegram.token
+uci set hermes.telegram.enabled=1
+uci add_list hermes.telegram.allow_user_id=<your numeric id, from @userinfobot>
+uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+More, including what a first test chat shows: [docs/telegram.md](docs/telegram.md).
+
+**4. Let it change the router** (optional). In the default `owner` profile the agent reads the
+router freely and changes it only after you unlock it with a second factor. With none set,
+nothing can change the router through it. Set one in **Services -> Hermes Agent -> Security**,
+or over SSH, where the QR code is printed in the terminal:
+
+```sh
+stty -echo; read -r PIN; stty echo; printf '%s\n' "$PIN" | openwrt-mcp pin set hermes-main; unset PIN
+openwrt-mcp mfa enrol hermes-main --pending --qr
+openwrt-mcp mfa activate hermes-main <code from the app>
+uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
+uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+Then `/unlock` in the private chat opens a 15-minute window. That window is root for its
+length: [how it keeps the router yours](#how-it-keeps-the-router-yours).
+
+**Upgrading.** `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (and
+`hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`: an upgrade
+does not restart a running gateway, and it leaves the start at boot as you set it. Do not
+install a fixed version with `apk add hermes-agent=<version>`: that pins it in
+`/etc/apk/world`, and later upgrades silently keep the old one.
+
+**Removing it.** If `hermes-usb status` says the data is on a stick, run `hermes-usb back` first.
+
+```sh
+/etc/init.d/hermes-agent stop
+apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp
+```
+
+That leaves the data, the keys, the configuration and the `hermes` account, on purpose; how to
+take all of it away is in [docs/install-notes.md](docs/install-notes.md#removing-it).
+
+An agent doing this for you: [docs/agent-install.md](docs/agent-install.md) is the same install
+written as checks an agent runs and the output it must see.
+
+## How it keeps the router yours
+
+![The settings page can write a key and can ask whether one is present; nothing returns one](docs/security.svg)
+
+Keys live in root-only files under `/etc/hermes-agent`. The LuCI page can write one and ask
+whether one exists; no page and no call returns one, and keys stay out of command lines, UCI and
+procd's service table.
+
+| profile | runs as | the router |
+|---|---|---|
+| `owner` (default) | `hermes`, unprivileged | read through openwrt-mcp; changed only through it, after an unlock |
+| `assistant` | `hermes`, no terminal, code or file tools | only through an MCP server you set up |
+| `root` | root, warned at every start | directly, no unlock |
+
+![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, an unconfirmed change rolls back by itself](docs/unlock.svg)
+
+The owner unlocks from the private Telegram chat with a PIN, an app code or both. The message is
+deleted before anything else and never reaches the model or a log; five wrong tries lock
+unlocking for fifteen minutes; a change that is not confirmed is undone by itself, after a reboot
+too. An open window is root for its length. Everything, with the limits named:
+[docs/security.md](docs/security.md).
 
 ## Measured on hardware
 
-![The three test routers, Flint 2, Brume 2 and Beryl AX, each with the same six measurements](docs/boxes.svg)
+The first full measurement, on the Flint 2 and the Brume 2 with **Hermes 0.21.5** on 2026-09-25,
+where a conversation is a real diagnosis (`openai/gpt-4o-mini` running five commands through the
+terminal tool):
 
-All three run **vanilla OpenWrt 25.12.5**, not their vendor firmware, and each was cleaned of
-the package first and put back as it was. The first full measurement, on the Flint 2 and the
-Brume 2 with **Hermes 0.21.5** on 2026-09-25, where a conversation is a real diagnosis
-(`openai/gpt-4o-mini` running five commands through the terminal tool):
+![Measured on hardware](docs/measured.svg)
 
 | | GL-MT6000 (Flint 2) | GL-MT2500 (Brume 2) |
 |---|---|---|
@@ -72,28 +210,14 @@ Brume 2 with **Hermes 0.21.5** on 2026-09-25, where a conversation is a real dia
 | all of Hermes at six, memory | 361 MB | 379 MB |
 | temperature, fanless | 51 to 52 C | 45 to 47 C |
 
-![Measured on hardware](docs/measured.svg)
-
 ### Re-run on the published release, 2026-10-04
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](docs/rerun.svg)
 
 Step 1 of [Install](#install) and the Telegram add-on, run as written against the published feed
-(agent 0.21.5-r5). The model was `gpt-5.6-luna` through a ChatGPT subscription and a turn ran
-without the gateway in front, so these times do not compare with the table above.
-
-| | Flint 2 | Brume 2 |
-|---|---|---|
-| key, feed line, `apk update && apk add hermes-agent luci-app-hermes` | 24 s, 47 packages | 64 s, 50 packages |
-| then `apk add hermes-agent-telegram` | 2 s | 2 s |
-| flash, agent and LuCI page / with Telegram / after the first start | 345 / 357 / 396 MB | 343 / 354 / 393 MB |
-| gateway resident, 90 s after the first start | 202 MB | 203 MB |
-| `kill -9` of the gateway: procd has it back | 9 s | 10 s |
-| `reboot` with the service enabled: gateway running by | 26 s after boot | 21 s after boot |
-| one agent turn | 25 s | 32 s |
-| six turns at once: the slowest, and all six | 24 s, 32 s, all answered | 36 s, 46 s, all answered |
-| all of Hermes at six (cgroup, page cache included) | 400 MB | 453 MB |
-| temperature, fanless | 44 to 45 C | 42 to 44 C |
+(agent 0.21.5-r5), with `gpt-5.6-luna` through a ChatGPT subscription. The same figures are on the
+router cards above; the full table is in
+[docs/measured.md](docs/measured.md#re-run-on-the-published-release-2026-10-04).
 
 ### How many agents fit alongside your other services
 
@@ -133,68 +257,6 @@ terminal tool and give the uptime in minutes.
 The floor is native tool calling, not size: an 8B model works, a 12B one without tool support
 does not. Pick for function calling.
 
-## How it keeps the router yours
-
-![The settings page can write a key and can ask whether one is present; nothing returns one](docs/security.svg)
-
-Keys live in root-only files under `/etc/hermes-agent`. The LuCI page can write one and ask
-whether one exists; no page and no call returns one, and keys stay out of command lines, UCI and
-procd's service table.
-
-| profile | runs as | the router |
-|---|---|---|
-| `owner` (default) | `hermes`, unprivileged | read through openwrt-mcp; changed only through it, after an unlock |
-| `assistant` | `hermes`, no terminal, code or file tools | only through an MCP server you set up |
-| `root` | root, warned at every start | directly, no unlock |
-
-![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, an unconfirmed change rolls back by itself](docs/unlock.svg)
-
-The owner unlocks from the private Telegram chat with a PIN, an app code or both. The message is
-deleted before anything else and never reaches the model or a log; five wrong tries lock
-unlocking for fifteen minutes; a change that is not confirmed is undone by itself, after a reboot
-too. An open window is root for its length. Everything, with the limits named:
-[docs/security.md](docs/security.md).
-
-## Reaching it from a phone
-
-![A phone talks to Telegram, the router polls Telegram outbound, and an allowlist decides who is answered](docs/telegram.svg)
-
-The router opens no port: it polls Telegram outbound, so it works behind NAT and CGNAT. Only the
-numeric ids you allow are answered, and the service refuses to start with nobody allowed rather
-than answer nobody in silence. The token is a root-only file like the key. Setup is step 3 of
-[Install](#install); the rest is in [docs/telegram.md](docs/telegram.md).
-
-## On a USB stick
-
-![Hermes on a USB stick: a GL-MT3000 Beryl AX running Hermes from a stick, and the two ways to put Hermes on USB](docs/usb-stick.svg)
-
-`hermes-usb` moves the data directory, which is what is written again and again, to a stick; the
-programs stay inside. Without its stick Hermes does not start, and says why.
-
-```sh
-apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
-block info                            # the stick's partition: /dev/sda1 here
-hermes-usb move /dev/sda1 --format    # erases that partition, makes ext4, moves the data
-hermes-usb status
-```
-
-For a router with too little flash, extroot puts every package on the stick. Measured on
-2026-10-04:
-
-| | Beryl AX (512 MB, NAND) | Brume 2 (1 GB, eMMC) |
-|---|---|---|
-| the Install block, onto the stick | 75 s, 52 packages, 325 MB | 59 s, 52 packages, 320 MB |
-| internal flash during the install | space used unchanged, 828 KB | 0 MB written |
-| internal flash, Hermes running, 10 min | | 0 KB written |
-| gateway resident / memory left free | 202 MB / 156 MB | |
-| one conversation (a diagnosis through the terminal tool, free model) | 35 s, never under 113 MB free | |
-| more than one conversation at once | not measured | |
-| `kill -9` of the gateway: procd has it back (2026-10-05, agent r8) | 11 s | |
-| `reboot` with the service enabled: gateway running by (2026-10-05) | 24 s after boot | |
-| temperature, fanless, idle and during one conversation (2026-10-05) | 58 to 60 C | |
-
-Both ways, step by step: [docs/usb.md](docs/usb.md).
-
 ## How it is built
 
 ![Upstream, built inside the target release, one shim, packaged, signed locally](docs/build.svg)
@@ -209,107 +271,13 @@ pinned upstream commit, every library at upstream's locked version, with one shi
 The index and every package are signed with an EC key through `apk adbsign`, and signing happens
 on a workstation, never in CI: a router that trusts the key keeps trusting anything it signs.
 
-## Install
-
-| You need | |
-|---|---|
-| **Router** | vanilla OpenWrt 25.12 (not a vendor firmware) on aarch64: `cat /etc/apk/arch` prints `aarch64_cortex-a53` or `aarch64_generic`. Tested on a Flint 2, a Brume 2 and a Beryl AX |
-| **Memory** | 1 GB. On 512 MB one conversation at a time fits, with little to spare |
-| **Flash** | about 350 MB for the packages, then the data directory (37 MB at the first start, growing). Short of flash: [a USB stick](docs/usb.md) |
-| **A model** | a key for any OpenAI-compatible provider, free ones included; the service does not start without one |
-| **A way back** | a backup kept off the router (`sysupgrade -b /tmp/backup.tar.gz`), and your router's vendor firmware at hand |
-
-![Install: trust the feed, add the packages, give it a model, start it](docs/install-flow.svg)
-
-**1. Trust the feed and install.**
-
-```sh
-wget -O /etc/apk/keys/hermes-openwrt.pem \
-  https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem
-
-echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/packages.adb" \
-  >> /etc/apk/repositories.d/customfeeds.list
-
-apk update && apk add hermes-agent luci-app-hermes
-```
-
-No `--allow-untrusted` and no `--force`: that is the point of signing the feed. `hermes-agent`
-pulls in `openwrt-mcp` from the same feed and creates the `hermes` account the agent runs as.
-
-**2. Give it a model and start it.** The service ships switched off.
-
-Typed in an SSH session on the router, `printf` is a shell builtin and the key never reaches a
-command line another process can read; sending the same line as `ssh router "..."` would put
-it in one.
-
-```sh
-printf '%s' 'sk-...' > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key
-uci set hermes.main.base_url='https://openrouter.ai/api/v1'   # any OpenAI-compatible endpoint
-uci set hermes.main.model='openai/gpt-4o-mini'               # pick one that calls tools
-uci set hermes.main.enabled=1
-uci commit hermes && /etc/init.d/hermes-agent restart
-logread -e hermes | tail -n 20
-```
-
-Or in the browser: **Services -> Hermes Agent -> Settings**. The key is a root-only file and the
-page can write it but never read it back. Which models can drive it is measured
-[above](#which-models-can-drive-it).
-
-**3. Reach it from a phone** (optional). The router opens no port: it polls Telegram outbound.
-
-```sh
-apk add hermes-agent-telegram
-printf '%s' '<token from @BotFather>' > /etc/hermes-agent/telegram.token
-chmod 600 /etc/hermes-agent/telegram.token
-uci set hermes.telegram.enabled=1
-uci add_list hermes.telegram.allow_user_id=<your numeric id, from @userinfobot>
-uci commit hermes && /etc/init.d/hermes-agent restart
-```
-
-It refuses to start with nobody allowed rather than answer nobody in silence:
-[docs/telegram.md](docs/telegram.md).
-
-**4. Let it change the router** (optional). In the default `owner` profile the agent reads the
-router freely and changes it only after you unlock it with a second factor. With none set,
-nothing can change the router through it. Set one in **Services -> Hermes Agent -> Security**,
-or over SSH, where the QR code is printed in the terminal:
-
-```sh
-stty -echo; read -r PIN; stty echo; printf '%s\n' "$PIN" | openwrt-mcp pin set hermes-main; unset PIN
-openwrt-mcp mfa enrol hermes-main --pending --qr
-openwrt-mcp mfa activate hermes-main <code from the app>
-uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
-uci commit hermes && /etc/init.d/hermes-agent restart
-```
-
-Then `/unlock` in the private chat opens a 15-minute window. That window is root for its
-length: [how it works and what it does not protect](docs/security.md).
-
-**Upgrading.** `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (and
-`hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`: an upgrade
-does not restart a running gateway, and it leaves the start at boot as you set it. Do not
-install a fixed version with `apk add hermes-agent=<version>`: that pins it in
-`/etc/apk/world`, and later upgrades silently keep the old one.
-
-**Removing it.** If `hermes-usb status` says the data is on a stick, run `hermes-usb back` first.
-
-```sh
-/etc/init.d/hermes-agent stop
-apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp
-```
-
-That leaves the data, the keys, the configuration and the `hermes` account, on purpose; how to
-take all of it away is in [docs/install-notes.md](docs/install-notes.md#removing-it).
-
-An agent doing this for you: [docs/agent-install.md](docs/agent-install.md) is the same install
-written as checks an agent runs and the output it must see.
-
 ## What it will not do
 
 - **Run the model on the router.** A router CPU spends minutes on the agent's system prompt
   alone; the model lives elsewhere.
-- **Fit a small router.** About 400 MB of flash and 200 MB of RAM before any work. Below 1 GB,
-  run openwrt-mcp on the router (4 MB of flash, 7.4 MB of memory, measured) and keep Hermes elsewhere.
+- **Fit a small router.** About 400 MB of flash and 200 MB of RAM before any work. 512 MB holds
+  one conversation at a time, the packages on a stick (the Beryl AX above); below that, run
+  openwrt-mcp on the router (4 MB of flash, 7.4 MB of memory, measured) and keep Hermes elsewhere.
 - **Browse, see or draw.** Browser, vision, image generation and the wake-word stack are not
   packaged; `ffmpeg` is, for voice messages.
 
