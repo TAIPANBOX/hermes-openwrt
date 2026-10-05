@@ -638,8 +638,10 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(received)
         for call in received:
             self.assertEqual(call[:3], ("/v1/chat/completions", "runtime-model", "Bearer provider-runtime-canary"))
+        # Two calls: the agent's turn, with tools, and the session title, without, which is
+        # the bare `custom` route that fell to OpenRouter before r8.
         self.assertEqual(sum(1 for call in received if call[3]), 1, received)
-        self.assertLessEqual(len(received), 2, received)
+        self.assertEqual(len(received), 2, received)
 
     def test_dotenv_cannot_move_the_endpoint_the_wrapper_names(self):
         # The wrapper hands upstream CUSTOM_BASE_URL equal to the UCI endpoint (above). An upstream
