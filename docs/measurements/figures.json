@@ -1,0 +1,20 @@
+{
+  "rerun": {
+    "title": "Re-run on the published release",
+    "subtitle": "Install step 1 and the Telegram add-on, run as written against the feed; vanilla OpenWrt 25.12.5, agent 0.21.5-r5, 2026-10-04",
+    "routers": ["Flint 2", "Brume 2"],
+    "time_s": [
+      ["install: key, feed line, apk add", 24, 64],
+      ["kill -9 of the gateway: back after", 9, 10],
+      ["reboot: gateway running after boot", 26, 21],
+      ["one agent turn", 25, 32],
+      ["six turns at once, all answered", 32, 46]
+    ],
+    "size_mb": [
+      ["gateway resident, 90 s after start", 202, 203],
+      ["all of Hermes, six turns at once", 400, 453],
+      ["flash, after the first start", 396, 393]
+    ],
+    "source": "docs/measured.md, \"Re-run on the published release, 2026-10-04\""
+  }
+}

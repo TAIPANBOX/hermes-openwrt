@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560" role="img" aria-label="Re-run on the published release: Install step 1 and the Telegram add-on, run as written against the feed; vanilla OpenWrt 25.12.5, agent 0.21.5-r5, 2026-10-04">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
+</defs>
+<rect width="1280" height="560" fill="url(#bg)"/><rect width="1280" height="560" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">Re-run on the published release</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Install step 1 and the Telegram add-on, run as written against the feed; vanilla OpenWrt 25.12.5, agent 0.21.5-r5, 2026-10-04</text>
+<rect x="48" y="104" width="14" height="14" rx="3" fill="#2dd4bf"/>
+<text x="70" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">Flint 2</text>
+<rect x="168" y="104" width="14" height="14" rx="3" fill="#4493f8"/>
+<text x="190" y="116" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">Brume 2</text>
+<rect x="48" y="136" width="568" height="370" rx="10" fill="#0f1520" stroke="#30363d"/>
+<text x="72" y="166" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600">TIME, SECONDS (shorter is better)</text>
+<text x="72" y="190" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">install: key, feed line, apk add</text>
+<rect x="72" y="198" width="169" height="14" rx="3" fill="#2dd4bf"/>
+<text x="249" y="210" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">24 s</text>
+<rect x="72" y="216" width="450" height="14" rx="3" fill="#4493f8"/>
+<text x="530" y="228" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">64 s</text>
+<text x="72" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">kill -9 of the gateway: back after</text>
+<rect x="72" y="264" width="63" height="14" rx="3" fill="#2dd4bf"/>
+<text x="143" y="276" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">9 s</text>
+<rect x="72" y="282" width="70" height="14" rx="3" fill="#4493f8"/>
+<text x="150" y="294" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">10 s</text>
+<text x="72" y="322" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">reboot: gateway running after boot</text>
+<rect x="72" y="330" width="183" height="14" rx="3" fill="#2dd4bf"/>
+<text x="263" y="342" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">26 s</text>
+<rect x="72" y="348" width="148" height="14" rx="3" fill="#4493f8"/>
+<text x="228" y="360" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">21 s</text>
+<text x="72" y="388" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">one agent turn</text>
+<rect x="72" y="396" width="176" height="14" rx="3" fill="#2dd4bf"/>
+<text x="256" y="408" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">25 s</text>
+<rect x="72" y="414" width="225" height="14" rx="3" fill="#4493f8"/>
+<text x="305" y="426" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">32 s</text>
+<text x="72" y="454" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">six turns at once, all answered</text>
+<rect x="72" y="462" width="225" height="14" rx="3" fill="#2dd4bf"/>
+<text x="305" y="474" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">32 s</text>
+<rect x="72" y="480" width="323" height="14" rx="3" fill="#4493f8"/>
+<text x="403" y="492" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">46 s</text>
+<rect x="664" y="136" width="568" height="238" rx="10" fill="#0f1520" stroke="#30363d"/>
+<text x="688" y="166" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600">MEMORY AND FLASH, MB</text>
+<text x="688" y="190" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">gateway resident, 90 s after start</text>
+<rect x="688" y="198" width="201" height="14" rx="3" fill="#2dd4bf"/>
+<text x="897" y="210" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">202 MB</text>
+<rect x="688" y="216" width="202" height="14" rx="3" fill="#4493f8"/>
+<text x="898" y="228" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">203 MB</text>
+<text x="688" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">all of Hermes, six turns at once</text>
+<rect x="688" y="264" width="397" height="14" rx="3" fill="#2dd4bf"/>
+<text x="1093" y="276" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">400 MB</text>
+<rect x="688" y="282" width="450" height="14" rx="3" fill="#4493f8"/>
+<text x="1146" y="294" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">453 MB</text>
+<text x="688" y="322" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">flash, after the first start</text>
+<rect x="688" y="330" width="393" height="14" rx="3" fill="#2dd4bf"/>
+<text x="1089" y="342" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">396 MB</text>
+<rect x="688" y="348" width="390" height="14" rx="3" fill="#4493f8"/>
+<text x="1086" y="360" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#e6edf3">393 MB</text>
+<text x="48" y="532" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">Source: docs/measured.md, "Re-run on the published release, 2026-10-04". One run per figure; the two routers were cleaned first and put back as found.</text>
+</svg>

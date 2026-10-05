@@ -20,6 +20,8 @@ jobs:
         run: ./scripts/gate-scenarios-bound.sh
       - name: the repository names only the routers it is tested on
         run: ./scripts/gate-named-routers.sh && ./scripts/teeth-named-routers.sh
+      - name: the README's figures come from their data, and every picture, link and anchor resolves
+        run: ./scripts/gate-figures.sh && ./scripts/teeth-figures.sh
       - name: the daily upstream check opens one issue per newer release, and fails when it cannot see
         run: ./scripts/gate-upstream-watch.sh && ./scripts/teeth-upstream-watch.sh
 

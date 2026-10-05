@@ -166,7 +166,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 13. The service runs at nice 10, so the router's own work keeps the processor: on a
     Brume 2 carrying a WireGuard tunnel on 2026-09-24, a conversation at the default
     priority took a third of the tunnel's throughput while it ran and a quarter at
-    nice 10 (README, "Under the router's own work") (gate: `scripts/gate-runtime.sh`,
+    nice 10 (docs/measured.md, "Under the router's own work") (gate: `scripts/gate-runtime.sh`,
     `scripts/teeth-runtime.py`).
 14. One turn makes at most `hermes.main.max_turns` model calls with tools, 20 unless
     changed, written into upstream's `agent.max_turns`, which the gateway turns into its
@@ -234,7 +234,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     (gate: `scripts/gate-unlock.sh` `check_change_policy_hands_out_no_private_key`).
     `@claude` 2026-10-01: an open unlock window is root for its length, since `ubus_call` on
     everything reaches rpcd's `file` object and `uci_apply` a firewall include; the unlock
-    guards the time outside the window, and the README says so. With factor `none`, the default, no change policy is written,
+    guards the time outside the window, and docs/security.md says so. With factor `none`, the default, no change policy is written,
     so nothing can change the router until the owner sets a factor, and the agent says so.
     The model is never offered `mfa_unlock` or `mfa_lock` (`tools.exclude` in the
     package-written `mcp_servers.openwrt` entry, in every profile), and is told to ask the
@@ -402,6 +402,18 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     from LuCI or a shell, landing in the moment between the copy and the read-back, which is then
     taken for a failed commit and put back over; a deletion of the record staged in uci and not
     committed, which the start check reads as done).
+
+22. `@decided 2026-10-05`: the README keeps the install steps, for a person and an agent alike,
+    and shows the measured runs as figures and tables; the long explanations live under `docs/`,
+    and `docs/agent-install.md` is the install written for an agent, as checks and the output
+    each must give. `@claude` 2026-10-05, how it stays true: the README's own figures
+    (`docs/rerun.svg`, `docs/install-flow.svg`, `docs/unlock.svg`) are drawn by
+    `scripts/figures.py` from `docs/measurements/figures.json` and committed as drawn, and every
+    picture, relative link and #anchor in README.md, CONTRIBUTING.md, SECURITY.md and docs/*.md
+    resolves (gate: `scripts/gate-figures.sh`, bound to `features/docs.feature`, in CI's
+    `scenarios` job; teeth: `scripts/teeth-figures.sh`; not gated: the older hand-drawn SVGs,
+    whose numbers are not read from the data file, and the commands in docs/agent-install.md,
+    which no check runs).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
