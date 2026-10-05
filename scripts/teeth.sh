@@ -77,10 +77,11 @@ expect_red() {
 }
 
 # ---- fault 1: no webbrowser shim ----
-# The check this must trip is the one the whole musllinux-wheel bet rests on. OpenWrt
-# ships no webbrowser in any python3-* package, so without the shim the CLI cannot
-# print its own version, and a package that shipped like that would look complete right
-# up until someone ran it.
+# OpenWrt ships no webbrowser in any python3-* package. Until 0.21.5 the CLI could not
+# print its own version without the shim; since then it imports webbrowser lazily, and
+# this fault went on passing only because the match also found check 3's PASS line (the
+# gateway, check 6, was what broke). Check 3 now imports the ChatGPT sign-in, which needs
+# the shim, so this fault is caught where it is named.
 cp "$SITE/webbrowser.py" /tmp/shim.bak
 rm -f "$SITE/webbrowser.py" "$SITE/__pycache__/webbrowser."*
 repack "$DEPS_OK"

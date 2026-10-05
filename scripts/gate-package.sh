@@ -107,6 +107,13 @@ echo "PASS [2/12] check_deps_resolve"
 # ImportError rather than on somebody's device.
 out=$(/usr/bin/hermes --version 2>&1) || { echo "$out"; fail "[3/12] check_cli_runs" "hermes --version exited non-zero"; }
 echo "$out" | grep -q "Hermes Agent" || { echo "$out"; fail "[3/12] check_cli_runs" "unexpected output"; }
+# The webbrowser shim. Since 0.21.5 the CLI imports webbrowser lazily, so --version runs
+# without it (measured 2026-10-05) and only the gateway and the sign-ins break. So the
+# module that needs it for the ChatGPT sign-in is imported here, and the shim's contract
+# held: open() answers False on a machine with no screen.
+out=$(PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -c \
+	'import webbrowser, hermes_cli.auth_codex_browser; r = webbrowser.open("https://example.invalid/pair"); assert r is False, r' 2>&1) \
+	|| { echo "$out" | tail -3; fail "[3/12] check_cli_runs" "the ChatGPT sign-in cannot load, or webbrowser.open did not answer False"; }
 echo "PASS [3/12] check_cli_runs"
 
 # ---- 4. ships disabled, and says so instead of erroring ----

@@ -752,7 +752,9 @@ only fail on the device.
 ### The one shim
 
 OpenWrt splits the standard library into packages and ships no `webbrowser` at all, the
-same way it ships no `tkinter`. Without it the CLI cannot print its own version. The shim
+same way it ships no `tkinter`. Without it the gateway does not start and the ChatGPT sign-in
+cannot load (until 0.21.5 the CLI could not even print its own version; it now imports the
+module lazily, so `hermes --version` alone no longer shows the gap). The shim
 implements the real contract rather than a stub: `open()` returns `False`, which is the
 honest answer on a machine with no screen and the one upstream's own headless path
 expects, and the URL is logged so a pairing step is still completable by hand.
