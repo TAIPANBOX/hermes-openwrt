@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Five faults, each one a real change could introduce, each caught by a different
+# Eight faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -37,6 +37,8 @@ fi
 cleanup() {
 	[ -f /tmp/shim.bak ] && cp /tmp/shim.bak "$SITE/webbrowser.py" 2>/dev/null
 	[ -f /tmp/postinstall.bak ] && cp /tmp/postinstall.bak "$W/post-install" 2>/dev/null
+	[ -f /tmp/postupgrade.bak ] && cp /tmp/postupgrade.bak "$W/post-upgrade" 2>/dev/null
+	chmod 0755 "$W/post-upgrade" 2>/dev/null || true
 	[ -f /tmp/wrap.bak ] && cp /tmp/wrap.bak "$W/tree/usr/sbin/hermes-gateway" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
 	# The init is restored from the repository rather than from a backup: a backup taken
@@ -47,6 +49,9 @@ cleanup() {
 	rm -f "$W/mutant.apk"
 }
 trap cleanup EXIT INT TERM
+# a backup is taken by the fault that changes its file; one left by an earlier run that
+# stopped half way would otherwise be restored over a fresh build's file
+rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak
 
 repack() {
 	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
@@ -55,6 +60,7 @@ repack() {
 		--info "description:deliberately broken build, teeth.sh" \
 		--info "depends:$1" \
 		--script "post-install:/work/post-install" \
+		--script "post-upgrade:/work/post-upgrade" \
 		--script "pre-deinstall:/work/pre-deinstall" \
 		--files /work/tree --output /work/mutant.apk >/dev/null 2>&1
 }
@@ -64,17 +70,18 @@ expect_red() {
 	if APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1; then
 		echo "TEETH FAIL: $name left the gate green"; cat /tmp/teeth.out; exit 1
 	fi
-	if ! grep -q "$want" /tmp/teeth.out; then
+	if ! grep -q "^FAIL .*$want" /tmp/teeth.out; then
 		echo "TEETH FAIL: $name went red, but not at $want"; grep FAIL /tmp/teeth.out | head -3; exit 1
 	fi
 	echo "teeth ok: $name -> $want"
 }
 
 # ---- fault 1: no webbrowser shim ----
-# The check this must trip is the one the whole musllinux-wheel bet rests on. OpenWrt
-# ships no webbrowser in any python3-* package, so without the shim the CLI cannot
-# print its own version, and a package that shipped like that would look complete right
-# up until someone ran it.
+# OpenWrt ships no webbrowser in any python3-* package. Until 0.21.5 the CLI could not
+# print its own version without the shim; since then it imports webbrowser lazily, and
+# this fault went on passing only because the match also found check 3's PASS line (the
+# gateway, check 6, was what broke). Check 3 now imports the ChatGPT sign-in, which needs
+# the shim, so this fault is caught where it is named.
 cp "$SITE/webbrowser.py" /tmp/shim.bak
 rm -f "$SITE/webbrowser.py" "$SITE/__pycache__/webbrowser."*
 repack "$DEPS_OK"
@@ -136,10 +143,47 @@ repack "$DEPS_OK"
 expect_red "the key handed to procd's env" check_key_not_in_procd_env
 cp /tmp/init.bak "$INIT"
 
+# ---- fault 6: an upgrade that switches the start at boot back on ----
+# The shape the package had until r7: post-upgrade ran the same enable as post-install, so
+# an owner's `disable` lasted only until the next apk upgrade.
+cp "$W/post-upgrade" /tmp/postupgrade.bak
+grep -q '/etc/init.d/hermes-agent enable' "$W/post-upgrade" && {
+	echo "teeth: fault 6 planted nothing; post-upgrade enables the service already" >&2; exit 1; }
+awk '$0 == "exit 0" { print "/etc/init.d/hermes-agent enable" } { print }' /tmp/postupgrade.bak > "$W/post-upgrade"; chmod 0755 "$W/post-upgrade"
+grep -q '/etc/init.d/hermes-agent enable' "$W/post-upgrade" || {
+	echo "teeth: fault 6 planted nothing; post-upgrade no longer ends with exit 0" >&2; exit 1; }
+repack "$DEPS_OK"
+expect_red "an upgrade that enables the service" check_upgrade_keeps_boot_start
+cp /tmp/postupgrade.bak "$W/post-upgrade"; chmod 0755 "$W/post-upgrade"
+
+# ---- fault 7: the init hands procd the key itself ----
+# The key's path is the only thing the command may carry; an extra argument with the key in
+# it is ignored by the wrapper and the service still starts, so only the argv check sees it.
+cp "$INIT" /tmp/init.bak
+sed 's|procd_set_param command /usr/sbin/hermes-gateway "$key_file"|procd_set_param command /usr/sbin/hermes-gateway "$key_file" "$(cat "$key_file")"|' \
+	"$INIT" > /tmp/init.new
+grep -q '"$key_file" "$(cat "$key_file")"' /tmp/init.new || {
+	echo "teeth: fault 7 planted nothing; the init's command line no longer reads as expected" >&2; exit 1; }
+cp /tmp/init.new "$INIT"
+repack "$DEPS_OK"
+expect_red "the key on the init's command line" check_key_not_in_argv
+cp /tmp/init.bak "$INIT"
+
+# ---- fault 8: an install that always takes the new defaults ----
+# apk keeps an edited /etc/config/hermes and puts the shipped one beside it as .apk-new; a
+# post-install that moves the new one into place throws every setting away on a reinstall.
+cp "$W/post-install" /tmp/postinstall.bak
+awk '$0 == "exit 0" { print "[ -f /etc/config/hermes.apk-new ] && mv /etc/config/hermes.apk-new /etc/config/hermes" } { print }' \
+	/tmp/postinstall.bak > "$W/post-install"; chmod 0755 "$W/post-install"
+grep -q 'hermes.apk-new' "$W/post-install" || { echo "teeth: fault 8 planted nothing" >&2; exit 1; }
+repack "$DEPS_OK"
+expect_red "an install that takes the new defaults over the owner's" check_config_survives
+cp /tmp/postinstall.bak "$W/post-install"; chmod 0755 "$W/post-install"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 5 faults, 5 distinct checks, green restored"
+echo "teeth: 8 faults, 8 distinct checks, green restored"
