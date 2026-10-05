@@ -19,21 +19,179 @@ and figures measured on hardware rather than in a container.
 
 ![The agent runs on the router, the model runs elsewhere, and the router itself is reached through a narrow audited window](docs/hero.svg)
 
-## What it is
+## What it is, and what it is not
 
 Hermes living on your router, inside your home network: an assistant for the network it sits
-in, on all the time. The router runs the agent; a provider you choose runs the model, a free
-one included. It has no browser, so it does not book, buy or sign in to sites; it does search
-and read ordinary web pages.
+in, on all the time. The router runs the agent; a provider you choose runs the model, a free one
+included. It has no browser, so it does not book, buy or sign in to sites, and it does search and
+read ordinary web pages without a web API key.
 
-| Use | Status |
-|---|---|
-| Ask the router from Telegram ("why is the internet slow?"); it runs commands and answers from their output | measured on both routers, 18 to 25 s |
-| An hourly check that speaks only when something is wrong | ran 19 hours on a Brume 2, one model call per check; [one way it stays silent](docs/use.md#scheduled-jobs-in-practice) |
-| A morning message (weather, rate, one news item) | delivered on time; a small free model skipped the search |
-| Reminders set in plain words in a chat | not measured yet |
+| Use | What it looks like | Status |
+|---|---|---|
+| **The home network, from a phone** | "why is the internet slow?" in Telegram; it runs commands on the router and answers from their output | measured on both routers: a five-command diagnosis in 18 to 25 s |
+| **A watch that speaks only when something is wrong** | every hour a script collects loss, latency, DNS, memory, flash and temperature; the model reads them in one call and stays silent if all is normal | 19 hours on a Brume 2, one model call per check ([one way it stays silent](docs/use.md#scheduled-jobs-in-practice)) |
+| **A morning message** | weather, the exchange rate and one news item at 08:00 | delivered on time; a small free model skipped the search it was asked for |
+| **An assistant that is always on** | reminders and lists set in plain words in a chat | not measured yet |
 
-More, with the limits named: [docs/use.md](docs/use.md).
+For an agent that browses, books or signs in, run Hermes on a machine with 2 GB or more; the
+router can still serve it as a narrow, audited tool provider through
+[openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp). More: [docs/use.md](docs/use.md).
+
+## Measured on hardware
+
+![The two routers behind these numbers](docs/boxes.svg)
+
+Two GL.iNet routers on **vanilla OpenWrt 25.12.5**, not their vendor firmware: the Flint 2, a
+Wi-Fi router with four cores, and the Brume 2, a wired gateway with two. Each was cleaned of the
+package first and put back as it was. **Hermes 0.21.5**, 2026-09-25; a conversation is a real
+diagnosis, `openai/gpt-4o-mini` running five commands through the terminal tool.
+
+| | GL-MT6000 (Flint 2) | GL-MT2500 (Brume 2) |
+|---|---|---|
+| SoC | MT7986, 4x Cortex-A53 | MT7981, 2x Cortex-A53 |
+| RAM / free flash | 1 GB / 6.8 GB | 1 GB / 6.8 GB |
+| `apk add hermes-agent luci-app-hermes`, from nothing | 17 s, 46 packages | 48 s, 45 packages |
+| package tree (`/usr/lib` and `/usr/share/hermes-agent`) | 239 MB | 239 MB |
+| `hermes --version`, cold | 2 s | 3 s |
+| gateway resident | 179 MB | 178 MB |
+| one conversation, end to end | 18 s | 25 s |
+| six conversations at once | 25 s, all answered | 30 s, all answered |
+| all of Hermes at six, memory | 361 MB | 379 MB |
+| temperature, fanless | 51 to 52 C | 45 to 47 C |
+
+![Measured on hardware](docs/measured.svg)
+
+### Re-run on the published release, 2026-10-04
+
+![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](docs/rerun.svg)
+
+Step 1 of [Install](#install) and the Telegram add-on, run as written against the published feed
+(agent 0.21.5-r5). The model was `gpt-5.6-luna` through a ChatGPT subscription and a turn ran
+without the gateway in front, so these times do not compare with the table above.
+
+| | Flint 2 | Brume 2 |
+|---|---|---|
+| key, feed line, `apk update && apk add hermes-agent luci-app-hermes` | 24 s, 47 packages | 64 s, 50 packages |
+| then `apk add hermes-agent-telegram` | 2 s | 2 s |
+| flash, agent and LuCI page / with Telegram / after the first start | 345 / 357 / 396 MB | 343 / 354 / 393 MB |
+| gateway resident, 90 s after the first start | 202 MB | 203 MB |
+| `kill -9` of the gateway: procd has it back | 9 s | 10 s |
+| `reboot` with the service enabled: gateway running by | 26 s after boot | 21 s after boot |
+| one agent turn | 25 s | 32 s |
+| six turns at once: the slowest, and all six | 24 s, 32 s, all answered | 36 s, 46 s, all answered |
+| all of Hermes at six (cgroup, page cache included) | 400 MB | 453 MB |
+| temperature, fanless | 44 to 45 C | 42 to 44 C |
+
+### How many agents fit alongside your other services
+
+![How many agents fit on a 1 GB router](docs/concurrency.svg)
+
+- **Conversations in one gateway** (how Telegram serves several chats) are threads of a process
+  already running: one to four at once kept all of Hermes flat at 388 MB on the Flint 2 and
+  445 MB on the Brume 2.
+- **Separate agents** are a Python interpreter each, about 140 MB: two fit under the default
+  512 MB ceiling; a third fills it, and the service restarts.
+- **With the ceiling lifted**, three fit on clean OpenWrt, leaving 201 to 216 MB.
+
+Plan on conversations, not agents. While the routers did their own job, the Flint 2's house
+traffic moved only by the line's own variation, with no loss, and a conversation took about a
+quarter of the Brume 2's WireGuard throughput, less at nice 10, which is why the service runs at
+nice 10. Details: [docs/measured.md](docs/measured.md).
+
+### Which models can drive it
+
+![Which models can call a tool on the router](docs/models.svg)
+
+The same task for each, one turn on the Brume 2 through OpenRouter: read `/proc/uptime` with the
+terminal tool and give the uptime in minutes.
+
+| Model | Called the tool | Right | Wall clock | Note |
+|---|---|---|---|---|
+| `anthropic/claude-haiku-4.5` | yes | yes | 18 s | |
+| `google/gemini-2.5-flash` | yes | yes | 4 s | |
+| `openai/gpt-4o-mini` | yes | yes | 7 s | |
+| `moonshotai/kimi-k2-0905` | yes | yes | 11 s | |
+| `deepseek/deepseek-chat-v3.1` | yes | yes | 16 s | three calls where one would do |
+| `qwen/qwen3-8b` | yes | yes | 14 s | 8B, and it works |
+| `mistralai/mistral-small-3.2-24b-instruct` | yes | yes | 4 s | |
+| `meta-llama/llama-3.3-70b-instruct` | cut off | no | 15 s | ran out of output tokens mid-call; Hermes refused to run the half-written command |
+| `google/gemma-3-12b-it` | **no** | no | 5 s | printed the call as JSON text |
+
+The floor is native tool calling, not size: an 8B model works, a 12B one without tool support
+does not. Pick for function calling.
+
+## How it keeps the router yours
+
+![The settings page can write a key and can ask whether one is present; nothing returns one](docs/security.svg)
+
+Keys live in root-only files under `/etc/hermes-agent`. The LuCI page can write one and ask
+whether one exists; no page and no call returns one, and keys stay out of command lines, UCI and
+procd's service table.
+
+| profile | runs as | the router |
+|---|---|---|
+| `owner` (default) | `hermes`, unprivileged | read through openwrt-mcp; changed only through it, after an unlock |
+| `assistant` | `hermes`, no terminal, code or file tools | only through an MCP server you set up |
+| `root` | root, warned at every start | directly, no unlock |
+
+![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, an unconfirmed change rolls back by itself](docs/unlock.svg)
+
+The owner unlocks from the private Telegram chat with a PIN, an app code or both. The message is
+deleted before anything else and never reaches the model or a log; five wrong tries lock
+unlocking for fifteen minutes; a change that is not confirmed is undone by itself, after a reboot
+too. An open window is root for its length. Everything, with the limits named:
+[docs/security.md](docs/security.md).
+
+## Reaching it from a phone
+
+![A phone talks to Telegram, the router polls Telegram outbound, and an allowlist decides who is answered](docs/telegram.svg)
+
+The router opens no port: it polls Telegram outbound, so it works behind NAT and CGNAT. Only the
+numeric ids you allow are answered, and the service refuses to start with nobody allowed rather
+than answer nobody in silence. The token is a root-only file like the key. Setup is step 3 of
+[Install](#install); the rest is in [docs/telegram.md](docs/telegram.md).
+
+## On a USB stick
+
+![Hermes on a USB stick: a GL-MT3000 Beryl AX running Hermes from a stick, and the two ways to put Hermes on USB](docs/usb-stick.svg)
+
+`hermes-usb` moves the data directory, which is what is written again and again, to a stick; the
+programs stay inside. Without its stick Hermes does not start, and says why.
+
+```sh
+apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
+block info                            # the stick's partition: /dev/sda1 here
+hermes-usb move /dev/sda1 --format    # erases that partition, makes ext4, moves the data
+hermes-usb status
+```
+
+For a router with too little flash, extroot puts every package on the stick. Measured on
+2026-10-04:
+
+| | Beryl AX (512 MB, NAND) | Brume 2 (1 GB, eMMC) |
+|---|---|---|
+| the Install block, onto the stick | 75 s, 52 packages, 325 MB | 59 s, 52 packages, 320 MB |
+| internal flash during the install | space used unchanged, 828 KB | 0 MB written |
+| internal flash, Hermes running, 10 min | | 0 KB written |
+| gateway resident / memory left free | 202 MB / 156 MB | |
+| one conversation (a diagnosis through the terminal tool, free model) | 35 s, never under 113 MB free | |
+| more than one conversation at once | not measured | |
+
+Both ways, step by step: [docs/usb.md](docs/usb.md).
+
+## How it is built
+
+![Upstream, built inside the target release, one shim, packaged, signed locally](docs/build.svg)
+
+Hermes 0.21.5 is assembled, not ported: pip on OpenWrt resolves musllinux wheels and every wheel
+Hermes needs exists, so the package is built inside the OpenWrt release it targets, from one
+pinned upstream commit, every library at upstream's locked version, with one shim
+(`webbrowser`). [docs/build.md](docs/build.md).
+
+### The signed feed
+
+The index and every package are signed with an EC key through `apk adbsign`, and signing happens
+on a workstation, never in CI: a router that trusts the key keeps trusting anything it signs.
 
 ## Install
 
@@ -79,7 +237,7 @@ logread -e hermes | tail -n 20
 
 Or in the browser: **Services -> Hermes Agent -> Settings**. The key is a root-only file and the
 page can write it but never read it back. Which models can drive it is measured
-[below](#measured-on-hardware).
+[above](#which-models-can-drive-it).
 
 **3. Reach it from a phone** (optional). The router opens no port: it polls Telegram outbound.
 
@@ -130,53 +288,17 @@ take all of it away is in [docs/install-notes.md](docs/install-notes.md#removing
 An agent doing this for you: [docs/agent-install.md](docs/agent-install.md) is the same install
 written as checks an agent runs and the output it must see.
 
-## Measured on hardware
+## What it will not do
 
-![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](docs/rerun.svg)
+- **Run the model on the router.** A router CPU spends minutes on the agent's system prompt
+  alone; the model lives elsewhere.
+- **Fit a small router.** About 400 MB of flash and 200 MB of RAM before any work. Below 1 GB,
+  run openwrt-mcp on the router (4 MB of flash, 7.4 MB of memory, measured) and keep Hermes elsewhere.
+- **Browse, see or draw.** Browser, vision, image generation and the wake-word stack are not
+  packaged; `ffmpeg` is, for voice messages.
 
-Step 1 above and the Telegram add-on, run as written against the published feed on two
-routers on vanilla OpenWrt 25.12.5 (the model added by hand, through a ChatGPT subscription), each cleaned first and put back as found afterwards. Every figure, its date,
-its model and its method, with the earlier runs, load tests and how many agents fit:
-[docs/measured.md](docs/measured.md).
-
-![Which models can call a tool on the router](docs/models.svg)
-
-The floor is native tool calling, not size: an 8B model works, a 12B one without tool support
-does not.
-
-## How it keeps the router yours
-
-![The settings page can write a key and can ask whether one is present; nothing returns one](docs/security.svg)
-
-| profile | runs as | the router |
-|---|---|---|
-| `owner` (default) | `hermes`, unprivileged | read through openwrt-mcp; changed only through it, after an unlock |
-| `assistant` | `hermes`, no terminal, code or file tools | only through an MCP server you set up |
-| `root` | root, warned at every start | directly, no unlock |
-
-![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, an unconfirmed change rolls back by itself](docs/unlock.svg)
-
-- Keys live in root-only files; no page and no call returns one, and they stay out of
-  command lines, UCI and procd's service table.
-- The unlock message is deleted from the chat and never reaches the model or a log.
-- A change that is not confirmed is undone by itself, after a reboot too.
-
-Everything about keys, profiles, the unlock and the memory ceiling, with the limits named:
-[docs/security.md](docs/security.md). Several providers on one router: [docs/providers.md](docs/providers.md).
-
-## On a USB stick
-
-![Hermes on a USB stick: a GL-MT3000 Beryl AX running Hermes from a stick, and the two ways to put Hermes on USB](docs/usb-stick.svg)
-
-```sh
-apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
-block info                            # the stick's partition: /dev/sda1 here
-hermes-usb move /dev/sda1 --format    # erases that partition, makes ext4, moves the data
-hermes-usb status
-```
-
-Without its stick Hermes does not start, and says why. For a router with too little flash,
-extroot puts every package on the stick: [docs/usb.md](docs/usb.md).
+More than one provider at once, a ChatGPT subscription beside a key, `/model` per chat:
+[docs/providers.md](docs/providers.md).
 
 ## Testing it for us
 
@@ -221,13 +343,6 @@ product and require a check to catch each one.
 | `gate-figures.sh` | these figures drawn from their data; every picture, link and anchor resolves |
 
 What each check proves, one by one: [docs/checks.md](docs/checks.md).
-
-## The signed feed
-
-The index and every package are signed with an EC key through `apk adbsign`, and signing
-happens on a workstation, never in CI: a router that trusts the key keeps trusting anything
-it signs. How the package is assembled from a pinned upstream inside the target release:
-[docs/build.md](docs/build.md).
 
 ## More
 
