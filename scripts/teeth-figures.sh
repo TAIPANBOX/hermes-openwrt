@@ -27,8 +27,14 @@ expect() { # name, want rc (0 pass, 1 fail), the check whose line must say so
 
 fresh; expect "a clean copy passes" 0 -
 
-fresh; sed -i.bak 's/"install: key, feed line, apk add", 24, 64/"install: key, feed line, apk add", 24, 99/' "$T/r/docs/measurements/figures.json"
-grep -q ', 24, 99' "$T/r/docs/measurements/figures.json" || { echo "teeth FAILED: the data fault was not planted"; exit 1; }
+fresh; python3 - "$T/r/docs/measurements/figures.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["rerun"]["time_s"][0][2] = 99      # the Brume 2's install time, changed and not redrawn
+json.dump(d, open(p, "w"), indent=2)
+PY
+python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["rerun"]["time_s"][0][2] == 99 else 1)' "$T/r/docs/measurements/figures.json" \
+	|| { echo "teeth FAILED: the data fault was not planted"; exit 1; }
 expect "a number changed in the data and not redrawn" 1 check_figures_match_their_data
 
 fresh; printf '\n![gone](docs/no-such-figure.svg)\n' >> "$T/r/README.md"

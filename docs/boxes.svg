@@ -1,86 +1,145 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" role="img" aria-label="The two routers these figures came from: GL-MT6000 Flint 2 and GL-MT2500 Brume 2">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="824" viewBox="0 0 1280 824" role="img" aria-label="The three test routers: GL.iNet Flint 2, Wi-Fi router, GL.iNet Brume 2, wired gateway, GL.iNet Beryl AX, travel size">
+<defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/></filter></defs>
 <defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/>
-  </linearGradient>
-  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/>
-  </linearGradient>
-  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/>
-  </pattern>
-  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-    <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/>
-  </filter>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
 </defs>
-
-<rect x="0" y="0" width="1280" height="480" fill="url(#bg)"/>
-<rect x="0" y="0" width="1280" height="480" fill="url(#grid)" opacity="0.5"/>
-<rect x="0" y="0" width="1280" height="4" fill="url(#accent)"/>
-
-<text x="48" y="60" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" font-weight="600" fill="#e6edf3">The two boxes behind every number here</text>
-<text x="48" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, Hermes 0.21.5, measured 2026-09-25</text>
-
-<!-- left: Flint 2 -->
-<rect x="48" y="118" width="580" height="316" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
-
-<!-- device drawing: wifi router with four antennas -->
-<g transform="translate(96,150)">
-  <line x1="26" y1="34" x2="8"  y2="4"  stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
-  <line x1="72" y1="30" x2="62" y2="0"  stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
-  <line x1="128" y1="30" x2="138" y2="0" stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
-  <line x1="174" y1="34" x2="192" y2="4" stroke="#69788b" stroke-width="5" stroke-linecap="round"/>
-  <path d="M 16 34 L 184 34 L 200 78 L 0 78 Z" fill="#1b2331" stroke="#2dd4bf" stroke-opacity="0.5" stroke-width="2"/>
-  <rect x="86" y="52" width="28" height="6" rx="3" fill="#2dd4bf" opacity="0.8"/>
-  <rect x="0" y="78" width="200" height="10" rx="3" fill="#11161f" stroke="#1b2331"/>
+<rect width="1280" height="824" fill="url(#bg)"/><rect width="1280" height="824" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">The three test routers</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, hermes-agent 0.21.5-r5 from the signed feed, measured 2026-10-03 and 2026-10-04</text>
+<rect x="48" y="112" width="1184" height="200" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<g transform="translate(64,132)">
+<rect x="44" y="0" width="13" height="104" rx="6.5" fill="#2b3544"/>
+<rect x="47" y="6" width="3" height="90" rx="1.5" fill="#3a4658"/>
+<rect x="108" y="0" width="13" height="104" rx="6.5" fill="#2b3544"/>
+<rect x="111" y="6" width="3" height="90" rx="1.5" fill="#3a4658"/>
+<rect x="196" y="0" width="13" height="104" rx="6.5" fill="#2b3544"/>
+<rect x="199" y="6" width="3" height="90" rx="1.5" fill="#3a4658"/>
+<rect x="260" y="0" width="13" height="104" rx="6.5" fill="#2b3544"/>
+<rect x="263" y="6" width="3" height="90" rx="1.5" fill="#3a4658"/>
+<rect x="6" y="78" width="308" height="76" rx="16" fill="#1f2834" stroke="#334155"/>
+<rect x="16" y="78" width="288" height="10" rx="5" fill="#2c3747"/>
+<text x="34" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">USB</text>
+<text x="66" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">2.5G</text>
+<text x="98" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">2.5G</text>
+<text x="138" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">LAN</text>
+<text x="166" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">LAN</text>
+<text x="194" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">LAN</text>
+<text x="222" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">LAN</text>
+<text x="276" y="104" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#8b98a8" text-anchor="middle">DC</text>
+<rect x="27" y="110" width="14" height="26" rx="2" fill="#2f6fd6"/>
+<rect x="54" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#2dd4bf" stroke-width="1"/>
+<rect x="60" y="127" width="12" height="5" fill="#1f2834"/>
+<rect x="86" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#2dd4bf" stroke-width="1"/>
+<rect x="92" y="127" width="12" height="5" fill="#1f2834"/>
+<rect x="126" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#46546a"/>
+<rect x="132" y="127" width="12" height="5" fill="#1f2834"/>
+<rect x="154" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#46546a"/>
+<rect x="160" y="127" width="12" height="5" fill="#1f2834"/>
+<rect x="182" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#46546a"/>
+<rect x="188" y="127" width="12" height="5" fill="#1f2834"/>
+<rect x="210" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#46546a"/>
+<rect x="216" y="127" width="12" height="5" fill="#1f2834"/>
+<circle cx="276" cy="121" r="8" fill="#0c1118" stroke="#46546a"/><circle cx="276" cy="121" r="2.5" fill="#46546a"/>
+<rect x="248" y="117" width="10" height="8" rx="4" fill="#0c1118" stroke="#46546a"/>
+<rect x="40" y="154" width="24" height="5" rx="2" fill="#46546a"/><rect x="256" y="154" width="24" height="5" rx="2" fill="#46546a"/>
 </g>
-
-<text x="330" y="172" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" font-weight="600" fill="#e6edf3">GL-MT6000</text>
-<text x="330" y="194" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Flint 2</text>
-
-<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">
-  <text x="330" y="228">MT7986  4x Cortex-A53</text>
-  <text x="330" y="252">1 GB RAM   8 GB eMMC</text>
-  <text x="330" y="276">2x 2.5G + 4x 1G  Wi-Fi 6</text>
+<text x="424" y="160" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" fill="#e6edf3" font-weight="600">GL-MT6000</text>
+<text x="424" y="182" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Flint 2, Wi-Fi router</text>
+<text x="424" y="214" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">MT7986  4x Cortex-A53</text>
+<text x="424" y="236" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 GB RAM   8 GB eMMC</text>
+<text x="424" y="258" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">2x 2.5G + 4x 1G, USB 3</text>
+<text x="424" y="280" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Wi-Fi 6, four antennas</text>
+<rect x="704" y="136" width="1" height="152" fill="#1b2331"/>
+<text x="728" y="158" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
+<text x="964" y="158" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">24 s, 47 packages</text>
+<text x="728" y="182" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
+<text x="964" y="182" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">396 MB, internal</text>
+<text x="728" y="206" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">gateway resident</text>
+<text x="964" y="206" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">202 MB</text>
+<text x="728" y="230" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">one conversation</text>
+<text x="964" y="230" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">25 s</text>
+<text x="728" y="254" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">conversations at once</text>
+<text x="964" y="254" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">6, all answered in 32 s</text>
+<text x="728" y="278" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
+<text x="964" y="278" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">528 MB at the lowest</text>
+<rect x="48" y="328" width="1184" height="200" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<g transform="translate(64,348)">
+<rect x="34" y="34" width="252" height="118" rx="22" fill="#d6d8e4"/>
+<rect x="48" y="34" width="224" height="13" rx="6.5" fill="#e6e7ef"/>
+<text x="78" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="7" fill="#6d7486" text-anchor="middle">POWER</text>
+<text x="122" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="7" fill="#6d7486" text-anchor="middle">USB</text>
+<text x="168" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="7" fill="#6d7486" text-anchor="middle">WAN 2.5G</text>
+<text x="218" y="86" font-family="ui-sans-serif,system-ui,sans-serif" font-size="7" fill="#6d7486" text-anchor="middle">LAN</text>
+<rect x="67" y="100" width="22" height="9" rx="4.5" fill="#3a4250"/>
+<rect x="115" y="94" width="14" height="28" rx="2" fill="#2f6fd6"/>
+<rect x="154" y="94" width="28" height="26" rx="2" fill="#3f4756"/>
+<rect x="162" y="115" width="12" height="5" fill="#d6d8e4"/>
+<rect x="204" y="94" width="28" height="26" rx="2" fill="#3f4756"/>
+<rect x="212" y="115" width="12" height="5" fill="#d6d8e4"/>
+<rect x="64" y="152" width="24" height="5" rx="2" fill="#8a90a0"/><rect x="232" y="152" width="24" height="5" rx="2" fill="#8a90a0"/>
 </g>
-
-<rect x="96" y="290" width="500" height="1" fill="#1b2331"/>
-<g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
-  <text x="96" y="318" fill="#69788b">install, clean</text>       <text x="250" y="318" fill="#e6edf3">17 s</text>
-  <text x="96" y="342" fill="#69788b">gateway resident</text><text x="250" y="342" fill="#e6edf3">179 MB</text>
-  <text x="96" y="366" fill="#69788b">one conversation</text> <text x="250" y="366" fill="#3fb950">18 s</text>
-  <text x="96" y="390" fill="#69788b">six at once</text>   <text x="250" y="390" fill="#3fb950">25 s, all answered</text>
-  <text x="96" y="414" fill="#69788b">temperature</text>    <text x="250" y="414" fill="#e6edf3">51 to 52 C, fanless</text>
+<text x="424" y="376" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" fill="#e6edf3" font-weight="600">GL-MT2500</text>
+<text x="424" y="398" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Brume 2, wired gateway</text>
+<text x="424" y="430" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">MT7981  2x Cortex-A53</text>
+<text x="424" y="452" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1 GB RAM   8 GB eMMC</text>
+<text x="424" y="474" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1x 2.5G + 1x 1G, USB 3</text>
+<text x="424" y="496" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">wired only, no radio</text>
+<rect x="704" y="352" width="1" height="152" fill="#1b2331"/>
+<text x="728" y="374" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
+<text x="964" y="374" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">64 s, 50 packages</text>
+<text x="728" y="398" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
+<text x="964" y="398" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">393 MB, internal</text>
+<text x="728" y="422" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">gateway resident</text>
+<text x="964" y="422" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">203 MB</text>
+<text x="728" y="446" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">one conversation</text>
+<text x="964" y="446" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">32 s</text>
+<text x="728" y="470" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">conversations at once</text>
+<text x="964" y="470" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">6, all answered in 46 s</text>
+<text x="728" y="494" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
+<text x="964" y="494" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">445 MB at the lowest</text>
+<rect x="48" y="544" width="1184" height="200" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
+<g transform="translate(102,568)">
+<rect x="214" y="14" width="24" height="98" rx="12" fill="#8d9eb1"/>
+<rect x="2" y="0" width="28" height="112" rx="14" fill="#a7b7c9"/>
+<text transform="translate(20,62) rotate(-90)" font-family="ui-sans-serif,system-ui,sans-serif" font-size="9" font-weight="600" fill="#6d7d8f" text-anchor="middle">WiFi 6</text>
+<rect x="0" y="72" width="244" height="76" rx="24" fill="#b6c5d5"/>
+<rect x="10" y="72" width="224" height="10" rx="5" fill="#c9d6e3"/>
+<text x="44" y="100" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#6d7d8f" text-anchor="middle">5V⎓3A</text>
+<rect x="35" y="106" width="18" height="7" rx="3.5" fill="#3a4450"/>
+<rect x="88" y="94" width="72" height="34" rx="5" fill="#e6ecf2" stroke="#8d9eb1"/>
+<text x="106" y="91" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#6d7d8f" text-anchor="middle">WAN</text>
+<text x="142" y="91" font-family="ui-sans-serif,system-ui,sans-serif" font-size="6" fill="#6d7d8f" text-anchor="middle">LAN</text>
+<rect x="93" y="100" width="26" height="22" rx="2" fill="#4a5562"/><rect x="100" y="117" width="12" height="5" fill="#e6ecf2"/>
+<rect x="129" y="100" width="26" height="22" rx="2" fill="#4a5562"/><rect x="136" y="117" width="12" height="5" fill="#e6ecf2"/>
+<rect x="190" y="96" width="14" height="28" rx="2" fill="#2f6fd6"/>
+<rect x="186" y="84" width="22" height="50" rx="5" fill="#1f2a38" stroke="#4493f8" stroke-width="1.5"/>
+<text transform="translate(201,109) rotate(-90)" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="8" fill="#9aa7b8" text-anchor="middle">32 GB</text>
+<rect x="34" y="148" width="22" height="5" rx="2" fill="#6d7d8f"/>
+<rect x="188" y="148" width="22" height="5" rx="2" fill="#6d7d8f"/>
 </g>
-
-<!-- right: Brume 2 -->
-<rect x="652" y="118" width="580" height="316" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>
-
-<!-- device drawing: small wired box -->
-<g transform="translate(700,168)">
-  <rect x="0" y="12" width="150" height="58" rx="8" fill="#1b2331" stroke="#4493f8" stroke-opacity="0.5" stroke-width="2"/>
-  <rect x="16" y="34" width="26" height="16" rx="2" fill="#11161f" stroke="#69788b"/>
-  <rect x="52" y="34" width="26" height="16" rx="2" fill="#11161f" stroke="#69788b"/>
-  <rect x="92" y="38" width="10" height="8" rx="2" fill="#2dd4bf" opacity="0.7"/>
-  <rect x="110" y="38" width="10" height="8" rx="2" fill="#69788b" opacity="0.5"/>
-  <rect x="0" y="70" width="150" height="8" rx="3" fill="#11161f" stroke="#1b2331"/>
-</g>
-
-<text x="890" y="172" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" font-weight="600" fill="#e6edf3">GL-MT2500</text>
-<text x="890" y="194" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Brume 2, wired only</text>
-
-<g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">
-  <text x="890" y="228">MT7981  2x Cortex-A53</text>
-  <text x="890" y="252">1 GB RAM   8 GB eMMC</text>
-  <text x="890" y="276">1x 2.5G + 1x 1G  no radio</text>
-</g>
-
-<rect x="700" y="290" width="500" height="1" fill="#1b2331"/>
-<g font-family="ui-sans-serif,system-ui,sans-serif" font-size="13">
-  <text x="700" y="318" fill="#69788b">install, clean</text>        <text x="854" y="318" fill="#e6edf3">48 s</text>
-  <text x="700" y="342" fill="#69788b">gateway resident</text><text x="854" y="342" fill="#e6edf3">178 MB</text>
-  <text x="700" y="366" fill="#69788b">one conversation</text>  <text x="854" y="366" fill="#3fb950">25 s</text>
-  <text x="700" y="390" fill="#69788b">six at once</text>    <text x="854" y="390" fill="#e3b341">30 s, all answered</text>
-  <text x="700" y="414" fill="#69788b">temperature</text>     <text x="854" y="414" fill="#e6edf3">45 to 47 C, fanless</text>
-</g>
+<text x="424" y="592" font-family="ui-sans-serif,system-ui,sans-serif" font-size="20" fill="#e6edf3" font-weight="600">GL-MT3000</text>
+<text x="424" y="614" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">GL.iNet Beryl AX, travel size</text>
+<text x="424" y="646" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">MT7981  2x Cortex-A53</text>
+<text x="424" y="668" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">512 MB RAM   256 MB NAND</text>
+<text x="424" y="690" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">1x 2.5G + 1x 1G, USB 3</text>
+<text x="424" y="712" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Wi-Fi 6, a 32 GB stick</text>
+<rect x="704" y="568" width="1" height="152" fill="#1b2331"/>
+<text x="728" y="590" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">install from the feed</text>
+<text x="964" y="590" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">75 s, 52 packages</text>
+<text x="728" y="614" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">flash it takes</text>
+<text x="964" y="614" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">325 MB, on the stick</text>
+<text x="728" y="638" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">gateway resident</text>
+<text x="964" y="638" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">202 MB</text>
+<text x="728" y="662" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">one conversation</text>
+<text x="964" y="662" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#e6edf3">35 s</text>
+<text x="728" y="686" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">conversations at once</text>
+<text x="964" y="686" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">one at a time fits</text>
+<text x="728" y="710" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">free memory, one conversation</text>
+<text x="964" y="710" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">113 MB at the lowest</text>
+<text x="48" y="778" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">Flint 2 and Brume 2: the install on internal storage; a turn by gpt-5.6-luna through a ChatGPT subscription, without the gateway in front; free memory from the 2026-10-03 fit run.</text>
+<text x="48" y="798" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">Beryl AX: every package on the stick (extroot), internal flash unchanged; a free model through the gateway. Temperatures and the 2026-09-25 figures are in the tables below.</text>
 </svg>
