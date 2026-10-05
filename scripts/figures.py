@@ -155,10 +155,107 @@ def unlock():
     return "\n".join(out) + "\n"
 
 
+def draw_flint(x, y):
+    """Rear view of a GL-MT6000 as in GL.iNet's photos: a dark wedge body with four tall
+    antennas standing behind it, the ports along the back."""
+    g = [f'<g transform="translate({x},{y})">']
+    for ax in (44, 108, 196, 260):
+        g.append(f'<rect x="{ax}" y="0" width="13" height="104" rx="6.5" fill="#2b3544"/>')
+        g.append(f'<rect x="{ax + 3}" y="6" width="3" height="90" rx="1.5" fill="#3a4658"/>')
+    g.append('<rect x="6" y="78" width="308" height="76" rx="16" fill="#1f2834" stroke="#334155"/>')
+    g.append('<rect x="16" y="78" width="288" height="10" rx="5" fill="#2c3747"/>')
+    labels = [(34, "USB"), (66, "2.5G"), (98, "2.5G"), (138, "LAN"), (166, "LAN"), (194, "LAN"), (222, "LAN"), (276, "DC")]
+    for lx, t in labels:
+        g.append(f'<text x="{lx}" y="104" font-family="{SANS}" font-size="6" fill="#8b98a8" text-anchor="middle">{t}</text>')
+    g.append('<rect x="27" y="110" width="14" height="26" rx="2" fill="#2f6fd6"/>')
+    for px in (54, 86):
+        g.append(f'<rect x="{px}" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#2dd4bf" stroke-width="1"/>')
+        g.append(f'<rect x="{px + 6}" y="127" width="12" height="5" fill="#1f2834"/>')
+    for px in (126, 154, 182, 210):
+        g.append(f'<rect x="{px}" y="110" width="24" height="22" rx="2" fill="#0c1118" stroke="#46546a"/>')
+        g.append(f'<rect x="{px + 6}" y="127" width="12" height="5" fill="#1f2834"/>')
+    g.append('<circle cx="276" cy="121" r="8" fill="#0c1118" stroke="#46546a"/><circle cx="276" cy="121" r="2.5" fill="#46546a"/>')
+    g.append('<rect x="248" y="117" width="10" height="8" rx="4" fill="#0c1118" stroke="#46546a"/>')
+    g.append('<rect x="40" y="154" width="24" height="5" rx="2" fill="#46546a"/><rect x="256" y="154" width="24" height="5" rx="2" fill="#46546a"/>')
+    g.append("</g>")
+    return g
+
+
+def draw_brume(x, y):
+    """Rear view of the plastic GL-MT2500: a pale lavender-grey box with no antennas; USB-C
+    power, USB 3.0, the 2.5G WAN and the 1G LAN on the back."""
+    g = [f'<g transform="translate({x},{y})">']
+    g.append('<rect x="34" y="34" width="252" height="118" rx="22" fill="#d6d8e4"/>')
+    g.append('<rect x="48" y="34" width="224" height="13" rx="6.5" fill="#e6e7ef"/>')
+    for lx, t in [(78, "POWER"), (122, "USB"), (168, "WAN 2.5G"), (218, "LAN")]:
+        g.append(f'<text x="{lx}" y="86" font-family="{SANS}" font-size="7" fill="#6d7486" text-anchor="middle">{t}</text>')
+    g.append('<rect x="67" y="100" width="22" height="9" rx="4.5" fill="#3a4250"/>')
+    g.append('<rect x="115" y="94" width="14" height="28" rx="2" fill="#2f6fd6"/>')
+    for px in (154, 204):
+        g.append(f'<rect x="{px}" y="94" width="28" height="26" rx="2" fill="#3f4756"/>')
+        g.append(f'<rect x="{px + 8}" y="115" width="12" height="5" fill="#d6d8e4"/>')
+    g.append('<rect x="64" y="152" width="24" height="5" rx="2" fill="#8a90a0"/><rect x="232" y="152" width="24" height="5" rx="2" fill="#8a90a0"/>')
+    g.append("</g>")
+    return g
+
+
+def draw_beryl(x, y):
+    """The Beryl AX as drawn in docs/usb-stick.svg (front view, from GL.iNet's photos), the
+    32 GB stick in its USB 3.0 port."""
+    g = [f'<g transform="translate({x + 38},{y + 4})">',
+         '<rect x="214" y="14" width="24" height="98" rx="12" fill="#8d9eb1"/>',
+         '<rect x="2" y="0" width="28" height="112" rx="14" fill="#a7b7c9"/>',
+         f'<text transform="translate(20,62) rotate(-90)" font-family="{SANS}" font-size="9" font-weight="600" fill="#6d7d8f" text-anchor="middle">WiFi 6</text>',
+         '<rect x="0" y="72" width="244" height="76" rx="24" fill="#b6c5d5"/>',
+         '<rect x="10" y="72" width="224" height="10" rx="5" fill="#c9d6e3"/>',
+         f'<text x="44" y="100" font-family="{SANS}" font-size="6" fill="#6d7d8f" text-anchor="middle">5V⎓3A</text>',
+         '<rect x="35" y="106" width="18" height="7" rx="3.5" fill="#3a4450"/>',
+         '<rect x="88" y="94" width="72" height="34" rx="5" fill="#e6ecf2" stroke="#8d9eb1"/>',
+         f'<text x="106" y="91" font-family="{SANS}" font-size="6" fill="#6d7d8f" text-anchor="middle">WAN</text>',
+         f'<text x="142" y="91" font-family="{SANS}" font-size="6" fill="#6d7d8f" text-anchor="middle">LAN</text>',
+         '<rect x="93" y="100" width="26" height="22" rx="2" fill="#4a5562"/><rect x="100" y="117" width="12" height="5" fill="#e6ecf2"/>',
+         '<rect x="129" y="100" width="26" height="22" rx="2" fill="#4a5562"/><rect x="136" y="117" width="12" height="5" fill="#e6ecf2"/>',
+         '<rect x="190" y="96" width="14" height="28" rx="2" fill="#2f6fd6"/>',
+         '<rect x="186" y="84" width="22" height="50" rx="5" fill="#1f2a38" stroke="#4493f8" stroke-width="1.5"/>',
+         f'<text transform="translate(201,109) rotate(-90)" font-family="{MONO}" font-size="8" fill="#9aa7b8" text-anchor="middle">32 GB</text>',
+         '<rect x="34" y="148" width="22" height="5" rx="2" fill="#6d7d8f"/>',
+         '<rect x="188" y="148" width="22" height="5" rx="2" fill="#6d7d8f"/>',
+         "</g>"]
+    return g
+
+
+def routers(d):
+    w, card_h, gap, top = 1280, 200, 16, 112
+    h = top + 3 * (card_h + gap) + 64
+    out = frame(w, h, d["title"] + ": " + ", ".join(b["name"] for b in d["boxes"]))
+    out[1:1] = ['<defs><filter id="soft" x="-20%" y="-20%" width="140%" height="140%">'
+                '<feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/></filter></defs>']
+    out.append(text(48, 58, d["title"], 26, weight="600"))
+    out.append(text(48, 84, d["subtitle"], 14, MUTED))
+    draw = {"flint": draw_flint, "brume": draw_brume, "beryl": draw_beryl}
+    for i, b in enumerate(d["boxes"]):
+        y = top + i * (card_h + gap)
+        out.append(f'<rect x="48" y="{y}" width="1184" height="{card_h}" rx="12" fill="#141a23" stroke="#1b2331" filter="url(#soft)"/>')
+        out += draw[b["draw"]](64, y + 20)
+        out.append(text(424, y + 48, b["model"], 20, weight="600"))
+        out.append(text(424, y + 70, b["name"], 14, MUTED))
+        for k, line in enumerate(b["spec"]):
+            out.append(text(424, y + 102 + k * 22, line, 13, LABEL, MONO))
+        out.append(f'<rect x="704" y="{y + 24}" width="1" height="{card_h - 48}" fill="#1b2331"/>')
+        for k, (label, value) in enumerate(zip(d["rows"], b["values"])):
+            ry = y + 46 + k * 24
+            out.append(text(728, ry, label, 13, MUTED))
+            out.append(text(964, ry, value, 13, AMBER if k in b["warn"] else FG, MONO))
+    for k, note in enumerate(d["notes"]):
+        out.append(text(48, top + 3 * (card_h + gap) + 18 + k * 20, note, 12, MUTED))
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs")
     data = json.load(open(os.path.join(ROOT, "docs", "measurements", "figures.json"), encoding="utf-8"))
-    figures = {"rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock()}
+    figures = {"boxes.svg": routers(data["routers"]), "rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock()}
     for name, svg in figures.items():
         with open(os.path.join(outdir, name), "w", encoding="utf-8") as f:
             f.write(svg)

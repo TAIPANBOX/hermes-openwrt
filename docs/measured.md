@@ -4,7 +4,7 @@ Every figure in this section was measured on two routers with **Hermes 0.21.5**,
 version the package carries, on 2026-09-25 unless a subsection gives its own date: not in a
 container and not on a VM.
 
-![The two routers behind these numbers](boxes.svg)
+![The three test routers, Flint 2, Brume 2 and Beryl AX, each with the same six measurements](boxes.svg)
 
 Both are GL.iNet hardware running **vanilla OpenWrt 25.12.5**, not the vendor firmware
 they ship with. They are the two routers the measurements in this section come from, chosen

@@ -39,12 +39,12 @@ router can still serve it as a narrow, audited tool provider through
 
 ## Measured on hardware
 
-![The two routers behind these numbers](docs/boxes.svg)
+![The three test routers, Flint 2, Brume 2 and Beryl AX, each with the same six measurements](docs/boxes.svg)
 
-Two GL.iNet routers on **vanilla OpenWrt 25.12.5**, not their vendor firmware: the Flint 2, a
-Wi-Fi router with four cores, and the Brume 2, a wired gateway with two. Each was cleaned of the
-package first and put back as it was. **Hermes 0.21.5**, 2026-09-25; a conversation is a real
-diagnosis, `openai/gpt-4o-mini` running five commands through the terminal tool.
+All three run **vanilla OpenWrt 25.12.5**, not their vendor firmware, and each was cleaned of
+the package first and put back as it was. The first full measurement, on the Flint 2 and the
+Brume 2 with **Hermes 0.21.5** on 2026-09-25, where a conversation is a real diagnosis
+(`openai/gpt-4o-mini` running five commands through the terminal tool):
 
 | | GL-MT6000 (Flint 2) | GL-MT2500 (Brume 2) |
 |---|---|---|

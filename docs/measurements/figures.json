@@ -2,19 +2,135 @@
   "rerun": {
     "title": "Re-run on the published release",
     "subtitle": "Install step 1 and the Telegram add-on, run as written against the feed; vanilla OpenWrt 25.12.5, agent 0.21.5-r5, 2026-10-04",
-    "routers": ["Flint 2", "Brume 2"],
+    "routers": [
+      "Flint 2",
+      "Brume 2"
+    ],
     "time_s": [
-      ["install: key, feed line, apk add", 24, 64],
-      ["kill -9 of the gateway: back after", 9, 10],
-      ["reboot: gateway running after boot", 26, 21],
-      ["one agent turn", 25, 32],
-      ["six turns at once, all answered", 32, 46]
+      [
+        "install: key, feed line, apk add",
+        24,
+        64
+      ],
+      [
+        "kill -9 of the gateway: back after",
+        9,
+        10
+      ],
+      [
+        "reboot: gateway running after boot",
+        26,
+        21
+      ],
+      [
+        "one agent turn",
+        25,
+        32
+      ],
+      [
+        "six turns at once, all answered",
+        32,
+        46
+      ]
     ],
     "size_mb": [
-      ["gateway resident, 90 s after start", 202, 203],
-      ["all of Hermes, six turns at once", 400, 453],
-      ["flash, after the first start", 396, 393]
+      [
+        "gateway resident, 90 s after start",
+        202,
+        203
+      ],
+      [
+        "all of Hermes, six turns at once",
+        400,
+        453
+      ],
+      [
+        "flash, after the first start",
+        396,
+        393
+      ]
     ],
     "source": "docs/measured.md, \"Re-run on the published release, 2026-10-04\""
+  },
+  "routers": {
+    "title": "The three test routers",
+    "subtitle": "Vanilla OpenWrt 25.12.5, aarch64_cortex-a53, hermes-agent 0.21.5-r5 from the signed feed, measured 2026-10-03 and 2026-10-04",
+    "rows": [
+      "install from the feed",
+      "flash it takes",
+      "gateway resident",
+      "one conversation",
+      "conversations at once",
+      "free memory, one conversation"
+    ],
+    "boxes": [
+      {
+        "draw": "flint",
+        "model": "GL-MT6000",
+        "name": "GL.iNet Flint 2, Wi-Fi router",
+        "spec": [
+          "MT7986  4x Cortex-A53",
+          "1 GB RAM   8 GB eMMC",
+          "2x 2.5G + 4x 1G, USB 3",
+          "Wi-Fi 6, four antennas"
+        ],
+        "values": [
+          "24 s, 47 packages",
+          "396 MB, internal",
+          "202 MB",
+          "25 s",
+          "6, all answered in 32 s",
+          "528 MB at the lowest"
+        ],
+        "warn": []
+      },
+      {
+        "draw": "brume",
+        "model": "GL-MT2500",
+        "name": "GL.iNet Brume 2, wired gateway",
+        "spec": [
+          "MT7981  2x Cortex-A53",
+          "1 GB RAM   8 GB eMMC",
+          "1x 2.5G + 1x 1G, USB 3",
+          "wired only, no radio"
+        ],
+        "values": [
+          "64 s, 50 packages",
+          "393 MB, internal",
+          "203 MB",
+          "32 s",
+          "6, all answered in 46 s",
+          "445 MB at the lowest"
+        ],
+        "warn": []
+      },
+      {
+        "draw": "beryl",
+        "model": "GL-MT3000",
+        "name": "GL.iNet Beryl AX, travel size",
+        "spec": [
+          "MT7981  2x Cortex-A53",
+          "512 MB RAM   256 MB NAND",
+          "1x 2.5G + 1x 1G, USB 3",
+          "Wi-Fi 6, a 32 GB stick"
+        ],
+        "values": [
+          "75 s, 52 packages",
+          "325 MB, on the stick",
+          "202 MB",
+          "35 s",
+          "one at a time fits",
+          "113 MB at the lowest"
+        ],
+        "warn": [
+          4,
+          5
+        ]
+      }
+    ],
+    "notes": [
+      "Flint 2 and Brume 2: the install on internal storage; a turn by gpt-5.6-luna through a ChatGPT subscription, without the gateway in front; free memory from the 2026-10-03 fit run.",
+      "Beryl AX: every package on the stick (extroot), internal flash unchanged; a free model through the gateway. Temperatures and the 2026-09-25 figures are in the tables below."
+    ]
   }
 }
