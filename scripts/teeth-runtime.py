@@ -47,6 +47,10 @@ mutants = [
      '$DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-set-toolsets "$HERMES_HOME" '
      '"$HERMES_OPENWRT_TOOLSETS" "$mcp_effective" "$OPENAI_BASE_URL" "$HERMES_MODEL" "$profile"',
      ': # bridge skipped', 'test_wrapper_reapplies_uci_after_model_switch'),
+    ('LAN endpoint left to bare custom', 'hermes-gateway', 'export CUSTOM_BASE_URL="$OPENAI_BASE_URL"',
+     ': # not exported', 'test_endpoint_on_the_lan_starts_and_answers'),
+    ('CUSTOM_BASE_URL left to .env', 'runtime-check.py', '                 "CUSTOM_BASE_URL",\n', '',
+     'test_dotenv_cannot_move_the_endpoint_the_wrapper_names'),
     ('respawn unbounded', 'hermes-agent.init', 'procd_set_param respawn 3600 5 5',
      'procd_set_param respawn 3600 5 0', 'test_procd_respawn_is_bounded'),
     ('zero keeps the old ceiling', 'memory-limit.py', '        _lift_previous_ceiling()',

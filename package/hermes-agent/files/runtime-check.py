@@ -13,6 +13,8 @@ class RuntimeConflict(Exception):
 
 def main() -> int:
     protected = ("HERMES_HOME", "OPENAI_BASE_URL", "HERMES_MODEL", "OPENAI_API_KEY",
+                 # The wrapper sets it to the UCI endpoint, for bare `custom` (see hermes-gateway).
+                 "CUSTOM_BASE_URL",
                  "TELEGRAM_BOT_TOKEN", "OPENWRT_MCP_TOKEN",
                  "TELEGRAM_ALLOWED_USERS", "TELEGRAM_ALLOW_ALL_USERS", "TELEGRAM_HOME_CHANNEL",
                  "HERMES_DISABLE_LAZY_INSTALLS")

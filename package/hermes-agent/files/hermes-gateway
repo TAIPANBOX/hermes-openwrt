@@ -96,6 +96,12 @@ fi
 : "${OPENAI_BASE_URL:?hermes-gateway: OPENAI_BASE_URL is required}"
 : "${HERMES_MODEL:?hermes-gateway: HERMES_MODEL is required}"
 : "${HERMES_OPENWRT_TOOLSETS?hermes-gateway: HERMES_OPENWRT_TOOLSETS is required}"
+# Upstream's auxiliary clients (the session title, for one) resolve bare `custom`, which takes
+# model.base_url only when model.provider is `custom` or the host is loopback by name; ours is
+# the named `uci` entry, so an endpoint on the LAN fell through to OpenRouter's default address
+# with no key and the preflight refused every start. CUSTOM_BASE_URL is the rung upstream reads
+# first for bare custom, so it is the UCI endpoint, always; the preflight keeps a .env off it.
+export CUSTOM_BASE_URL="$OPENAI_BASE_URL"
 # Unset, same as a router upgraded from before profiles existed, means owner:
 # the init's own default applies here too, not only at its first start.
 # Both helpers run as the user the agent runs as (see the top): they read and write the

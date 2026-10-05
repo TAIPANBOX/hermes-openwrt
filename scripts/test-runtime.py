@@ -520,7 +520,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
         self.assertEqual(self.config()["model"]["max_tokens"], 1234)
 
-    def test_model_endpoint_produces_agent_reply(self):
+    def fake_endpoint(self, host="127.0.0.1"):
+        # An OpenAI-compatible endpoint that answers every chat call with HERMES_RUNTIME_OK and
+        # records (path, model, Authorization, whether tools were offered) for each one.
         received = []
         class Endpoint(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -555,12 +557,15 @@ class RuntimeTests(unittest.TestCase):
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
-        server = HTTPServer(("127.0.0.1", 0), Endpoint)
+        server = HTTPServer((host, 0), Endpoint)
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        url = f"http://127.0.0.1:{server.server_port}/v1"
+        return f"http://{host}:{server.server_port}/v1", received
+
+    def test_model_endpoint_produces_agent_reply(self):
+        url, received = self.fake_endpoint()
         (self.home / "config.yaml").write_text("model: old-model\n")
         configured = self.configure(endpoint=url)
         self.assertEqual(configured.returncode, 0, configured.stderr)
@@ -583,6 +588,77 @@ class RuntimeTests(unittest.TestCase):
         command = "from gateway.run import _resolve_gateway_model; assert _resolve_gateway_model()=='runtime-model'"
         gateway = subprocess.run(["python3", "-c", command], env=env, check=False, capture_output=True, text=True)
         self.assertEqual(gateway.returncode, 0, gateway.stderr)
+
+    def wrapper_env(self, endpoint, key="provider-runtime-canary"):
+        # The real wrapper, as procd runs it, down to the exec of the gateway, which is replaced
+        # by a print of the environment the gateway would have started with.
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        try:
+            cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+            key_file = self.home / "key"
+            key_file.write_text(key)
+            env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="",
+                       HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model")
+            return subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key_file)],
+                                  env=env, check=False, capture_output=True, text=True)
+        finally:
+            cli.write_bytes(original)
+
+    def test_endpoint_on_the_lan_starts_and_answers(self):
+        # On a Flint 2 at 0.21.5-r7 (2026-10-05), UCI named a model gateway on the LAN and every
+        # start was refused (AuthError) until procd gave up. Upstream's auxiliary clients (the
+        # session title, for one) resolve bare `custom`, which takes model.base_url only when
+        # model.provider is `custom` or the host is loopback by name (upstream #14676); ours is
+        # `uci`, so bare custom fell through to OpenRouter's default address with no key. Every
+        # other endpoint in these tests is 127.0.0.1, which upstream trusts by name, so none of
+        # them could show it. This one is a documentation address (TEST-NET-2), put on this
+        # container's loopback device so the agent can reach it.
+        host = "198.51.100.10"
+        subprocess.run(["ip", "addr", "replace", host + "/32", "dev", "lo"], check=True, capture_output=True)
+        url, received = self.fake_endpoint(host)
+        self.assertEqual(self.configure(endpoint=url).returncode, 0)
+        started = self.wrapper_env(url)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        gateway = json.loads(started.stdout)
+        # Both routes the gateway resolves, the main model and bare custom, land on that
+        # endpoint with the main key ...
+        code = ("from hermes_cli.runtime_provider import resolve_runtime_provider as r\n"
+                "for x in (r(), r(requested='custom')):\n"
+                f"    assert (x['base_url'].rstrip('/'), x['api_key']) == ({url!r}, 'provider-runtime-canary'), x\n")
+        resolved = subprocess.run(["python3", "-c", code], env=gateway, check=False, capture_output=True, text=True)
+        self.assertEqual(resolved.returncode, 0, resolved.stderr)
+        # ... and an agent run in the gateway's own environment gets its answer from there,
+        # every call with the model and key UCI names.
+        result = subprocess.run(["hermes", "-z", "Reply briefly", "-t", "memory"],
+                                env=dict(gateway, NO_PROXY=host + ",127.0.0.1,localhost"),
+                                check=False, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("HERMES_RUNTIME_OK", result.stdout)
+        self.assertTrue(received)
+        for call in received:
+            self.assertEqual(call[:3], ("/v1/chat/completions", "runtime-model", "Bearer provider-runtime-canary"))
+        self.assertEqual(sum(1 for call in received if call[3]), 1, received)
+        self.assertLessEqual(len(received), 2, received)
+
+    def test_dotenv_cannot_move_the_endpoint_the_wrapper_names(self):
+        # The wrapper hands upstream CUSTOM_BASE_URL equal to the UCI endpoint (above). An upstream
+        # .env that set it again would take bare `custom`, and the main key with it, somewhere UCI
+        # never named. A router that worked round the refusal with that one line in .env, the same
+        # address as UCI's, keeps starting after the upgrade.
+        url = "http://198.51.100.10:4110/v1"
+        self.assertEqual(self.configure(endpoint=url).returncode, 0)
+        dotenv = self.home / ".env"
+        moved = "CUSTOM_BASE_URL=http://conflict-canary.invalid/v1\n"
+        dotenv.write_text(moved)
+        refused = self.wrapper_env(url)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("overrides UCI-managed CUSTOM_BASE_URL", refused.stderr)
+        self.assertNotIn("conflict-canary", refused.stdout + refused.stderr)
+        self.assertEqual(dotenv.read_text(), moved)
+        dotenv.write_text(f"CUSTOM_BASE_URL={url}\n")
+        started = self.wrapper_env(url)
+        self.assertEqual(started.returncode, 0, started.stderr)
 
     def _service_instance_json(self, provider=False):
         extra = ("printf '%s' 'claude-canary-runtime' > /etc/hermes-agent/claude.key; "
@@ -1617,14 +1693,17 @@ start_service; echo "start=$?"
         # next turn laid that empty key over the real one, and upstream sends a custom
         # route on openrouter.ai to its own OpenRouter provider, which wants a key the
         # wrapper does not set. OpenRouter is the default endpoint, so it hit everyone.
-        for endpoint in ("https://openrouter.ai/api/v1", "http://127.0.0.1:9/v1"):
+        # The LAN address is one upstream does not trust by name (0.21.5-r8), and the
+        # environment is the one the wrapper hands the gateway, CUSTOM_BASE_URL included.
+        for endpoint in ("https://openrouter.ai/api/v1", "http://127.0.0.1:9/v1", "http://198.51.100.10:4110/v1"):
             self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
             for how in ("button", "typed"):
                 with self.subTest(endpoint=endpoint, how=how):
                     check = subprocess.run(["python3", "-c", self.SWITCH_CHECK, endpoint, how], check=False,
                                            capture_output=True, text=True,
                                            env=dict(self.env, OPENAI_API_KEY="main-key-canary",
-                                                    OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model"))
+                                                    OPENAI_BASE_URL=endpoint, CUSTOM_BASE_URL=endpoint,
+                                                    HERMES_MODEL="runtime-model"))
                     self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
 
     def test_provider_on_the_main_endpoint_uses_its_own_key(self):

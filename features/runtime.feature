@@ -60,6 +60,12 @@
 #                        staying out of its reach and the unlock itself is
 #                        features/unlock.feature; the scenarios below are the parts of that
 #                        change that read and write the gateway's own configuration.
+#   @measured 2026-10-05 on a Flint 2 at 0.21.5-r7, hermes.main.base_url set to a model
+#                        gateway on the LAN, read with logread: every start was refused
+#                        (AuthError) until procd gave up. Until then it had run on openrouter.ai,
+#                        and in these tests on 127.0.0.1, which upstream trusts by name.
+#   @decided 2026-10-05  An endpoint on the LAN works as UCI names it, with nothing added by
+#                        hand to the agent's .env.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -274,6 +280,21 @@ Feature: What is set on the router is what the gateway runs with
     Then the endpoint received the chat request for that model with that key as the bearer
     And the gateway's own model resolver returns the same model
     # -> check_model_endpoint_produces_agent_reply
+
+  Scenario: an endpoint on the LAN starts and answers, with nothing added by hand
+    Given UCI names a model and an OpenAI-compatible endpoint at an address on the LAN
+    And the agent's .env says nothing about it
+    When the service starts
+    Then the start goes ahead
+    And every call the agent makes, its own turn and the session title alike, reaches that endpoint with the model and key UCI names
+    # -> check_endpoint_on_the_lan_starts_and_answers
+
+  Scenario: a .env line cannot move that endpoint, and one that repeats it is kept
+    Given UCI names an endpoint on the LAN
+    When the agent's .env names another address for it
+    Then the start is refused, naming the setting and never its value, and the file is left as it was
+    And when the .env names the same address as UCI, as a hand-made way round this did, the service starts
+    # -> check_dotenv_cannot_move_the_endpoint_the_wrapper_names
 
   Scenario: a model switched from a chat lasts until the next start
     Given a chat switched the model globally, which upstream saves into its configuration
