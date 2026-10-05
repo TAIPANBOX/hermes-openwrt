@@ -207,11 +207,18 @@ while [ $(($(date +%s) - t1)) -lt 30 ]; do
 	sleep 1
 	alive "$SVC" || svc_fail "the gateway exited $(($(date +%s) - t1)) s after the wrapper started it"
 done
+# what the running gateway's own command line holds, for check 7
+tr '\0' '\n' < "/proc/$SVC/cmdline" > /tmp/svc.cmdline 2>/dev/null
 kill "$SVC" 2>/dev/null || true
 echo "PASS [6/12] check_service_command_runs ($(wc -l < /tmp/argv | tr -d ' ') argv words, $(wc -l < /tmp/envv | tr -d ' ') env entries; gateway after $((t1 - t0)) s, up 30 s)"
 
 # ---- 7 and 8. the key reaches neither argv nor uci ----
+# The command the init hands procd (built in check 6 with this same key in the key file),
+# and the gateway that command started, carry the key's path at most, never the key.
 SECRET=sk-gate-canary-value
+grep -qF "$SECRET" /tmp/argv && fail "[7/12] check_key_not_in_argv" "the init hands procd the key itself on the command line"
+[ -s /tmp/svc.cmdline ] || fail "[7/12] check_key_not_in_argv" "measured nothing: the gateway check 6 started left no command line to read"
+grep -qF "$SECRET" /tmp/svc.cmdline && fail "[7/12] check_key_not_in_argv" "the key is on the command line of the gateway the init's command started"
 mkdir -p /etc/hermes-agent
 printf '%s' "$SECRET" > /etc/hermes-agent/provider.key
 chmod 600 /etc/hermes-agent/provider.key
@@ -226,7 +233,7 @@ if kill -0 "$GW" 2>/dev/null; then
 	if tr '\0' '\n' < "/proc/$GW/cmdline" | grep -q "$SECRET"; then
 		kill "$GW" 2>/dev/null; fail "[7/12] check_key_not_in_argv" "the key is in the process command line"
 	fi
-	echo "PASS [7/12] check_key_not_in_argv"
+	echo "PASS [7/12] check_key_not_in_argv (the init's command, the gateway it started, and one started by hand)"
 	kill "$GW" 2>/dev/null || true
 else
 	# The gateway not staying up would make the argv check vacuous, and a check that
@@ -261,9 +268,15 @@ fi
 
 # ---- 8. a hand-edited config survives reinstall ----
 # Losing this on a router means losing every setting on a routine upgrade, silently.
+# Adding the same file again rewrites nothing (apk 3.0.5 answers OK and leaves every file as it
+# is), so the reinstall is a removal and an install, and a probe in one of the package's own
+# files proves the install really wrote them again.
 marker="# gate canary"
 echo "$marker" >> /etc/config/hermes
-apk add --allow-untrusted --force-refresh /pkg.apk >/dev/null 2>&1 || apk add --allow-untrusted /pkg.apk >/dev/null 2>&1
+echo "# reinstall probe" >> /usr/sbin/hermes-gateway
+apk del hermes-agent >/dev/null 2>&1 || fail "[10/12] check_config_survives" "apk del failed"
+apk add --allow-untrusted /pkg.apk >/dev/null 2>&1 || fail "[10/12] check_config_survives" "the package would not install again"
+grep -q "reinstall probe" /usr/sbin/hermes-gateway 2>/dev/null && fail "[10/12] check_config_survives" "measured nothing: the reinstall wrote none of the package's files again"
 grep -qF "$marker" /etc/config/hermes || fail "[10/12] check_config_survives" "the config was overwritten by a reinstall"
 echo "PASS [10/12] check_config_survives"
 
@@ -295,14 +308,14 @@ echo "PASS [11/12] check_clean_removal (account kept across removal and reinstal
 # `disable` undone (a Brume 2, 2026-10-05, upgrading from the feed). The script run here is
 # the one apk keeps for the installed package and runs on the next upgrade.
 mkdir -p /tmp/pkgscripts && tar -xzf /lib/apk/db/scripts.tar.gz -C /tmp/pkgscripts 2>/dev/null
-pu=$(ls /tmp/pkgscripts/hermes-agent-*.post-upgrade 2>/dev/null | head -n 1)
+pu=$(ls /tmp/pkgscripts/hermes-agent-[0-9]*.post-upgrade 2>/dev/null | head -n 1)
 [ -n "$pu" ] || fail "[12/12] check_upgrade_keeps_boot_start" "measured nothing: apk keeps no post-upgrade script for hermes-agent"
 /etc/init.d/hermes-agent disable
 [ ! -e /etc/rc.d/S95hermes-agent ] || fail "[12/12] check_upgrade_keeps_boot_start" "the start at boot could not be switched off to begin with"
 sh "$pu" >/tmp/post-upgrade.log 2>&1 || { cat /tmp/post-upgrade.log; fail "[12/12] check_upgrade_keeps_boot_start" "the post-upgrade script failed"; }
 [ -e /etc/rc.d/S95hermes-agent ] && fail "[12/12] check_upgrade_keeps_boot_start" "an upgrade switched the start at boot back on after the owner had switched it off"
 /etc/init.d/hermes-agent enable
-sh "$pu" >/dev/null 2>&1
+sh "$pu" >/tmp/post-upgrade.log 2>&1 || { cat /tmp/post-upgrade.log; fail "[12/12] check_upgrade_keeps_boot_start" "the post-upgrade script failed"; }
 [ -e /etc/rc.d/S95hermes-agent ] || fail "[12/12] check_upgrade_keeps_boot_start" "an upgrade switched the start at boot off"
 echo "PASS [12/12] check_upgrade_keeps_boot_start (off stays off, on stays on)"
 CONTAINER

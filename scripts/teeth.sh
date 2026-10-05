@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Six faults, each one a real change could introduce, each caught by a different
+# Eight faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -49,6 +49,9 @@ cleanup() {
 	rm -f "$W/mutant.apk"
 }
 trap cleanup EXIT INT TERM
+# a backup is taken by the fault that changes its file; one left by an earlier run that
+# stopped half way would otherwise be restored over a fresh build's file
+rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak
 
 repack() {
 	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
@@ -152,10 +155,34 @@ repack "$DEPS_OK"
 expect_red "an upgrade that enables the service" check_upgrade_keeps_boot_start
 cp /tmp/postupgrade.bak "$W/post-upgrade"; chmod 0755 "$W/post-upgrade"
 
+# ---- fault 7: the init hands procd the key itself ----
+# The key's path is the only thing the command may carry; an extra argument with the key in
+# it is ignored by the wrapper and the service still starts, so only the argv check sees it.
+cp "$INIT" /tmp/init.bak
+sed 's|procd_set_param command /usr/sbin/hermes-gateway "$key_file"|procd_set_param command /usr/sbin/hermes-gateway "$key_file" "$(cat "$key_file")"|' \
+	"$INIT" > /tmp/init.new
+grep -q '"$key_file" "$(cat "$key_file")"' /tmp/init.new || {
+	echo "teeth: fault 7 planted nothing; the init's command line no longer reads as expected" >&2; exit 1; }
+cp /tmp/init.new "$INIT"
+repack "$DEPS_OK"
+expect_red "the key on the init's command line" check_key_not_in_argv
+cp /tmp/init.bak "$INIT"
+
+# ---- fault 8: an install that always takes the new defaults ----
+# apk keeps an edited /etc/config/hermes and puts the shipped one beside it as .apk-new; a
+# post-install that moves the new one into place throws every setting away on a reinstall.
+cp "$W/post-install" /tmp/postinstall.bak
+awk '$0 == "exit 0" { print "[ -f /etc/config/hermes.apk-new ] && mv /etc/config/hermes.apk-new /etc/config/hermes" } { print }' \
+	/tmp/postinstall.bak > "$W/post-install"; chmod 0755 "$W/post-install"
+grep -q 'hermes.apk-new' "$W/post-install" || { echo "teeth: fault 8 planted nothing" >&2; exit 1; }
+repack "$DEPS_OK"
+expect_red "an install that takes the new defaults over the owner's" check_config_survives
+cp /tmp/postinstall.bak "$W/post-install"; chmod 0755 "$W/post-install"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 6 faults, 6 distinct checks, green restored"
+echo "teeth: 8 faults, 8 distinct checks, green restored"

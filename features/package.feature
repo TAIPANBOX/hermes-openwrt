@@ -54,8 +54,9 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
     # -> check_service_command_runs
 
   Scenario: the key never reaches a command line
-    Given the service started with a key
-    Then the key is not in the gateway's command line
+    Given a key in the provider key file
+    Then the command the init hands procd carries the key's path, not the key
+    And the gateway that command starts does not have the key on its command line
     # -> check_key_not_in_argv
 
   Scenario: the key never reaches UCI
@@ -70,8 +71,8 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
 
   Scenario: a configuration edited by hand survives a reinstall
     Given /etc/config/hermes changed by hand
-    When the package is installed again
-    Then the change is still there
+    When the package is removed and installed again
+    Then the change is still there, and the package's own files were written again
     # -> check_config_survives
 
   Scenario: removal is clean and keeps the account
