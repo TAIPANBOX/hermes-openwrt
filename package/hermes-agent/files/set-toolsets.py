@@ -95,7 +95,8 @@ ASSISTANT_NOTE = ("You run on an OpenWrt router in its assistant profile. You ha
 OWNER_NOTE = ("You run on an OpenWrt router as an unprivileged user. You can read the router's "
               "state, interfaces and log through the openwrt tools without asking anyone. Change "
               "the router only through those tools, never by editing its files or running "
-              "commands that reconfigure it. ")
+              "commands that reconfigure it. For network diagnostics (ping, traceroute, nslookup, "
+              "ip, ifconfig) use your own terminal: they work there as your user. ")
 OWNER_NOTE_LOCKED = ("A change is refused until the owner has unlocked it. When a tool answers that "
                      "a second factor is required, tell the owner to send /unlock in the private "
                      "chat with you, and try again once they say it is done. Never ask the owner "
@@ -168,9 +169,12 @@ PROFILES = ("owner", "assistant", "root", "admin")
 UNLOCK_PLUGIN = "openwrt-unlock"
 UNLOCK_MARKER = "_openwrt_unlock_managed"
 
-# The tools of openwrt-mcp the model is never offered, in any profile: they are how the
-# OWNER proves who they are, and a model that could call them would be asking for a PIN.
-MCP_HIDDEN = ("mfa_unlock", "mfa_lock")
+# The tools of openwrt-mcp the model is never offered, in any profile. mfa_unlock and mfa_lock are
+# how the OWNER proves who they are, and a model that could call them would be asking for a PIN.
+# exec and wg_new_client are never granted to the agent's client (invariant 18), and a model that
+# sees them reaches for them: on a Brume 2 on 2026-10-08 two models in a row pinged through exec,
+# were refused, and reported ping as "blocked by policy" without trying their own terminal.
+MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")
 
 # What marks a `providers` entry as written by this package rather than the operator.
 KEY_ENV = re.compile(r"^HERMES_PROVIDER_[A-Z0-9_]+_KEY$")

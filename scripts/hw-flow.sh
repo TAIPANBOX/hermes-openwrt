@@ -147,19 +147,23 @@ step_ask() { # a person writes to the bot; nothing else can, since a bot cannot 
 	say "ASK: send the bot, from Telegram id $TG_ID: «Почему тормозит интернет? Проверь на роутере.»"
 	say "     waiting up to ${ASK_WAIT:-300} s for the agent to answer"
 	t0=$(date +%s); seen=0
+	on 'cat > /tmp/tool-output.py' < "$ROOT/scripts/tool-output.py"
+	# Until a ping result is in, or the time is up: a first turn in a new chat can be upstream's
+	# onboarding question, and the person then has to answer it before the diagnosis runs.
 	while [ $(( $(date +%s) - t0 )) -lt "${ASK_WAIT:-300}" ]; do
 		n=$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")
 		if [ "$n" -gt "$n0" ]; then
 			[ "$seen" = 0 ] && { seen=$(date +%s); }
 			last=$n; sleep 20
-			[ "$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")" = "$last" ] && break
+			if [ "$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")" = "$last" ]; then
+				on "python3 /tmp/tool-output.py $((t0 - 30))" | grep -q 'packet loss' && break
+			fi
 		else sleep 5; fi
 	done
 	[ "$seen" = 0 ] && { fail ask "no model call within ${ASK_WAIT:-300} s of asking"; return; }
 	on "tail -n 400 /srv/hermes/logs/agent.log" > "$OUT/ask.log"
 	# Tool output is not in agent.log (it logs "terminal completed (N chars)"); it is in the
 	# conversation database, as tool messages. Count what the tools returned since asking.
-	on 'cat > /tmp/tool-output.py' < "$ROOT/scripts/tool-output.py"
 	tool_out=$(on "python3 /tmp/tool-output.py $((t0 - 30)); rm -f /tmp/tool-output.py")
 	printf '%s\n' "$tool_out" > "$OUT/ask-tools.txt"
 	denied=$(grep -c 'permission denied' "$OUT/ask-tools.txt")
