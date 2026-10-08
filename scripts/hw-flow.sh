@@ -221,6 +221,28 @@ step_admin() { # what the agent's own token may do to the router, through openwr
 	say "admin: test PIN cleared, factor back to none"
 }
 
+step_usb() { # README "Where it installs": the data directory to a USB stick and back, with a reboot between
+	: "${USB_DEV:?USB_DEV=/dev/sdXN, the partition on the stick, is required}"
+	out=$(on 'apk update >/dev/null 2>&1; apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs 2>&1 | tail -n 1')
+	case "$out" in OK:*) pass usb-packages "$out" ;; *) fail usb-packages "$out"; return ;; esac
+	fmt=""; [ "${USB_FORMAT:-0}" = 1 ] && fmt=--format
+	on "hermes-usb move $USB_DEV $fmt" > "$OUT/usb-move.out" 2>&1
+	st=$(on 'hermes-usb status 2>&1')
+	case "$st" in *"is on $USB_DEV"*) pass usb-move "$(echo "$st" | head -n 1)" ;; *) fail usb-move "$(tail -n 3 "$OUT/usb-move.out" | tr '\n' ' ') status: $st"; return ;; esac
+	gateway_up 90 && pass usb-gateway "the gateway runs with its data on the stick" || fail usb-gateway "no gateway after the move"
+	if [ "${REBOOT_OK:-0}" = 1 ]; then
+		on 'reboot' >/dev/null 2>&1; sleep 30
+		i=0; while [ "$i" -lt 240 ] && ! on true 2>/dev/null; do sleep 5; i=$((i + 5)); done
+		st=$(on 'hermes-usb status 2>&1')
+		case "$st" in *"is on $USB_DEV"*) ;; *) fail usb-reboot "after a reboot: $st"; return ;; esac
+		gateway_up 120 && pass usb-reboot "after a reboot the stick is mounted and the gateway started from it" || fail usb-reboot "stick mounted, no gateway"
+	else say "SKIP usb-reboot: needs REBOOT_OK=1"; fi
+	on 'hermes-usb back' > "$OUT/usb-back.out" 2>&1
+	st=$(on 'hermes-usb status 2>&1')
+	case "$st" in *"is on $USB_DEV"*) fail usb-back "still on the stick: $(tail -n 2 "$OUT/usb-back.out" | tr '\n' ' ')" ;; *) pass usb-back "$(echo "$st" | head -n 1)" ;; esac
+	gateway_up 90 && pass usb-gateway-back "the gateway runs with its data back inside" || fail usb-gateway-back "no gateway after back"
+}
+
 step_reboot() {
 	[ "${REBOOT_OK:-0}" = 1 ] || { say "SKIP reboot: needs REBOOT_OK=1, given for this router by its owner"; return; }
 	on 'reboot' >/dev/null 2>&1; sleep 30
