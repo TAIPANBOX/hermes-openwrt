@@ -13,6 +13,9 @@
 #                        diagnosis ran as `hermes` and every ping answered "permission denied
 #                        (are you root?)"; with iputils-ping installed the same job pinged the
 #                        internet and the gateway with no loss.
+#   @measured 2026-10-08 on the same Flint 2: one `hermes chat` typed in a shell, its provider
+#                        answering 401, pip-installed boto3 and botocore into /srv/hermes/.local;
+#                        the gateway, started by the service, refused the same lazy install.
 #   @claude 2026-10-05   Scenarios 1 to 11 describe what scripts/gate-package.sh has checked
 #                        since before this file existed, written down so that gate binds both
 #                        ways like every other; they paraphrase the gate's own comments.
@@ -98,3 +101,9 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
     When the agent runs ping, as the first step of finding out why the internet is slow
     Then the ping is answered, instead of refused for not being root
     # -> check_agent_can_ping
+
+  Scenario: hermes typed in a shell never downloads Python packages onto the router
+    Given the package installed
+    When hermes is run from a shell, as root or as the agent's own user
+    Then it is held to the same rule as the service: nothing is pip-installed at runtime
+    # -> check_shell_never_lazy_installs
