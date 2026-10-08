@@ -19,6 +19,7 @@
 # Steps, in order when none are named: clean install model start telegram ask watch admin upgrade.
 # `admin` probes the agent's own openwrt-mcp token: reads, a refused change, and with FLOW_PIN (a
 # throwaway PIN it sets and clears) the unlock window and the rollback of an unconfirmed change.
+# WATCH_DELIVER=local for a router whose Telegram is off (one bot polls from one router at a time).
 # FEED_BASE=http://<host>:<port> installs from a release candidate signed with the feed's key and
 # served from that address, before it is published; the step `clean` also drops that line.
 # `reboot` runs only when named and REBOOT_OK=1, and `remove` only when named: one cuts the
@@ -183,7 +184,7 @@ step_ask() { # a person writes to the bot; nothing else can, since a bot cannot 
 step_watch() { # docs/use.md's hourly watch, with docs/examples/router_check.sh, run once now
 	on 'mkdir -p /srv/hermes/scripts && cat > /srv/hermes/scripts/router_check.sh && chmod 755 /srv/hermes/scripts/router_check.sh && chown -R hermes:hermes /srv/hermes/scripts' \
 		< "$ROOT/docs/examples/router_check.sh"
-	id=$(on "HERMES_HOME=/srv/hermes hermes cron create 1m 'Below is the router data. If everything is normal, reply with exactly [SILENT]. Otherwise say in two lines what is wrong. Do not call any tools.' --name hw-flow-watch --script router_check.sh --repeat 1 --deliver telegram:$TG_ID --reasoning-effort none 2>&1" | sed -n 's/^Created job: //p')
+	id=$(on "HERMES_HOME=/srv/hermes hermes cron create 1m 'Below is the router data. If everything is normal, reply with exactly [SILENT]. Otherwise say in two lines what is wrong. Do not call any tools.' --name hw-flow-watch --script router_check.sh --repeat 1 --deliver ${WATCH_DELIVER:-telegram:$TG_ID} --reasoning-effort none 2>&1" | sed -n 's/^Created job: //p')
 	[ -n "$id" ] || { fail watch "the job was not created"; return; }
 	i=0; while [ "$i" -lt 180 ] && ! on "ls /srv/hermes/cron/output/$id/*.md >/dev/null 2>&1"; do sleep 10; i=$((i + 10)); done
 	f=$(on "ls -t /srv/hermes/cron/output/$id/*.md 2>/dev/null | head -n 1")

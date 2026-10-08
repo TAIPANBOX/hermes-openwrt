@@ -106,11 +106,17 @@ it in one.
 ```sh
 printf '%s' 'sk-...' > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key
 uci set hermes.main.base_url='https://openrouter.ai/api/v1'   # any OpenAI-compatible endpoint
-uci set hermes.main.model='openai/gpt-4o-mini'               # pick one that calls tools
+uci set hermes.main.model='openai/gpt-6.1-sol'               # see the note below on models
 uci set hermes.main.enabled=1
 uci commit hermes && /etc/init.d/hermes-agent restart
 logread -e hermes | tail -n 20
 ```
+
+Pick a strong model. On 2026-10-08, on a Flint 2 and a Brume 2 through Telegram, `gpt-6.1-sol`
+pinged the gateway and the internet, checked DNS and the ports and reported only what it saw,
+while `openai/gpt-4o-mini` with the same package looped on its memory tool, skipped the ping and
+advised a reboot. On OpenRouter a diagnosis with `openai/gpt-6.1-sol` costs a few cents; a ChatGPT
+subscription runs it at no extra cost, picked per chat (see below).
 
 Or in the browser: **Services -> Hermes Agent -> Settings**. The key is a root-only file and the
 page can write it but never read it back. Which models can drive it is measured
