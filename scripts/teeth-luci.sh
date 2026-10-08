@@ -1,10 +1,11 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Thirty-five faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
+# Thirty-six faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
 # the pages. Faults 19 to 31 are LuCI r13's, for the Security page and the PIN and phone behind it.
 # Faults 32 and 33 are r14's, the factor announced to procd once; 34 and 35 are 0.21.5-r2's, the
-# two states in which reload_config has nothing to tell and set_factor must.
+# two states in which reload_config has nothing to tell and set_factor must, and 36 the PIN
+# saved with no word about the factor's own Save.
 # The original eighteen: each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
@@ -419,6 +420,14 @@ repack_luci
 expect_red "a hermes sum that already matches taken for a change" check_security_factor_announced_when_reload_cannot_tell
 cp "$SRC_RPCD" "$RPCD"
 
+# ---- fault 36: a PIN saved with the factor at none, and nothing said about the factor ----
+# The page as it was until 0.21.5-r2: "PIN saved", and the router went on refusing every change
+# because the factor's own Save was never pressed.
+plant "$SECURITY" "if (st.factor === 'none')" 'if (false)' "fault 36"
+repack_luci
+expect_red "a saved PIN that does not point at the factor's Save" check_security_pin_saved_points_to_the_factor
+cp "$SRC_SECURITY" "$SECURITY"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -426,6 +435,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 35 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 35 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 36 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 36 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 35 faults on 23 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 36 faults on 24 checks (shard $SHARD), green restored"

@@ -273,6 +273,15 @@ Feature: The web page manages the agent and never hands a key back
     And a PIN that is not 4 to 8 digits, or not typed twice the same, never leaves the page
     # -> check_security_pin_fields_never_prefilled
 
+  Scenario: a PIN saved while nothing asks for it says where to choose it
+    Given the owner profile with no second factor in force
+    When the owner saves a PIN on the Security page
+    Then after the page reloads it says the router does not ask for the PIN yet, and to choose PIN under "What unlocking asks for" and press Save there
+    And it says so as a warning, without the PIN
+    When a factor that asks for the PIN is already in force, or the router refused the PIN
+    Then it says nothing of the kind
+    # -> check_security_pin_saved_points_to_the_factor
+
   Scenario: the QR of a phone being added is on the page once
     When the owner asks to add a phone
     Then the page shows the QR and the secret, and asks for the current code

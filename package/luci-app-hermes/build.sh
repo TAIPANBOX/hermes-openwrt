@@ -40,6 +40,9 @@ set -eu
 # holds no line for hermes (it ran while /etc/config/hermes did not exist, as after a reinstall),
 # or its line already holds the sum of what hermes now holds. In both the page said "Saved" and
 # the agent kept the old factor (a Flint 2 and a Beryl AX, 2026-10-08).
+# Also: a PIN saved on the Security page while the factor in force is none says, after the reload,
+# to choose PIN under "What unlocking asks for" and press Save there; a person set the PIN and
+# missed the factor's own Save.
 PKGREL=${PKGREL:-2}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
