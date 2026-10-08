@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Ten faults, each one a real change could introduce, each caught by a different
+# Eleven faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -41,6 +41,7 @@ cleanup() {
 	chmod 0755 "$W/post-upgrade" 2>/dev/null || true
 	[ -f /tmp/wrap.bak ] && cp /tmp/wrap.bak "$W/tree/usr/sbin/hermes-gateway" 2>/dev/null
 	[ -f /tmp/env.bak ] && cp /tmp/env.bak "$W/tree/usr/lib/hermes-agent/hermes-env" 2>/dev/null
+	[ -f /tmp/boot.bak ] && cp /tmp/boot.bak "$W/tree/usr/lib/hermes-agent/gateway-boot/sitecustomize.py" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
 	# The init is restored from the repository rather than from a backup: a backup taken
 	# at the top of a run that had already been poisoned by an earlier crashed run would
@@ -52,7 +53,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 # a backup is taken by the fault that changes its file; one left by an earlier run that
 # stopped half way would otherwise be restored over a fresh build's file
-rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak /tmp/env.bak
+rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak /tmp/env.bak /tmp/boot.bak
 
 repack() {
 	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
@@ -199,10 +200,21 @@ repack "$DEPS_OK"
 expect_red "hermes from a shell allowed to pip-install" check_shell_never_lazy_installs
 cp /tmp/env.bak "$ENVF"
 
+# ---- fault 11: a gateway that stays dumpable ----
+# The shape every release up to r9 had: the keys the wrapper exports were readable in
+# /proc/<gateway>/environ by the gateway's own user, the agent's terminal included.
+BOOT="$W/tree/usr/lib/hermes-agent/gateway-boot/sitecustomize.py"
+[ -f "$BOOT" ] || { echo "teeth: fault 11 planted nothing; no gateway sitecustomize in the tree" >&2; exit 1; }
+cp "$BOOT" /tmp/boot.bak
+printf '# deliberately empty: teeth.sh fault 11\n' > "$BOOT"
+repack "$DEPS_OK"
+expect_red "a gateway that stays dumpable" check_gateway_keys_hidden_from_its_user
+cp /tmp/boot.bak "$BOOT"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 10 faults, 10 distinct checks, green restored"
+echo "teeth: 11 faults, 11 distinct checks, green restored"

@@ -90,11 +90,14 @@ hermes-agent enable` switches it back on, an upgrade no longer does it for you.
 they work on belongs to `hermes`, so `HERMES_HOME=/srv/hermes hermes cron create ...` over
 SSH leaves nothing the gateway cannot update. `HERMES_OPENWRT_AS_ROOT=1` turns that off.
 
-One limit is named and not fixed. The gateway's environment holds the keys, and a process
-running as `hermes`, the agent's own terminal included, can read `/proc/<gateway>/environ`.
-The files on disk stay root-only and unreadable to it, and `check_key_files_root_only`
-proves that, but a key the agent is using is a key it can see. Tool defaults, MCP policy
-and the memory ceiling are not an operating system sandbox.
+The gateway's environment holds the keys. Until 0.21.5-r9 a process running as `hermes`, the
+agent's own terminal included, could read them in `/proc/<gateway>/environ`. From r9 the gateway
+makes itself non-dumpable before any of upstream's code runs, so those entries are root's: as
+`hermes` the read is refused, which `check_gateway_keys_hidden_from_its_user` proves against the
+real wrapper. Upstream keeps the model key out of the terminal's own environment, and its file
+tool refuses `/proc/self/environ`. The agent can still use its key, which is what it is for:
+give it one with a spending limit. Tool defaults, MCP policy and the memory ceiling are not an
+operating system sandbox.
 
 ### Profiles
 

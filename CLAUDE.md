@@ -65,7 +65,16 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    controls are an OS security sandbox. `@claude` 2026-10-01, a limit named and not fixed:
    a process running as hermes, the agent's own terminal included, can read the gateway's
    environment in `/proc/<gateway>/environ`, which is where the keys are; the files on disk
-   stay root-only. `@claude` 2026-10-02, 0.21.5-r5: a data directory that does not exist is
+   stay root-only. `@claude` 2026-10-08, 0.21.5-r9, that limit closed: the gateway's own
+   sitecustomize (`/usr/lib/hermes-agent/gateway-boot`, on PYTHONPATH for the gateway's exec
+   only) makes it non-dumpable, fail-closed, so its /proc entries are root's. `@measured`
+   2026-10-08 on a Flint 2: as hermes the read printed OPENAI_API_KEY before and was refused
+   after, root still read it, a live diagnosis ran as before, and the agent's file tool refused
+   /proc/self/environ as a device file (gate: `scripts/gate-package.sh`
+   `check_gateway_keys_hidden_from_its_user`, with `--cap-add SYS_PTRACE` so the container's root
+   can read it as a router's can; teeth: `scripts/teeth.sh` fault 11). Upstream already keeps the
+   model key out of the terminal's environment; the openwrt-mcp token is there, and it carries the
+   agent's own policies only. `@claude` 2026-10-02, 0.21.5-r5: a data directory that does not exist is
    made 0700 and any missing parent 0755, each under a umask the init sets itself, because a
    boot starts the service with 077 and `mkdir -p` then closed a new `/srv` to everyone but
    root, so `hermes` could not reach its own directory and the start was refused as "cannot

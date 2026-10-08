@@ -146,6 +146,10 @@ chmod 0755 "$OUT/usr/libexec/hermes-drop"
 # Which profile is which account; sourced by the init and the wrapper, so it is said once.
 cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
 cp "$SRC/files/hermes-usb-check" "$OUT/usr/lib/hermes-agent/hermes-usb-check" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-usb-check"
+# The gateway's own sitecustomize, which makes it non-dumpable so its keys stay root's (see the file).
+# Its own directory, put on PYTHONPATH by hermes-gateway for the gateway's exec only.
+mkdir -p "$OUT/usr/lib/hermes-agent/gateway-boot"
+cp "$SRC/files/gateway-boot-sitecustomize.py" "$OUT/usr/lib/hermes-agent/gateway-boot/sitecustomize.py" && chmod 0644 "$OUT/usr/lib/hermes-agent/gateway-boot/sitecustomize.py"
 mkdir -p "$OUT/etc/hotplug.d/block"
 cp "$SRC/files/hermes-usb.hotplug" "$OUT/etc/hotplug.d/block/90-hermes-usb" && chmod 0644 "$OUT/etc/hotplug.d/block/90-hermes-usb"
 

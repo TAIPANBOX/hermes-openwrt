@@ -16,6 +16,9 @@
 #   @measured 2026-10-08 on the same Flint 2: one `hermes chat` typed in a shell, its provider
 #                        answering 401, pip-installed boto3 and botocore into /srv/hermes/.local;
 #                        the gateway, started by the service, refused the same lazy install.
+#   @measured 2026-10-08 on the same Flint 2: as hermes, `tr '\0' '\n' < /proc/<gateway>/environ`
+#                        printed OPENAI_API_KEY; with the gateway made non-dumpable it was refused,
+#                        root still read it, and a live diagnosis ran as before.
 #   @claude 2026-10-05   Scenarios 1 to 11 describe what scripts/gate-package.sh has checked
 #                        since before this file existed, written down so that gate binds both
 #                        ways like every other; they paraphrase the gate's own comments.
@@ -107,3 +110,9 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
     When hermes is run from a shell, as root or as the agent's own user
     Then it is held to the same rule as the service: nothing is pip-installed at runtime
     # -> check_shell_never_lazy_installs
+
+  Scenario: the agent cannot read its own keys out of the running service
+    Given the service started with a key, the agent running as its own user
+    When that user reads the running gateway's environment, as the agent's terminal could
+    Then it is refused, and only root can read the keys there
+    # -> check_gateway_keys_hidden_from_its_user

@@ -17,6 +17,8 @@
 #   ./scripts/hw-flow.sh [step ...]
 #
 # Steps, in order when none are named: clean install model start telegram ask watch upgrade.
+# FEED_BASE=http://<host>:<port> installs from a release candidate signed with the feed's key and
+# served from that address, before it is published; the step `clean` also drops that line.
 # `reboot` runs only when named and REBOOT_OK=1, and `remove` only when named: one cuts the
 # router's network for a minute, the other leaves it without Hermes.
 #
@@ -54,7 +56,7 @@ apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp iputils-p
 d=$(uci -q get hermes.main.data_dir); rm -rf "${d:-/srv/hermes}"
 rm -rf /etc/hermes-agent /etc/openwrt-mcp
 rm -f /etc/config/hermes /etc/config/openwrt-mcp /etc/apk/keys/hermes-openwrt.pem
-sed -i '/taipanbox.github.io\/hermes-openwrt/d' /etc/apk/repositories.d/customfeeds.list
+sed -i '/taipanbox.github.io\/hermes-openwrt/d; /\/25.12\/aarch64[a-z0-9_-]*\/packages.adb/d' /etc/apk/repositories.d/customfeeds.list
 sed -i '/^hermes:/d' /etc/passwd /etc/shadow /etc/group
 /etc/init.d/rpcd restart
 EOF
@@ -67,6 +69,14 @@ step_install() {
 	awk '/^\*\*1\. Trust the feed and install\.\*\*/ {f=1} f && /^```sh/ {b=1; next} b && /^```/ {exit} b' \
 		"$ROOT/README.md" > "$OUT/install.sh"
 	grep -q 'apk add hermes-agent' "$OUT/install.sh" || { fail install "measured nothing: no install block found in README.md"; return; }
+	# FEED_BASE: a feed signed with the same key but served from elsewhere (a release candidate
+	# checked before it is published). Only the packages' address changes; the key the router
+	# trusts is still fetched from where the README says.
+	if [ -n "${FEED_BASE:-}" ]; then
+		sed -i.bak "s|https://taipanbox.github.io/hermes-openwrt/25.12/|$FEED_BASE/25.12/|" "$OUT/install.sh"
+		grep -q "$FEED_BASE/25.12/" "$OUT/install.sh" || { fail install "FEED_BASE given but the README's feed line was not found to point at it"; return; }
+		say "install: packages from $FEED_BASE (release candidate), key from the README's address"
+	fi
 	t0=$(date +%s)
 	ssh -o BatchMode=yes "$ROUTER" 'sh -s' < "$OUT/install.sh" > "$OUT/install.out" 2>&1
 	tries=1
