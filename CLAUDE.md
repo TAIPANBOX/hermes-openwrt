@@ -160,9 +160,27 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     dropped at the next one, so "Saved" is never shown twice (gate: `scripts/gate-luci.sh`
     `check_read_acl_is_narrow`, `check_secret_never_returned`, `check_security_status_reports_facts_only`,
     `check_security_factor_never_outruns_what_exists`, `check_security_refused_outside_the_owner_profile`,
-    `check_security_page_calls_are_granted` and the four `check_security_*` page checks in
+    `check_security_page_calls_are_granted` and the five `check_security_*` page checks in
     `scripts/test-luci-views.mjs`, and `scripts/gate-unlock.sh` `check_luci_pin_write_only`;
     teeth: `scripts/teeth-luci.sh`, `scripts/teeth-unlock.sh`).
+    `@claude` 2026-10-08, LuCI 0.21.5-r2: set_factor announces `config.change` for hermes itself
+    whenever reload_config cannot: the sum reload_config holds for hermes is read from
+    `/var/run/config.md5` before it runs and compared with md5sum of `uci show hermes`, made as it
+    makes it; no line for hermes (it ran while /etc/config/hermes did not exist, as after a
+    reinstall) or a line already holding that sum means it tells nobody, so set_factor tells
+    procd, and otherwise it does not, so the agent restarts once. Until r2 set_factor asked only
+    whether the md5 file existed. `@measured` 2026-10-08 on a Flint 2 (the hermes line deleted,
+    then `ubus call hermes set_factor`) and on a Beryl AX (the line present, the sum already
+    equal): "Saved", UCI changed, the agent not restarted and the change policy not rewritten;
+    red first in openwrt/rootfs 25.12.4 with the real reload_config and a counting ubus
+    stand-in, 0 events in both states before, 1 after (gate: `scripts/gate-luci.sh`
+    `check_security_factor_announced_when_reload_cannot_tell`; teeth: `scripts/teeth-luci.sh`
+    faults 34 and 35). `@claude` 2026-10-08, the same release: a PIN saved while the factor in
+    force is `none` says, after the reload and as a warning, to choose PIN under "What unlocking
+    asks for" and press Save there, since the PIN and the factor have a Save each and a person
+    set one and missed the other (gate: `scripts/test-luci-views.mjs`
+    `check_security_pin_saved_points_to_the_factor`, red first against the r1 page; teeth:
+    `scripts/teeth-luci.sh` fault 36).
 12. `@decided 2026-09-24`: two profiles, chosen in `hermes.main.profile`, govern which
     tools the agent may use. assistant disables terminal, code execution and file tools
     regardless of what the `toolsets` list selects; admin leaves every selected tool
@@ -259,6 +277,42 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     The model is never offered `mfa_unlock` or `mfa_lock` (`tools.exclude` in the
     package-written `mcp_servers.openwrt` entry, in every profile), and is told to ask the
     owner for /unlock in the private chat and never to ask for a PIN or a code in a message.
+    `@claude` 2026-10-08, 0.21.5-r10: nor `exec` or `wg_new_client`, which its client is never
+    granted; offered `exec`, three model setups on a Brume 2 pinged through it, were refused and
+    reported ping as blocked, so the owner note also sends network diagnostics to the agent's
+    own terminal. An entry r3 to r9 wrote (the unlock tools alone), pasted by hand, is still
+    adopted (gate: `scripts/gate-runtime.sh` `check_mcp_entry_hides_exec_and_wg_new_client_in_every_profile`,
+    `check_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape`; teeth:
+    `scripts/teeth-runtime.py`). `@claude` 2026-10-08, 0.21.5-r10: the bridge writes
+    `tools.tool_search.enabled: 'off'` in every profile where the operator set nothing (an
+    explicit value, or the legacy true or false, is theirs), because upstream's tool search
+    deferred every MCP tool and the models never searched: on the three test routers they never
+    saw openwrt-mcp's tools and looped on `uci` in the terminal; with it off the agent called
+    `mcp__openwrt__uci_apply` (gate: `scripts/gate-runtime.sh`
+    `check_tool_search_is_off_unless_the_operator_set_it`, read through upstream's own
+    `load_config`; teeth: `scripts/teeth-runtime.py`). `@claude` 2026-10-08, 0.21.5-r10: the
+    owner note says a UCI section name holds only letters, digits and underscores with a readable
+    name in `option name`, a port forward is a firewall `redirect` (DNAT) and not a `rule`, and a
+    change is read back with `uci_get` before the owner is told what the router holds;
+    gpt-4o-mini had named a section `hermes-test` three times ("uci: Invalid argument"), then
+    written a `rule` with target ACCEPT and called the port forwarded (gate:
+    `scripts/gate-runtime.sh` `check_owner_note_teaches_section_names_port_forwards_and_reading_back`,
+    which also holds the note's rule that the agent never asks the owner to widen its access or
+    run `openwrt-mcp allow`: on a Beryl AX, refused a read of `wireless`, gpt-6.1-sol asked the
+    owner to run `openwrt-mcp allow hermes-main uci_get 'wireless' 60m`;
+    in config.yaml and in what the gateway loads; teeth: `scripts/teeth-runtime.py`). The four
+    runtime changes were shown red first locally against the earlier bridge, not in the gate's
+    container, which needs a build.
+    `@decided 2026-10-08` (the owner's, paraphrased): what an unlock window is for. In it the
+    agent may change settings, the VPN and services, each with automatic rollback. It may never
+    run arbitrary commands, install anything from a link, or run a sysupgrade. Installing
+    packages is allowed only from the official OpenWrt feed, and only when the owner has opted in.
+    `@claude` 2026-10-08: the package-install part is NOT implemented: there is no install
+    policy, no feed check and no opt-in yet; it is planned work. And today's change policy is
+    wider than this scope: `ubus_call` on everything reaches rpcd's `file` object, which runs
+    commands, and a firewall include is a script, so an open window is still root for its length
+    (above). Only `uci_apply` has the automatic rollback; a `ubus_call` (a service restart, say)
+    has none. Narrowing the window to this scope is planned work too (not enforced).
     Unlocking is per agent: `hermes-<name>` has its own token and its own window.
     An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
     so a reboot does not keep it. `@claude` 2026-10-01: wireless is not readable, and neither
@@ -438,7 +492,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 23. `@claude` 2026-10-08: a download downloads.openwrt.org cuts off does not fail a build or a gate.
     Every script that runs `apk update` or `apk add` inside an OpenWrt container sources
     `scripts/apk-retry.sh`, whose `apk` retries only output that says a download was cut off
-    (`Connection aborted`, `wget: exited with error`, 429, a timeout), up to five times; any other
+    (`Connection aborted`, `wget: exited with error`, 429, a timeout and apk 3's own fetch-failure
+    words), up to eight times, with packages kept in `/apk-cache` when a builder mounts one (CI does,
+    from actions/cache, so a package fetched once is not fetched again); any other
     failure returns at once, so a gate that expects apk to refuse sees it refuse the first time.
     `@measured` 2026-10-08: CI's build step died on "libreadline8 ... Connection aborted", a gate on
     429, and a Flint 2 installing from the README got "2 errors;" (gate: `scripts/test-apk-retry.sh`,

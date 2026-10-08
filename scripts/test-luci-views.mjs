@@ -383,6 +383,39 @@ check('check_security_pin_fields_never_prefilled', async () => {
 	}
 });
 
+check('check_security_pin_saved_points_to_the_factor', async () => {
+	// The PIN and the factor have a Save each. On 2026-10-08 a person set the PIN, missed the
+	// factor's Save, and the router went on refusing every change. With the factor at none, a saved
+	// PIN says, after the reload, where to choose it and which Save to press.
+	const w = world({ 'hermes.security_status': statusOf({ factor: 'none' }), 'hermes.set_pin': { ok: true } });
+	await open(w, 'security');
+	assert(/What unlocking asks for/.test(textOf(w.page)), 'the page has no section "What unlocking asks for" for the message to point at');
+	byId(w.page, 'hermes-sec-pin').value = '4821'; byId(w.page, 'hermes-sec-pin-again').value = '4821';
+	await press(w, 'hermes-sec-pin-set');
+	assert(w.reloads === 1, 'a saved PIN did not reload the page');
+	await open(w, 'security');   // the reload: what was kept is shown now
+	const hint = w.notes.find(n => /What unlocking asks for/.test(n.text) && /\bSave\b/.test(n.text) && /\bPIN\b/.test(n.text));
+	assert(hint, `after the reload the page does not tell the owner to choose PIN under "What unlocking asks for" and press Save: ${JSON.stringify(w.notes)}`);
+	assert(hint.kind !== 'info', `the message that the PIN is not asked for yet is shown as "${hint.kind}", like any other note`);
+	assert(!JSON.stringify(w.notes).includes('4821'), 'a message repeats the PIN');
+	// With a factor in force that asks for the PIN, a changed PIN needs no such message.
+	for (const factor of ['pin', 'pin+totp']) {
+		const w2 = world({ 'hermes.security_status': statusOf({ factor, pin_set: true, totp_enrolled: true }), 'hermes.set_pin': { ok: true } });
+		await open(w2, 'security');
+		byId(w2.page, 'hermes-sec-pin').value = '4821'; byId(w2.page, 'hermes-sec-pin-again').value = '4821';
+		await press(w2, 'hermes-sec-pin-set');
+		await open(w2, 'security');
+		assert(w2.notes.some(n => /PIN saved/.test(n.text)), `with the factor ${factor} a saved PIN says nothing`);
+		assert(!w2.notes.some(n => /What unlocking asks for/.test(n.text)), `with the factor ${factor} the page still says to choose PIN`);
+	}
+	// And a PIN the router refused does not send the owner to the factor.
+	const w3 = world({ 'hermes.security_status': statusOf({ factor: 'none' }), 'hermes.set_pin': { ok: false, error: 'no' } });
+	await open(w3, 'security');
+	byId(w3.page, 'hermes-sec-pin').value = '4821'; byId(w3.page, 'hermes-sec-pin-again').value = '4821';
+	await press(w3, 'hermes-sec-pin-set');
+	assert(![...w3.storage.values()].join('').includes('What unlocking asks for'), 'a refused PIN still kept the message to choose it');
+});
+
 check('check_security_qr_shown_once', async () => {
 	const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', PNG = 'iVBORw0KGgoQRPNGBASE64';
 	const MORE = 'MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U', MOREPNG = 'iVBORw0KGgoSECONDPNG';

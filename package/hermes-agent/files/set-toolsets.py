@@ -42,6 +42,12 @@ up first. The package-written mcp_servers.openwrt entry carries tools.exclude, s
 model is never offered openwrt-mcp's unlock or lock tools in any profile (upstream's
 tools/mcp_tool_registration.py reads that key).
 
+@claude 2026-10-08, 0.21.5-r10: exec and wg_new_client are excluded the same way, since the
+agent's client is never granted them and models that saw them reached for them; every profile
+writes tools.tool_search.enabled 'off' where the operator has set nothing, so upstream does not
+defer the MCP tools behind its search tool; and the owner note says how UCI names sections, what
+a port forward is, and to read a change back before reporting it.
+
 @decided 2026-10-01 (the unlock plugin): in the owner profile the bridge also enables the
 plugin openwrt-unlock, which ships in the package's own site-packages and takes /unlock and
 /lock in Telegram (its own header says how). It adds the name to plugins.enabled, keeping
@@ -95,7 +101,15 @@ ASSISTANT_NOTE = ("You run on an OpenWrt router in its assistant profile. You ha
 OWNER_NOTE = ("You run on an OpenWrt router as an unprivileged user. You can read the router's "
               "state, interfaces and log through the openwrt tools without asking anyone. Change "
               "the router only through those tools, never by editing its files or running "
-              "commands that reconfigure it. ")
+              "commands that reconfigure it. For network diagnostics (ping, traceroute, nslookup, "
+              "ip, ifconfig) use your own terminal: they work there as your user. "
+              "A UCI section name holds only letters, digits and underscores; put a readable "
+              "name in the section's `name` option. A port forward is a firewall section of "
+              "type redirect (DNAT), not a rule. After a change, read it back with uci_get and "
+              "tell the owner only what the router actually holds. What you may read and change "
+              "is the owner's decision, made on purpose: never ask the owner to widen it, to run "
+              "openwrt-mcp allow, or to grant you access any other way. When something is out "
+              "of your reach, say so and what the owner could do by hand instead. ")
 OWNER_NOTE_LOCKED = ("A change is refused until the owner has unlocked it. When a tool answers that "
                      "a second factor is required, tell the owner to send /unlock in the private "
                      "chat with you, and try again once they say it is done. Never ask the owner "
@@ -168,9 +182,21 @@ PROFILES = ("owner", "assistant", "root", "admin")
 UNLOCK_PLUGIN = "openwrt-unlock"
 UNLOCK_MARKER = "_openwrt_unlock_managed"
 
-# The tools of openwrt-mcp the model is never offered, in any profile: they are how the
-# OWNER proves who they are, and a model that could call them would be asking for a PIN.
-MCP_HIDDEN = ("mfa_unlock", "mfa_lock")
+# The tools of openwrt-mcp the model is never offered, in any profile. mfa_unlock and mfa_lock are
+# how the OWNER proves who they are, and a model that could call them would be asking for a PIN.
+# exec and wg_new_client are never granted to the agent's client (invariant 18), and a model that
+# sees them reaches for them: on a Brume 2 on 2026-10-08 two models in a row pinged through exec,
+# were refused, and reported ping as "blocked by policy" without trying their own terminal.
+MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")
+# What 0.21.5-r3 to r9 hid, so an entry those releases wrote, pasted back by hand, is still ours.
+MCP_HIDDEN_R9 = ("mfa_unlock", "mfa_lock")
+
+# Upstream's tools/tool_search.py defers every MCP tool behind a search tool by default
+# (tools.tool_search.enabled "auto"), and on routers on 2026-10-08 the models never searched:
+# they never saw openwrt-mcp's tools and looped on `uci` in the terminal, which as hermes fails
+# with an I/O error. With "off" the same agent called mcp__openwrt__uci_apply. Written only where
+# the operator has set nothing: an explicit enabled value, or the legacy bool, is theirs.
+TOOL_SEARCH_OFF = "off"
 
 # What marks a `providers` entry as written by this package rather than the operator.
 KEY_ENV = re.compile(r"^HERMES_PROVIDER_[A-Z0-9_]+_KEY$")
@@ -289,10 +315,13 @@ def main() -> int:
                 expected = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN)}}
                 # The entry as releases before the unlock wrote it, without the tools key.
                 earlier = {"url": url, "headers": headers}
+                # The entry as 0.21.5-r3 to r9 wrote it, hiding the unlock tools only.
+                earlier_r9 = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN_R9)}}
                 # An operator may already have pasted in exactly this entry by hand,
                 # e.g. from an earlier manual setup. Adopt it rather than refuse: only
-                # a DIFFERENT entry is a real collision. The earlier shape is ours too.
-                if "openwrt" in servers and not owned and servers["openwrt"] not in (expected, earlier):
+                # a DIFFERENT entry is a real collision. The earlier shapes are ours too.
+                if ("openwrt" in servers and not owned and servers["openwrt"] not in (expected, earlier)
+                        and servers["openwrt"] != earlier_r9):
                     raise ValueError("mcp_servers.openwrt is operator-owned; rename it before enabling UCI MCP")
                 servers["openwrt"] = expected
                 config["_openwrt_mcp_managed"] = True
@@ -476,6 +505,22 @@ def main() -> int:
                     agent_cfg["system_prompt"] = own
                 elif noted:
                     agent_cfg.pop("system_prompt", None)
+
+        # Upstream's tool search, off where the operator has set nothing (see TOOL_SEARCH_OFF),
+        # in every profile, so the model sees openwrt-mcp's tools by name. Left alone when no
+        # profile was passed, like the note and the plugin above.
+        if profile is not None:
+            tools_cfg = config.get("tools")
+            if tools_cfg is None:
+                tools_cfg = {}
+            if not isinstance(tools_cfg, dict):
+                raise ValueError("tools must be a mapping")
+            search = tools_cfg.get("tool_search")
+            if search is None:
+                search = {}
+            if isinstance(search, dict) and search.get("enabled") is None:
+                tools_cfg["tool_search"] = dict(search, enabled=TOOL_SEARCH_OFF)
+                config["tools"] = tools_cfg
 
         # The per-turn step budget, from UCI. Unset leaves whatever is there.
         turns = os.environ.get("HERMES_OPENWRT_MAX_TURNS")

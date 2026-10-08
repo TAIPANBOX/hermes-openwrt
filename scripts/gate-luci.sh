@@ -25,7 +25,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -647,6 +647,51 @@ rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev
 uci set hermes.security.factor=none; uci commit hermes
 echo "PASS check_security_factor_never_outruns_what_exists"
 
+# ---- 18b. a choice reaches the agent when reload_config cannot tell procd ----
+# reload_config tells procd only about a config whose sum it holds and whose content has changed
+# since. Two states on 2026-10-08 (LuCI 0.21.5-r1) left it nothing to tell, and the page said
+# "Saved" while the agent kept the old factor: its file had no line for hermes (it had run while
+# /etc/config/hermes did not exist, as after a reinstall; reproduced on a Flint 2 by deleting the
+# line), and its line for hermes already held the sum of the new content (a Beryl AX). In both,
+# set_factor tells procd itself, once; and once reload_config can tell, set_factor does not.
+fr() { fail check_security_factor_announced_when_reload_cannot_tell "$1"; }
+$MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || fr "could not pair"
+printf '%s\n' 4821 | $MCP pin set hermes-main >/dev/null || fr "could not set a PIN"
+uci set hermes.main.profile=owner; uci set hermes.security.factor=none; uci set hermes.security.window=15m
+uci set hermes.security.max_failures=5; uci set hermes.security.lockout=15m; uci commit hermes
+service_standin check_security_factor_announced_when_reload_cannot_tell
+told_once() { # <what>
+	i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+	sleep 1; [ "$(hermes_events)" = 1 ] || fr "$1: procd was told $(hermes_events) times that hermes changed, not once"
+}
+hermes_line() { grep -c '[[:space:]]/var/run/config.check/hermes$' /var/run/config.md5 2>/dev/null || true; }
+# a. the md5 file is there, without a line for hermes
+/sbin/reload_config >/dev/null 2>&1 < /dev/null
+[ -f /var/run/config.md5 ] || fr "reload_config kept no md5 file, so this measured nothing"
+sed -i '\|/var/run/config.check/hermes$|d' /var/run/config.md5
+[ "$(hermes_line)" = 0 ] || fr "the hermes line is still in the md5 file, so this measured nothing"
+rm -f /tmp/service-events
+out=$(sf_call pin 15m 5 15m); echo "$out" | grep -q '"ok": true' || { echo "$out"; fr "pin with a PIN set was refused"; }
+told_once "an md5 file without a hermes line"
+[ "$(hermes_line)" = 1 ] || fr "after the call reload_config's file still has no line for hermes, so the next apply is silent too"
+# b. the line for hermes already holds the sum of what the call will leave
+uci set hermes.security.factor=none; uci commit hermes
+out=$(sf_call none 15m 5 15m); echo "$out" | grep -q '"ok": true' || { echo "$out"; fr "none was refused"; }
+/sbin/reload_config >/dev/null 2>&1 < /dev/null
+[ "$(grep '[[:space:]]/var/run/config.check/hermes$' /var/run/config.md5 | cut -d' ' -f1)" = "$(uci show hermes 2>/dev/null | md5sum | cut -d' ' -f1)" ] \
+	|| fr "the snapshot's hermes sum is not that of the content, so this measured nothing"
+rm -f /tmp/service-events
+out=$(sf_call none 15m 5 15m); echo "$out" | grep -q '"ok": true' || { echo "$out"; fr "none was refused"; }
+told_once "a snapshot whose hermes sum already matches"
+# c. the control: an ordinary change with a stale sum is told by reload_config, and not again
+rm -f /tmp/service-events
+out=$(sf_call pin 20m 5 15m); echo "$out" | grep -q '"ok": true' || { echo "$out"; fr "pin was refused"; }
+told_once "an ordinary change"
+service_standin_gone
+rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
+uci set hermes.security.factor=none; uci set hermes.security.window=15m; uci commit hermes
+echo "PASS check_security_factor_announced_when_reload_cannot_tell"
+
 # ---- 19. outside the owner profile the Security calls refuse ----
 # The page says it offers nothing there, and that is the page. The backend is what a script, an
 # old tab or a hand-made request reaches, and in the root and assistant profiles the agent has no
@@ -732,7 +777,7 @@ CONTAINER
 # (LuCI then does not reload), and an old message is not shown.
 echo "-- the views, on the installed files --"
 docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
-	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_pin_fields_never_prefilled check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

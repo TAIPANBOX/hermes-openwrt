@@ -46,6 +46,11 @@
 #                        has never been started, it offers nothing, and the backend refuses the
 #                        same calls. The scenarios about the QR, the PIN and the SSH enrolment are in
 #                        features/unlock.feature, bound to scripts/gate-unlock.sh.
+#   @measured 2026-10-08 on a Flint 2 and a Beryl AX, LuCI 0.21.5-r1: a factor saved on the
+#                        Security page reached UCI, but the agent was not restarted and the
+#                        change policy not written, in two states: reload_config's md5 file
+#                        without a line for hermes (the Flint, the line deleted by hand) and a
+#                        line for hermes already holding the new content's sum (the Beryl).
 #
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
@@ -237,6 +242,16 @@ Feature: The web page manages the agent and never hands a key back
     And the PIN the factor in force asks for cannot be cleared
     # -> check_security_factor_never_outruns_what_exists
 
+  Scenario: a saved factor reaches the agent even when the router's own reload has nothing to tell
+    Given the copy reload_config keeps has no line for the agent's configuration, as after a reinstall
+    When the owner saves a factor on the Security page
+    Then the agent is told its configuration changed, exactly once
+    Given the copy reload_config keeps already matches what the agent's configuration will hold
+    When the owner saves that factor
+    Then the agent is told, exactly once
+    And an ordinary change, which reload_config itself tells, is not told a second time
+    # -> check_security_factor_announced_when_reload_cannot_tell
+
   Scenario: outside the owner profile the Security calls refuse
     Given the profile is root, admin, assistant or nothing the service accepts
     When a PIN is set or cleared, a phone is added or activated, or a factor is chosen
@@ -257,6 +272,15 @@ Feature: The web page manages the agent and never hands a key back
     And a PIN that is typed is sent once, the fields are emptied whatever the router answers, and it is in no message and no storage
     And a PIN that is not 4 to 8 digits, or not typed twice the same, never leaves the page
     # -> check_security_pin_fields_never_prefilled
+
+  Scenario: a PIN saved while nothing asks for it says where to choose it
+    Given the owner profile with no second factor in force
+    When the owner saves a PIN on the Security page
+    Then after the page reloads it says the router does not ask for the PIN yet, and to choose PIN under "What unlocking asks for" and press Save there
+    And it says so as a warning, without the PIN
+    When a factor that asks for the PIN is already in force, or the router refused the PIN
+    Then it says nothing of the kind
+    # -> check_security_pin_saved_points_to_the_factor
 
   Scenario: the QR of a phone being added is on the page once
     When the owner asks to add a phone

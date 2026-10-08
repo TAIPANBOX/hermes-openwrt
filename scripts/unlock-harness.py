@@ -860,7 +860,9 @@ def check_scheduled_job_cannot_change():
     # an open window: the owner unlocks, the way they would
     unlock("/unlock " + PIN)
     need(not locked(), "the PIN did not open changes")
-    change = {"name": "tool_call", "arguments": {"calls": [{"name": "mcp__openwrt__uci_apply", "arguments": CHANGE}]}}
+    # The tool by its own name: since 0.21.5-r10 the bridge turns upstream's tool search off, so
+    # every openwrt tool is offered directly and there is no tool_call bridge to go through.
+    change = {"name": "mcp__openwrt__uci_apply", "arguments": CHANGE}
     # 1. the same change, asked for by the agent in the owner's own chat, goes through
     ctl("/set", {"model_script": [{"tool_call": change}, {"text": "done"}]})
     say("please change the router description")

@@ -35,7 +35,17 @@ hermes-login chatgpt
 
 It prints a code to enter at `auth.openai.com/codex/device`, in a browser signed in to
 ChatGPT; the tokens stay in the agent's data directory, readable by root only, and no
-password passes through the router. ChatGPT then shows up in `/model`.
+password passes through the router. ChatGPT then shows up in `/model`. To put one chat on it
+by name, send the model with upstream's provider for the subscription:
+
+```
+/model gpt-6.1-sol --provider openai-codex
+```
+
+The model matters more for changing a router than for answering. Measured on 2026-10-08 on a
+Brume 2 and a Flint 2 through Telegram, with openwrt-mcp: `gpt-6.1-sol` through a ChatGPT
+subscription ran the diagnosis correctly, while `gpt-4o-mini` looped on its memory tool and made
+a wrong firewall change.
 
 **Anyone the bot answers can switch their chat to any provider listed here**, including
 keys that cost money per call. The allowlist is the boundary, as it is for everything

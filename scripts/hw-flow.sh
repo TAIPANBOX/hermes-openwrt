@@ -16,7 +16,9 @@
 #   TG_CMD='security find-generic-password -s <bot token item> -w' TG_ID=<your numeric id> \
 #   ./scripts/hw-flow.sh [step ...]
 #
-# Steps, in order when none are named: clean install model start telegram ask watch upgrade.
+# Steps, in order when none are named: clean install model start telegram ask watch admin upgrade.
+# `admin` probes the agent's own openwrt-mcp token: reads, a refused change, and with FLOW_PIN (a
+# throwaway PIN it sets and clears) the unlock window and the rollback of an unconfirmed change.
 # FEED_BASE=http://<host>:<port> installs from a release candidate signed with the feed's key and
 # served from that address, before it is published; the step `clean` also drops that line.
 # `reboot` runs only when named and REBOOT_OK=1, and `remove` only when named: one cuts the
@@ -52,7 +54,12 @@ gateway_up() { # seconds to wait
 step_clean() {
 	run <<'EOF'
 /etc/init.d/hermes-agent stop 2>/dev/null
-apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp iputils-ping 2>&1 | tail -n 1
+# Only what is installed: apk del refuses the whole list over one name it does not know, and on a
+# Beryl AX without iputils-ping that left every package in place while the lines below took the
+# account, the data and the keys away from under it (2026-10-08). And nothing below runs if it fails.
+pkgs=""; for p in luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp iputils-ping; do apk info -e "$p" >/dev/null 2>&1 && pkgs="$pkgs $p"; done
+if [ -n "$pkgs" ]; then apk del $pkgs 2>&1 | tail -n 1; fi
+for p in $pkgs; do apk info -e "$p" >/dev/null 2>&1 && { echo "CLEAN-ABORT: $p is still installed"; exit 1; }; done
 d=$(uci -q get hermes.main.data_dir); rm -rf "${d:-/srv/hermes}"
 rm -rf /etc/hermes-agent /etc/openwrt-mcp
 rm -f /etc/config/hermes /etc/config/openwrt-mcp /etc/apk/keys/hermes-openwrt.pem
@@ -133,30 +140,44 @@ step_telegram() {
 	mark telegram; on '/etc/init.d/hermes-agent restart' >>"$LOG" 2>&1
 	gateway_up 90 && sleep 15
 	bad=$(since telegram | grep -c 'telegram is enabled but')
-	conn=$(on "grep -ciE 'telegram.*(connected|polling|started)' /srv/hermes/logs/gateway.log")
+	# connected is logged some seconds after the gateway is up; wait for the line itself
+	i=0; while [ "$i" -lt 90 ] && ! on "grep -q 'telegram connected' /srv/hermes/logs/gateway.log"; do sleep 3; i=$((i + 3)); done
+	conn=$(on "grep -c 'telegram connected' /srv/hermes/logs/gateway.log")
 	[ "$bad" = 0 ] && [ "$conn" -gt 0 ] && pass telegram "$out; adapter up, only $TG_ID allowed" \
 		|| fail telegram "$out; refusals $bad, adapter lines $conn"
 }
 
 step_ask() { # a person writes to the bot; nothing else can, since a bot cannot message itself
 	n0=$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")
-	say "ASK: send the bot, from Telegram id $TG_ID: «Почему тормозит интернет? Проверь на роутере.»"
+	say "ASK: send the bot, from Telegram id $TG_ID: «Чому гальмує інтернет? Перевір на роутері.»"
 	say "     waiting up to ${ASK_WAIT:-300} s for the agent to answer"
 	t0=$(date +%s); seen=0
+	on 'cat > /tmp/tool-output.py' < "$ROOT/scripts/tool-output.py"
+	# Until a ping result is in, or the time is up: a first turn in a new chat can be upstream's
+	# onboarding question, and the person then has to answer it before the diagnosis runs.
 	while [ $(( $(date +%s) - t0 )) -lt "${ASK_WAIT:-300}" ]; do
 		n=$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")
 		if [ "$n" -gt "$n0" ]; then
 			[ "$seen" = 0 ] && { seen=$(date +%s); }
 			last=$n; sleep 20
-			[ "$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")" = "$last" ] && break
+			if [ "$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")" = "$last" ]; then
+				on "python3 /tmp/tool-output.py $((t0 - 30))" | grep -q 'packet loss' && break
+			fi
 		else sleep 5; fi
 	done
 	[ "$seen" = 0 ] && { fail ask "no model call within ${ASK_WAIT:-300} s of asking"; return; }
 	on "tail -n 400 /srv/hermes/logs/agent.log" > "$OUT/ask.log"
-	denied=$(grep -c 'permission denied' "$OUT/ask.log")
-	pings=$(grep -c 'packet loss' "$OUT/ask.log")
-	[ "$denied" = 0 ] && pass ask "$((last - n0)) model calls, $pings ping result(s) read, no permission denied; read the reply in Telegram" \
-		|| fail ask "$denied 'permission denied' in the agent's tool output"
+	# Tool output is not in agent.log (it logs "terminal completed (N chars)"); it is in the
+	# conversation database, as tool messages. Count what the tools returned since asking.
+	tool_out=$(on "python3 /tmp/tool-output.py $((t0 - 30)); rm -f /tmp/tool-output.py")
+	printf '%s\n' "$tool_out" > "$OUT/ask-tools.txt"
+	denied=$(grep -c 'permission denied' "$OUT/ask-tools.txt")
+	pings=$(grep -c 'packet loss' "$OUT/ask-tools.txt")
+	# A diagnosis that ran no ping is not a diagnosis: on 2026-10-08 the first turn of a new chat
+	# answered with upstream's onboarding question, one model call and no tool, and this step said PASS.
+	if [ "$denied" != 0 ]; then fail ask "$denied 'permission denied' in the agent's tool output"
+	elif [ "$pings" = 0 ]; then fail ask "$((last - n0)) model call(s) and no ping read: the agent answered without diagnosing"
+	else pass ask "$((last - n0)) model calls, $pings ping result(s) read, no permission denied; read the reply in Telegram"; fi
 }
 
 step_watch() { # docs/use.md's hourly watch, with docs/examples/router_check.sh, run once now
@@ -171,6 +192,64 @@ step_watch() { # docs/use.md's hourly watch, with docs/examples/router_check.sh,
 	grep -q 'ping 1.1.1.1: loss' "$OUT/watch.md" && ! grep -q 'failed: ping' "$OUT/watch.md" \
 		&& pass watch "job $id ran router_check.sh as hermes; reply: $(sed -n '/## Response/,$p' "$OUT/watch.md" | sed -n '3p' | cut -c1-120)" \
 		|| fail watch "router_check.sh output not as expected (see $OUT/watch.md)"
+}
+
+step_admin() { # what the agent's own token may do to the router, through openwrt-mcp, as the agent would
+	on 'cat > /tmp/mcp-probe.py' < "$ROOT/scripts/mcp-probe.py"
+	probe() { on "python3 /tmp/mcp-probe.py '$1' '$2'"; }
+	r=$(probe ubus_call '{"object":"luci-rpc","method":"getDHCPLeases"}')
+	case "$r" in OK*) pass admin-read-clients "DHCP leases readable without unlocking" ;; *) fail admin-read-clients "$r" ;; esac
+	r=$(probe ubus_call '{"object":"network.interface","method":"dump"}')
+	case "$r" in OK*) pass admin-read-network "interfaces readable without unlocking" ;; *) fail admin-read-network "$r" ;; esac
+	CHANGE='{"changes":[{"config":"system","section":"@system[0]","option":"description","value":"hw-flow"}]}'
+	r=$(probe uci_apply "$CHANGE")
+	case "$r" in ERROR*denied*) pass admin-locked "a change with no factor set is refused: ${r#ERROR }" ;; *) fail admin-locked "a change went through with no factor: $r" ;; esac
+	# The policy as written, so the report says what an open window grants rather than what we hope.
+	on "uci -q get openwrt-mcp.hermes_main_change.scopes; uci -q get openwrt-mcp.hermes_main_change.tools" > "$OUT/change-policy.txt" 2>&1 || true
+	[ -n "${FLOW_PIN:-}" ] || { say "SKIP admin-unlock: FLOW_PIN (a throwaway test PIN) not given"; on 'rm -f /tmp/mcp-probe.py'; return; }
+	printf '%s\n' "$FLOW_PIN" | on 'openwrt-mcp pin set hermes-main >/dev/null 2>&1'
+	on 'uci set hermes.security.factor=pin; uci commit hermes; /etc/init.d/hermes-agent restart >/dev/null 2>&1'
+	gateway_up 90; sleep 15
+	scopes=$(on "uci -q get openwrt-mcp.hermes_main_change.scopes" 2>/dev/null)
+	say "admin: the change policy written with factor pin grants scopes: ${scopes:-<none>}"
+	r=$(probe uci_apply "$CHANGE")
+	case "$r" in ERROR*"second factor"*) pass admin-needs-unlock "with a PIN set, a change waits for the owner's unlock" ;; *) fail admin-needs-unlock "$r" ;; esac
+	r=$(probe mfa_unlock '{"pin":"00000000"}')
+	case "$r" in ERROR*) pass admin-wrong-pin "a wrong PIN is refused" ;; *) fail admin-wrong-pin "$r" ;; esac
+	r=$(probe mfa_unlock "{\"pin\":\"$FLOW_PIN\"}")
+	case "$r" in OK*Unlocked*) pass admin-unlock "${r#OK }" ;; *) fail admin-unlock "$r" ;; esac
+	r=$(probe uci_apply "$CHANGE")
+	now=$(on "uci -q get system.@system[0].description")
+	case "$r" in OK*"ROLLBACK ARMED"*) pass admin-change-in-window "applied (value now '$now'), rollback armed" ;; *) fail admin-change-in-window "$r" ;; esac
+	secs=$(echo "$r" | sed -n 's/.*(in \([0-9]*\)m\([0-9]*\)s).*/\1 \2/p' | awk '{print $1*60+$2+20}')
+	sleep "${secs:-110}"
+	after=$(on "uci -q get system.@system[0].description || echo unset")
+	[ "$after" != "hw-flow" ] && pass admin-rollback "unconfirmed change undone by itself (now '$after')" || fail admin-rollback "still '$after' after the deadline"
+	probe mfa_lock '{}' >/dev/null
+	on 'uci set hermes.security.factor=none; uci commit hermes; openwrt-mcp pin clear hermes-main >/dev/null 2>&1; /etc/init.d/hermes-agent restart >/dev/null 2>&1; rm -f /tmp/mcp-probe.py'
+	say "admin: test PIN cleared, factor back to none"
+}
+
+step_usb() { # README "Where it installs": the data directory to a USB stick and back, with a reboot between
+	: "${USB_DEV:?USB_DEV=/dev/sdXN, the partition on the stick, is required}"
+	out=$(on 'apk update >/dev/null 2>&1; apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs 2>&1 | tail -n 1')
+	case "$out" in OK:*) pass usb-packages "$out" ;; *) fail usb-packages "$out"; return ;; esac
+	fmt=""; [ "${USB_FORMAT:-0}" = 1 ] && fmt=--format
+	on "hermes-usb move $USB_DEV $fmt" > "$OUT/usb-move.out" 2>&1
+	st=$(on 'hermes-usb status 2>&1')
+	case "$st" in *"is on $USB_DEV"*) pass usb-move "$(echo "$st" | head -n 1)" ;; *) fail usb-move "$(tail -n 3 "$OUT/usb-move.out" | tr '\n' ' ') status: $st"; return ;; esac
+	gateway_up 90 && pass usb-gateway "the gateway runs with its data on the stick" || fail usb-gateway "no gateway after the move"
+	if [ "${REBOOT_OK:-0}" = 1 ]; then
+		on 'reboot' >/dev/null 2>&1; sleep 30
+		i=0; while [ "$i" -lt 240 ] && ! on true 2>/dev/null; do sleep 5; i=$((i + 5)); done
+		st=$(on 'hermes-usb status 2>&1')
+		case "$st" in *"is on $USB_DEV"*) ;; *) fail usb-reboot "after a reboot: $st"; return ;; esac
+		gateway_up 120 && pass usb-reboot "after a reboot the stick is mounted and the gateway started from it" || fail usb-reboot "stick mounted, no gateway"
+	else say "SKIP usb-reboot: needs REBOOT_OK=1"; fi
+	on 'hermes-usb back' > "$OUT/usb-back.out" 2>&1
+	st=$(on 'hermes-usb status 2>&1')
+	case "$st" in *"is on $USB_DEV"*) fail usb-back "still on the stick: $(tail -n 2 "$OUT/usb-back.out" | tr '\n' ' ')" ;; *) pass usb-back "$(echo "$st" | head -n 1)" ;; esac
+	gateway_up 90 && pass usb-gateway-back "the gateway runs with its data back inside" || fail usb-gateway-back "no gateway after back"
 }
 
 step_reboot() {
@@ -196,7 +275,7 @@ step_remove() {
 		|| fail remove "$left package paths left"
 }
 
-STEPS=${*:-clean install model start telegram ask watch upgrade}
+STEPS=${*:-clean install model start telegram ask watch admin upgrade}
 say "hw-flow on $ROUTER, $(on 'cat /etc/apk/arch; . /etc/openwrt_release; echo $DISTRIB_RELEASE' | tr '\n' ' '), steps: $STEPS"
 for s in $STEPS; do "step_$s"; done
 say "hw-flow: $FAILED failed; log $LOG"

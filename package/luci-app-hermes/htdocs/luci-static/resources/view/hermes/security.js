@@ -174,6 +174,10 @@ return view.extend({
 					if (!r || r.ok === false)
 						return fail((r && r.error) || _('The PIN was not saved.'));
 					flash.keep(_('PIN saved. It is kept only as a salted hash, and cannot be shown again.'), 'info');
+					/* The PIN and the factor have a Save each, and a PIN alone unlocks nothing while the
+					 * factor in force is none: a person set one and missed the other (2026-10-08). */
+					if (st.factor === 'none')
+						flash.keep(_('The router does not ask for this PIN yet. Under "What unlocking asks for" below, choose PIN and press Save there.'), 'warning');
 					window.location.reload();
 				}, function () {
 					pin = again = '';

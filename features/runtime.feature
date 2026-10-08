@@ -66,6 +66,15 @@
 #                        and in these tests on 127.0.0.1, which upstream trusts by name.
 #   @decided 2026-10-05  An endpoint on the LAN works as UCI names it, with nothing added by
 #                        hand to the agent's .env.
+#   @measured 2026-10-08 on a Flint 2, a Brume 2 and a Beryl AX, 0.21.5-r9 release candidate, a
+#                        person writing to the bot: with upstream's tool search on, the models
+#                        never saw openwrt-mcp's tools and looped on uci in the terminal; with
+#                        tools.tool_search.enabled off the agent called mcp__openwrt__uci_apply.
+#                        Offered openwrt-mcp's exec, three model setups pinged through it and
+#                        reported "blocked by policy"; with exec and wg_new_client hidden and one
+#                        sentence sending diagnostics to the terminal, one ran the diagnosis in 3
+#                        model calls. gpt-4o-mini named a section hermes-test three times, then
+#                        wrote a firewall rule and called the port forwarded.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -268,9 +277,34 @@ Feature: What is set on the router is what the gateway runs with
     Given the package writes the router MCP connection in any profile
     Then the entry names the unlock and lock tools as excluded
     And upstream's own filter registers the router tools but neither of those two
-    When the operator pasted in the entry as earlier releases wrote it
+    When the operator pasted in the entry as earlier releases wrote it, with no tools key or with the unlock tools alone
     Then it is adopted and brought up to date, not refused
     # -> check_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape
+
+  Scenario: the model is never offered the router tools its client may not use
+    Given the package writes the router MCP connection in any profile
+    Then the entry names exec and wg_new_client as excluded, beside the unlock tools
+    And upstream's own filter registers neither of them and still registers the read tools
+    # -> check_mcp_entry_hides_exec_and_wg_new_client_in_every_profile
+
+  Scenario: the model sees the router tools by name instead of behind a search tool
+    Given the operator has set nothing about upstream's tool search
+    When the package writes the configuration in any profile
+    Then tool search is off, upstream's own loader reads it as off and defers nothing
+    And a start that changes nothing changes nothing
+    When the operator has set tool search themselves, as a value or as the older true or false
+    Then their setting is kept and the settings beside it too
+    And a tools setting that is not a mapping refuses the start and leaves the file as it was
+    # -> check_tool_search_is_off_unless_the_operator_set_it
+
+  Scenario: the owner profile tells the agent how to change the router so that the change is real
+    Given the owner profile, whatever the second factor
+    Then the agent is told to run network diagnostics in its own terminal
+    And that a UCI section name holds only letters, digits and underscores, with a readable name in its name option
+    And that a port forward is a firewall redirect, not a rule
+    And to read a change back with uci_get and tell the owner only what the router holds
+    And the gateway loads all of it as its system prompt, while assistant and root carry none of it
+    # -> check_owner_note_teaches_section_names_port_forwards_and_reading_back
 
   # ---- The model and its endpoint ----
 

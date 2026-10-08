@@ -109,6 +109,11 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] The agent can ping as its own user: the package depends on iputils-ping, BusyBox's ping needing root (0.21.5-r9)
 - [x] `hermes` run from a shell never pip-installs, as the gateway never did (0.21.5-r9)
 - [x] The agent cannot read its keys out of the running gateway: the gateway is non-dumpable (0.21.5-r9)
+- [x] The model sees openwrt-mcp's tools by name: upstream's tool search is off unless the owner sets it (0.21.5-r10)
+- [x] The model is not offered openwrt-mcp's `exec` and `wg_new_client`, and is told to run diagnostics in its own terminal (0.21.5-r10)
+- [x] The owner note says how UCI names sections, that a port forward is a `redirect`, and to read a change back before reporting it (0.21.5-r10)
+- [x] A factor saved on the Security page reaches the agent even when `reload_config` has nothing to tell procd (LuCI 0.21.5-r2)
+- [x] A PIN saved while the factor is `none` says to choose PIN and press the factor's Save (LuCI 0.21.5-r2)
 
 ## Prior art, and what is not ours
 

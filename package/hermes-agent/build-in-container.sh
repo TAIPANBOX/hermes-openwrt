@@ -113,7 +113,20 @@ esac
 # iputils-ping, from OpenWrt's own feed, installs /usr/bin/ping setuid root, which comes before
 # BusyBox's /bin/ping on the service's PATH. And `hermes` run from a shell is held to
 # HERMES_DISABLE_LAZY_INSTALLS like the gateway: one `hermes chat` had pip-installed boto3 on flash.
-PKGREL=${PKGREL:-9}
+#
+# 0.21.5-r10: what a person writing to the bot on a Flint 2, a Brume 2 and a Beryl AX found on
+# 2026-10-08, all in the bridge (set-toolsets.py), so it holds at every start:
+#   - upstream's tool search is off (tools.tool_search.enabled 'off') where the operator set
+#     nothing: it deferred every MCP tool, the models never saw openwrt-mcp's and looped on `uci`
+#     in the terminal; with it off the agent called mcp__openwrt__uci_apply;
+#   - openwrt-mcp's exec and wg_new_client are kept from the model in every profile, beside the
+#     unlock tools, and the owner note sends diagnostics (ping, traceroute, nslookup) to the
+#     agent's own terminal: offered exec, three model setups pinged through it and reported
+#     "blocked by policy"; an entry r3 to r9 wrote, pasted by hand, is still adopted;
+#   - the owner note says a UCI section name holds only letters, digits and underscores (a
+#     readable name goes in `option name`), a port forward is a firewall `redirect`, not a `rule`,
+#     and a change is read back with uci_get before the owner is told what the router holds.
+PKGREL=${PKGREL:-10}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

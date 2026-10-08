@@ -36,7 +36,14 @@ set -eu
 # 0.21.5-r1: the same files as 0.19.0-r14, renumbered. The version now follows the agent the page
 # ships beside, so a router shows one number for the pair; apk orders 0.21.5 above 0.19.0, so a
 # plain upgrade takes it. PKGREL starts again at 1 when the agent's version moves.
-PKGREL=${PKGREL:-1}
+# 0.21.5-r2: set_factor tells procd hermes changed whenever reload_config cannot: its md5 file
+# holds no line for hermes (it ran while /etc/config/hermes did not exist, as after a reinstall),
+# or its line already holds the sum of what hermes now holds. In both the page said "Saved" and
+# the agent kept the old factor (a Flint 2 and a Beryl AX, 2026-10-08).
+# Also: a PIN saved on the Security page while the factor in force is none says, after the reload,
+# to choose PIN under "What unlocking asks for" and press Save there; a person set the PIN and
+# missed the factor's own Save.
+PKGREL=${PKGREL:-2}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
