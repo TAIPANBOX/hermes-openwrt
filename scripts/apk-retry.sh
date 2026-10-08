@@ -20,6 +20,8 @@ apk() {
 		[ "$_ar_rc" -eq 0 ] && return 0
 		case "$_ar_out" in
 			*"Connection aborted"*|*"wget: exited with error"*|*"error 429"*|*"returned error: 429"*|*"Temporary failure"*|*"timed out"*|*"Connection reset"*) ;;
+			# apk 3's own words for a fetch that failed on the way, not on the content
+			*"temporary error"*|*"network error"*|*"remote server returned error"*|*"DNS lookup error"*|*"Connection refused"*|*"Network unreachable"*) ;;
 			*) return "$_ar_rc" ;;
 		esac
 		_ar_n=$((_ar_n + 1))
