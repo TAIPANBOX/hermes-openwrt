@@ -71,9 +71,10 @@ docker rm -f "$NAME" "$NAME-prep" >/dev/null 2>&1 || true
 docker rmi -f "$NAME:latest" >/dev/null 2>&1 || true
 
 echo "==> preparing the rootfs"
-docker run --name "$NAME-prep" -i --platform "linux/$ARCH" \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --name "$NAME-prep" -i --platform "linux/$ARCH" \
 	-v "$MCP:/m.apk:ro" -v "$AGENT:/a.apk:ro" -v "$ADDON:/t.apk:ro" -v "$LUCI:/l.apk:ro" \
 	"$IMAGE" /bin/sh -s <<PREP
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 mkdir -p /var/lock /var/run /var/state
 apk update -q

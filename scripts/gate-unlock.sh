@@ -101,11 +101,12 @@ OVERLAY_ARGS=""
 # for the memory ceiling, exactly as gate-runtime.sh has them: the root cgroup in here is
 # the disposable container, never the host's.
 # shellcheck disable=SC2086
-docker run --rm -i --platform "$PLATFORM" --privileged --cgroupns private --memory 2g \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --rm -i --platform "$PLATFORM" --privileged --cgroupns private --memory 2g \
 	-e ONLY="${ONLY:-}" -e IMPLEMENTED="$IMPLEMENTED" -e STAGE4="$STAGE4" -e STAGE5="${STAGE5:-}${NOT_BUILT:+ $NOT_BUILT}" \
 	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" -v "$LUCI:/luci.apk:ro" $TG_ARGS -v "$HARNESS:/harness.py:ro" \
 	-v "$ROOT/scripts/security-harness.py:/sec/security-harness.py:ro" -v "$ROOT/scripts/qr_decode.py:/sec/qr_decode.py:ro" \
 	-v "$ROOT/README.md:/README.md:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -u
 mkdir -p /var/lock /var/run /var/state /stubs /tmp/pristine
 # A booted router's /tmp is a world-writable tmpfs with the sticky bit; this image's is a

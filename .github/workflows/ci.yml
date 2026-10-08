@@ -24,6 +24,8 @@ jobs:
         run: ./scripts/gate-figures.sh && ./scripts/teeth-figures.sh
       - name: the daily upstream check opens one issue per newer release, and fails when it cannot see
         run: ./scripts/gate-upstream-watch.sh && ./scripts/teeth-upstream-watch.sh
+      - name: apk retries a download the feed cut off, and nothing else, in every container script
+        run: ./scripts/test-apk-retry.sh
 
   # There is nothing to unit test here: the payload is upstream's, and what this
   # repository contributes is the assembly and the service around it. So the only

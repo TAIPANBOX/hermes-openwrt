@@ -156,10 +156,11 @@ mkdir -p "$WORK"
 ARCHIVE=$("$ROOT/package/upstream/fetch.sh")
 
 echo "==> assembling the tree inside $IMAGE (hermes-agent $HERMES_VERSION, $HERMES_COMMIT)"
-docker run --rm -i --platform "linux/$ARCH" \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --rm -i --platform "linux/$ARCH" \
 	-v "$SRC:/src:ro" -v "$WORK:/work" \
 	-v "$ROOT/package/upstream:/upstream-src:ro" -v "$ARCHIVE:/upstream/archive.tar.gz:ro" \
 	"$IMAGE" /bin/sh -s <<CONTAINER
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 # python3 is the meta package; python3-pip brings the resolver. Both are in the release
 # feed, so this needs no third-party repository. A bare rootfs image has no /var/lock.
