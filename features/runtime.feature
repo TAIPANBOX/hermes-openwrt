@@ -66,6 +66,11 @@
 #                        and in these tests on 127.0.0.1, which upstream trusts by name.
 #   @decided 2026-10-05  An endpoint on the LAN works as UCI names it, with nothing added by
 #                        hand to the agent's .env.
+#   @measured 2026-10-08 on a Brume 2, 0.21.5-r9 release candidate, a person writing to the
+#                        bot: offered openwrt-mcp's exec, three model setups pinged through it and
+#                        reported "blocked by policy"; with exec and wg_new_client hidden and one
+#                        sentence sending diagnostics to the terminal, one ran the diagnosis in 3
+#                        model calls.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -268,9 +273,15 @@ Feature: What is set on the router is what the gateway runs with
     Given the package writes the router MCP connection in any profile
     Then the entry names the unlock and lock tools as excluded
     And upstream's own filter registers the router tools but neither of those two
-    When the operator pasted in the entry as earlier releases wrote it
+    When the operator pasted in the entry as earlier releases wrote it, with no tools key or with the unlock tools alone
     Then it is adopted and brought up to date, not refused
     # -> check_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape
+
+  Scenario: the model is never offered the router tools its client may not use
+    Given the package writes the router MCP connection in any profile
+    Then the entry names exec and wg_new_client as excluded, beside the unlock tools
+    And upstream's own filter registers neither of them and still registers the read tools
+    # -> check_mcp_entry_hides_exec_and_wg_new_client_in_every_profile
 
   # ---- The model and its endpoint ----
 

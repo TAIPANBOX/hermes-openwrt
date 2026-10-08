@@ -98,11 +98,12 @@ class RuntimeTests(unittest.TestCase):
 
     def test_mcp_identical_manual_entry_is_adopted(self):
         url = "http://127.0.0.1:8730/mcp"
-        # The entry as the package writes it since r3, with the unlock tools hidden from the
-        # model; the earlier shape, without that key, is adopted too (next test).
+        # The entry as the package writes it since r10, with the unlock tools, exec and
+        # wg_new_client hidden from the model; the earlier shapes are adopted too (see
+        # test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape).
         manual = {"mcp_servers": {"openwrt": {"url": url,
                   "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"},
-                  "tools": {"exclude": ["mfa_unlock", "mfa_lock"]}}}}
+                  "tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"]}}}}
         (self.home / "config.yaml").write_text(yaml.safe_dump(manual))
         result = self.configure(mcp=url)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1160,8 +1161,7 @@ procd_close_service
             with self.subTest(profile=profile):
                 (self.home / "config.yaml").unlink(missing_ok=True)
                 self.assertEqual(self.bridge(profile, mcp=url).returncode, 0)
-                self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"],
-                                 {"exclude": ["mfa_unlock", "mfa_lock"]})
+                self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"], {"exclude": self.HIDDEN})
         code = ("import yaml; from hermes_cli.config import get_config_path; "
                 "from tools.mcp_tool_registration import _make_tool_filter; "
                 "entry = yaml.safe_load(get_config_path().read_text())['mcp_servers']['openwrt']; "
@@ -1170,14 +1170,46 @@ procd_close_service
         check = subprocess.run(["python3", "-c", code], env=self.env, check=False, capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stderr)
         self.assertEqual(check.stdout.strip().splitlines()[-1], "True True False False")
-        # The entry as releases before the unlock wrote it, pasted by hand, is the package's
-        # own shape: adopted and brought up to date, not refused.
-        (self.home / "config.yaml").write_text(yaml.safe_dump({"mcp_servers": {"openwrt": {
-            "url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}}}))
-        result = self.bridge("owner", mcp=url)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"], {"exclude": ["mfa_unlock", "mfa_lock"]})
-        self.assertTrue(self.config().get("_openwrt_mcp_managed"))
+        # The entries as releases before the unlock wrote them (no tools key) and as 0.21.5-r3 to
+        # r9 wrote them (the unlock tools only), pasted by hand, are the package's own shapes:
+        # adopted and brought up to date, not refused.
+        for earlier in ({}, {"tools": {"exclude": ["mfa_unlock", "mfa_lock"]}}):
+            with self.subTest(earlier=earlier):
+                (self.home / "config.yaml").write_text(yaml.safe_dump({"mcp_servers": {"openwrt": dict({
+                    "url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}, **earlier)}}))
+                result = self.bridge("owner", mcp=url)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"], {"exclude": self.HIDDEN})
+                self.assertTrue(self.config().get("_openwrt_mcp_managed"))
+
+    # What the package-written openwrt entry keeps from the model, in this order.
+    HIDDEN = ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"]
+
+    def test_mcp_entry_hides_exec_and_wg_new_client_in_every_profile(self):
+        # The agent's client is never granted exec or wg_new_client (invariant 18). Offered them,
+        # models reached for them: on a Brume 2 on 2026-10-08 three model setups pinged through
+        # exec, were refused, and reported ping as "blocked by policy". Hidden, with the owner note
+        # pointing diagnostics at the terminal, one ran the whole diagnosis in 3 model calls.
+        url = "http://127.0.0.1:8730/mcp"
+        code = ("import yaml; from hermes_cli.config import get_config_path; "
+                "from tools.mcp_tool_registration import _make_tool_filter; "
+                "entry = yaml.safe_load(get_config_path().read_text())['mcp_servers']['openwrt']; "
+                "keep = _make_tool_filter('openwrt', entry); "
+                "print(keep('exec'), keep('wg_new_client'), keep('uci_get'), keep('logread'))")
+        for profile in ("owner", "assistant", "root", "admin"):
+            with self.subTest(profile=profile):
+                (self.home / "config.yaml").unlink(missing_ok=True)
+                result = self.bridge(profile, factor="pin", mcp=url)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                excluded = self.config()["mcp_servers"]["openwrt"]["tools"]["exclude"]
+                self.assertIn("exec", excluded)
+                self.assertIn("wg_new_client", excluded)
+                # Upstream's own filter decides what registers: the two are gone, reads are not.
+                check = subprocess.run(["python3", "-c", code], env=self.env, check=False,
+                                       capture_output=True, text=True)
+                self.assertEqual(check.returncode, 0, check.stderr)
+                self.assertEqual(check.stdout.strip().splitlines()[-1], "False False True True")
+
 
     def test_config_written_by_root_takes_the_data_dir_owner(self):
         # A root-owned config.yaml is one the gateway, which is hermes, cannot update.

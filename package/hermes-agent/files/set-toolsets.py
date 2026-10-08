@@ -175,6 +175,9 @@ UNLOCK_MARKER = "_openwrt_unlock_managed"
 # sees them reaches for them: on a Brume 2 on 2026-10-08 two models in a row pinged through exec,
 # were refused, and reported ping as "blocked by policy" without trying their own terminal.
 MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")
+# What 0.21.5-r3 to r9 hid, so an entry those releases wrote, pasted back by hand, is still ours.
+MCP_HIDDEN_R9 = ("mfa_unlock", "mfa_lock")
+
 
 # What marks a `providers` entry as written by this package rather than the operator.
 KEY_ENV = re.compile(r"^HERMES_PROVIDER_[A-Z0-9_]+_KEY$")
@@ -293,10 +296,13 @@ def main() -> int:
                 expected = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN)}}
                 # The entry as releases before the unlock wrote it, without the tools key.
                 earlier = {"url": url, "headers": headers}
+                # The entry as 0.21.5-r3 to r9 wrote it, hiding the unlock tools only.
+                earlier_r9 = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN_R9)}}
                 # An operator may already have pasted in exactly this entry by hand,
                 # e.g. from an earlier manual setup. Adopt it rather than refuse: only
-                # a DIFFERENT entry is a real collision. The earlier shape is ours too.
-                if "openwrt" in servers and not owned and servers["openwrt"] not in (expected, earlier):
+                # a DIFFERENT entry is a real collision. The earlier shapes are ours too.
+                if ("openwrt" in servers and not owned and servers["openwrt"] not in (expected, earlier)
+                        and servers["openwrt"] != earlier_r9):
                     raise ValueError("mcp_servers.openwrt is operator-owned; rename it before enabling UCI MCP")
                 servers["openwrt"] = expected
                 config["_openwrt_mcp_managed"] = True
