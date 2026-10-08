@@ -54,7 +54,12 @@ gateway_up() { # seconds to wait
 step_clean() {
 	run <<'EOF'
 /etc/init.d/hermes-agent stop 2>/dev/null
-apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp iputils-ping 2>&1 | tail -n 1
+# Only what is installed: apk del refuses the whole list over one name it does not know, and on a
+# Beryl AX without iputils-ping that left every package in place while the lines below took the
+# account, the data and the keys away from under it (2026-10-08). And nothing below runs if it fails.
+pkgs=""; for p in luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp iputils-ping; do apk info -e "$p" >/dev/null 2>&1 && pkgs="$pkgs $p"; done
+if [ -n "$pkgs" ]; then apk del $pkgs 2>&1 | tail -n 1; fi
+for p in $pkgs; do apk info -e "$p" >/dev/null 2>&1 && { echo "CLEAN-ABORT: $p is still installed"; exit 1; }; done
 d=$(uci -q get hermes.main.data_dir); rm -rf "${d:-/srv/hermes}"
 rm -rf /etc/hermes-agent /etc/openwrt-mcp
 rm -f /etc/config/hermes /etc/config/openwrt-mcp /etc/apk/keys/hermes-openwrt.pem
