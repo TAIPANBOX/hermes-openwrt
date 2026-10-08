@@ -49,7 +49,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -782,10 +782,55 @@ check_window_changes_settings_never_runs_commands() {
 	out=$(mcp "$TOKEN" ubus_call '{"object":"network","method":"reload"}') || fail "network.reload was refused in an open window: $out"
 	grep -q '^call rc init' /tmp/ubus.calls && grep -q '^call network reload' /tmp/ubus.calls \
 		|| fail "the allowed calls never reached ubus: $(cat /tmp/ubus.calls)"
+	# A setting that is itself a command: a firewall include, whose path fw4 runs as root on the
+	# reload uci_apply makes. In one batch with a harmless change, so "nothing applied" is read on
+	# that change too.
+	[ "$(mcp_status capabilities.uci_apply_refuses_code_exec)" = true ] || fail "measured nothing: the installed openwrt-mcp does not refuse code execution in uci_apply"
+	INCLUDE='{"changes":[{"config":"system","section":"@system[0]","option":"description","value":"changed-by-gate"},{"config":"firewall","section":"gateinc","type":"include"},{"config":"firewall","section":"gateinc","option":"path","value":"/tmp/gate-include.sh"}]}'
+	if out=$(mcp "$TOKEN" uci_apply "$INCLUDE"); then fail "a firewall include was applied in an open window: $out"; fi
+	echo "$out" | grep -q 'run code as root' || fail "the include was refused, but not as code: $out"
+	uci -q get firewall.gateinc >/dev/null && fail "the firewall include section exists after the refusal"
+	[ "$(desc)" = baseline-gate ] || fail "the harmless change in the refused batch was applied"
 	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "uci_apply was refused in an open window: $out"
 	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "uci_apply did not arm its rollback: $out"
 	[ "$(desc)" = changed-by-gate ] || fail "the uci_apply change did not land"
-	pass "in an open window: file.exec, file.write, sysupgrade, firmware validation, reboot, uci.set, service.set and rpc-sys refused before ubus; rc.init restart, network.reload and uci_apply with its rollback allowed"
+	pass "in an open window: file.exec, file.write, sysupgrade, firmware validation, reboot, uci.set, service.set and rpc-sys refused before ubus, a firewall include refused with nothing of its batch applied; rc.init restart, network.reload and uci_apply with its rollback allowed"
+}
+
+# A change policy only from an openwrt-mcp that refuses an apply that would run code (0.5.0.3 on,
+# `uci_apply_refuses_code_exec` in its status). The installed binary behind a stand-in whose
+# status lacks that one key; a PIN is the factor, so without the check a change policy is written.
+check_no_change_policy_without_code_exec_refusal() {
+	reset; configure - pin
+	mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.real
+	cat > /usr/bin/openwrt-mcp <<'EOF'
+#!/bin/sh
+if [ "$1" = status ]; then
+	/usr/bin/openwrt-mcp.real "$@" | python3 -c 'import json, sys; d = json.load(sys.stdin); d.get("capabilities", {}).pop("uci_apply_refuses_code_exec", None); json.dump(d, sys.stdout)'
+	exit
+fi
+exec /usr/bin/openwrt-mcp.real "$@"
+EOF
+	chmod 755 /usr/bin/openwrt-mcp
+	[ "$(mcp_status capabilities.uci_get_redacts_credentials)" = true ] || fail "measured nothing: the stand-in lost more than the one capability"
+	[ -z "$(mcp_status capabilities.uci_apply_refuses_code_exec)" ] || fail "measured nothing: the stand-in still reports uci_apply_refuses_code_exec"
+	started
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_read_ubus=' || fail "measured nothing: no read policy was written"
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_change' && fail "a change policy was written for an openwrt-mcp that does not refuse code execution: $(uci -q show openwrt-mcp | grep hermes_main_change | head -3)"
+	n=$(grep -c 'does not report that uci_apply refuses code execution' /tmp/start.log)
+	[ "$n" = 1 ] || { cat /tmp/start.log; fail "the start said why in $n lines, not one"; }
+	set_pin hermes-main 4821
+	daemon_start
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null 2>&1
+	if out=$(mcp "$TOKEN" uci_apply "$CHANGE"); then fail "uci_apply was allowed: $out"; fi
+	echo "$out" | grep -q 'no policy grants uci_apply' || fail "uci_apply was refused, but not for want of a policy: $out"
+	[ "$(desc)" = baseline-gate ] || fail "the change was applied anyway"
+	# Not vacuous: with the real status the same start writes the change policy.
+	daemon_stop
+	mv -f /usr/bin/openwrt-mcp.real /usr/bin/openwrt-mcp
+	started
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_change_ubus=' || fail "the real status did not get a change policy written either, so the refusal above proves nothing"
+	pass "no uci_apply_refuses_code_exec: reads only, no change policy, said in one line, uci_apply refused for want of one after an unlock; the real status wrote it"
 }
 
 # ---- wireless and the whole of network: read only from a daemon that redacts their secrets ----

@@ -1395,9 +1395,10 @@ procd_close_service
                           "config policy 'mine'\n\toption client 'someone-else'\n\tlist tools 'logread'\n")
         token = self.home / "unit.token"
         token.unlink(missing_ok=True)
-        # openwrt-mcp as one from before 0.5.0.2 answers `status`: with no capabilities key, so the
-        # init keeps the narrow uci_get grants most of this test reads. The real binary's own status,
-        # at the end, widens them to wireless and the whole of network.
+        # openwrt-mcp answering `status` without some of its capabilities, as an older one would.
+        # First without uci_get_redacts_credentials (0.5.0.2), so the init keeps the narrow uci_get
+        # grants most of this test reads; near the end without uci_apply_refuses_code_exec
+        # (0.5.0.3), so it writes no change policy; and last the real binary's own status.
         binary, real = Path("/usr/bin/openwrt-mcp"), Path("/usr/bin/openwrt-mcp.real")
         binary.rename(real)
 
@@ -1405,11 +1406,15 @@ procd_close_service
             if real.exists():
                 real.replace(binary)
         self.addCleanup(put_back)
-        binary.write_text("#!/bin/sh\nif [ \"$1\" = status ]; then\n"
-                          "\t/usr/bin/openwrt-mcp.real \"$@\" | python3 -c 'import json, sys; "
-                          "d = json.load(sys.stdin); d.pop(\"capabilities\", None); json.dump(d, sys.stdout)'\n"
-                          "\texit\nfi\nexec /usr/bin/openwrt-mcp.real \"$@\"\n")
-        binary.chmod(0o755)
+
+        def stand_in(missing):
+            binary.write_text("#!/bin/sh\nif [ \"$1\" = status ]; then\n"
+                              "\t/usr/bin/openwrt-mcp.real \"$@\" | python3 -c 'import json, sys; "
+                              "d = json.load(sys.stdin); d.get(\"capabilities\", {}).pop(\"%s\", None); "
+                              "json.dump(d, sys.stdout)'\n"
+                              "\texit\nfi\nexec /usr/bin/openwrt-mcp.real \"$@\"\n" % missing)
+            binary.chmod(0o755)
+        stand_in("uci_get_redacts_credentials")
 
         def agent(factor, name="unit", window="20m", token_file=None):
             script = (f". /lib/functions.sh; . {shlex.quote(str(FILES / 'hermes-agent.init'))}; "
@@ -1507,12 +1512,22 @@ procd_close_service
         before = config.read_bytes()
         self.assertNotEqual(agent("pin", name="Bad-Name").returncode, 0)
         self.assertEqual(config.read_bytes(), before)
+        # One that does not say uci_apply refuses code execution: no change policy at all, factor or
+        # not, and the start says so in one line.
+        stand_in("uci_apply_refuses_code_exec")
+        result = agent("pin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr.count("does not report that uci_apply refuses code execution"), 1, result.stderr)
+        self.assertNotIn("hermes_unit_change", sections(show()))
+        self.assertNotIn("hermes_unit_change_ubus", sections(show()))
         # An openwrt-mcp that reports uci_get_redacts_credentials (0.5.0.2 on): wireless and the whole
         # of network as well, and nothing said about it.
         put_back()
         result = agent("pin")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("redacts credentials", result.stderr)
+        self.assertNotIn("refuses code execution", result.stderr)
+        self.assertIn("hermes_unit_change_ubus", sections(show()))
         uci = section(show(), "hermes_unit_read_uci")["scopes"].replace("'", "").split()
         for scope in ("system", "dhcp", "firewall", "network", "network.*", "wireless", "wireless.*"):
             self.assertIn(scope, uci)

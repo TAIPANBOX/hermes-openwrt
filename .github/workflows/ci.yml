@@ -98,13 +98,16 @@ jobs:
       # every gate that installs it is handed an apk built from the fork's main with that
       # repository's own mkapk.sh. Pinned to a commit, the code the feed carries, never a tag or a
       # branch name, so moving either cannot change what this tests. Since 0.21.5-r11 that is
-      # fb25c7d, the merge of the fork's PR #3 (version 0.5.0.2): every uci_get answer redacts
-      # secret options and `status` reports uci_get_redacts_credentials, which the init asks for
-      # before it grants wireless and the whole of network. Before it, baf6669 (v0.5.0-taipanbox.1).
+      # 85a9ddd, the merge of the fork's PR #4 (version 0.5.0.3), on top of its PR #3 (0.5.0.2):
+      # every uci_get answer redacts secret options, uci_apply refuses any change that makes the
+      # router run code as root, and `status` reports both (uci_get_redacts_credentials,
+      # uci_apply_refuses_code_exec), which the init asks for before it grants wireless and the
+      # whole of network, and before it writes any change policy. Before it, baf6669
+      # (v0.5.0-taipanbox.1).
       - uses: actions/checkout@v4
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: fb25c7d95113c5d080ba152ca30bbdfb3560851f
+          ref: 85a9dddfcc9175324d6ab32a3ed58b0cd1558290
           path: openwrt-mcp-src
       - uses: actions/setup-go@v5
         with:
@@ -184,7 +187,7 @@ jobs:
         env:
           MATRIX_SUITE: ${{ matrix.suite }}
 
-      # The owner unlock: 39 checks in OpenWrt's own rootfs with all four packages, the real
+      # The owner unlock: 40 checks in OpenWrt's own rootfs with all four packages, the real
       # gateway, the real daemon and the stand-ins for Telegram and the model.
       - name: changes wait for the owner's unlock, and the unlock never reaches the model
         if: matrix.suite == 'unlock'

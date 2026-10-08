@@ -173,8 +173,17 @@ Feature: The agent changes the router only when its owner unlocks it
     When the agent asks over ubus to run a command or write a file through rpcd, flash or check a firmware,
       reboot, set a UCI option around uci_apply, define a procd service or touch packages
     Then each is refused before it reaches ubus
+    And a uci_apply that creates a firewall include is refused, with nothing of its batch applied
     And restarting a service, reloading the network and a uci_apply with its rollback still work
     # -> check_window_changes_settings_never_runs_commands
+
+  Scenario: No change policy from an openwrt-mcp that does not refuse a setting that runs code
+    Given a factor is configured
+    And the openwrt-mcp installed does not report that uci_apply refuses code execution, as one before 0.5.0.3
+    When the service starts
+    Then no change policy is written, and the start says why in one line
+    And after an unlock a uci_apply is still refused, for want of a policy
+    # -> check_no_change_policy_without_code_exec_refusal
 
   Scenario: The agent can read the Wi-Fi and the whole network, and never their keys
     Given the router's wireless configuration holds a Wi-Fi key and its network a WireGuard private key

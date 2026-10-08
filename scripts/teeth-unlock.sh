@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (forty-nine in all, over thirty-nine checks). Each is a change a
+# or have several ways to go wrong (fifty-one in all, over forty checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -355,7 +355,7 @@ expect_red "the config file's enrol command without --pending" check_cli_enrol_p
 # ---- 43. the capability not asked for ----
 # The init grants the wide reads whatever openwrt-mcp says: an older daemon, which redacts nothing,
 # would hand the Wi-Fi key and the WireGuard private key to the model provider.
-plant "$INIT" '	if [ "$cap" != true ]; then' '	if false; then'
+plant "$INIT" '	if [ "$redacts" = true ]; then' '	if true; then'
 expect_red "the capability not asked for" check_wide_reads_only_from_a_daemon_that_redacts
 
 # ---- 44. wireless granted unconditionally ----
@@ -365,12 +365,12 @@ expect_red "wireless and network in the narrow list" check_wide_reads_only_from_
 
 # ---- 45. the wide grant never given ----
 # Fail closed in every case: the agent still cannot read the Wi-Fi to set up a guest network.
-plant "$INIT" '	echo "$MCP_READ_UCI_WIDE"' '	echo "$MCP_READ_UCI"'
+plant "$INIT" '*" redacts "*) read_uci=$MCP_READ_UCI_WIDE ;;' '*" redacts "*) read_uci=$MCP_READ_UCI ;;'
 expect_red "the wide reads never granted" check_wireless_and_network_reads_are_redacted
 
 # ---- 46. the daemon that is running not asked ----
 # The installed binary's word taken for the daemon's: after an upgrade the old daemon serves on.
-plant "$INIT" '	if [ "$running" = true ]; then' '	if false; then'
+plant "$INIT" '	if [ "$running" = true ] && {' '	if false && {'
 expect_red "a daemon from before the upgrade not asked its version" check_daemon_from_before_the_upgrade_gets_no_wide_reads
 
 # ---- 47. netifd's wireless status granted ----
@@ -388,6 +388,15 @@ expect_red "ubus_call on everything in an open window" check_window_changes_sett
 # ---- 49. rpcd's file object granted ----
 plant "$INIT" "MCP_CHANGE_UBUS='network.reload " "MCP_CHANGE_UBUS='file.* network.reload "
 expect_red "file.* among the window's calls" check_window_changes_settings_never_runs_commands
+
+# ---- 50. a change policy whatever openwrt-mcp says of code execution ----
+# An openwrt-mcp before 0.5.0.3 applies a firewall include, so an open window would be root again.
+plant "$INIT" '	if [ "$noexec" = true ]; then' '	if true; then'
+expect_red "the code-execution capability not asked for" check_no_change_policy_without_code_exec_refusal
+
+# ---- 51. the capability asked for and then ignored ----
+plant "$INIT" '	[ "$may_change" = yes ] || return 0' '	true'
+expect_red "a change policy written though the daemon may run code" check_no_change_policy_without_code_exec_refusal
 
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
@@ -423,6 +432,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 49 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 49 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 51 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 51 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 49 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 51 faults (shard $SHARD), $N distinct checks, controls green"

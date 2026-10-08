@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.2 iputils-ping"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.3 iputils-ping"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -93,7 +93,7 @@ cp /tmp/shim.bak "$SITE/webbrowser.py"
 # ---- fault 2: an undeclared runtime dependency ----
 # apk would not complain: the package installs fine without ffmpeg declared, and the
 # gap only shows the first time someone sends a voice message.
-repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp>=0.5.0.2 iputils-ping"
+repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp>=0.5.0.3 iputils-ping"
 expect_red "ffmpeg undeclared" check_deps_resolve
 
 # ---- fault 3: a post-install that does not enable the service ----
@@ -185,7 +185,7 @@ cp /tmp/postinstall.bak "$W/post-install"; chmod 0755 "$W/post-install"
 # ---- fault 9: the package without iputils-ping ----
 # The shape r3 to r8 shipped in: the agent runs as `hermes`, BusyBox's ping needs root, and every
 # ping the agent ran answered "permission denied". Everything else installs and starts.
-repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.2"
+repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.3"
 expect_red "iputils-ping undeclared" check_agent_can_ping
 
 # ---- fault 10: hermes from a shell allowed to pip-install ----
@@ -213,7 +213,7 @@ cp /tmp/boot.bak "$BOOT"
 
 # ---- fault 12: openwrt-mcp without its floor ----
 # The shape every release up to r10 had. With r11's init that is a router where an upgrade of
-# hermes-agent leaves an openwrt-mcp from before 0.5.0.2 in place; the init would then keep the
+# hermes-agent leaves an openwrt-mcp from before 0.5.0.3 in place; the init would then keep the
 # narrow reads, and a guest Wi-Fi would stay out of reach with nothing in apk to say why.
 repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping"
 expect_red "openwrt-mcp with no version floor" check_needs_an_openwrt_mcp_that_redacts
