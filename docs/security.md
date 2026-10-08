@@ -157,7 +157,7 @@ one of a client that covers a call:
 | `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
 | `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, `network` and `wireless`, from an openwrt-mcp that redacts (below); otherwise on `system`, `dhcp`, `firewall` and `network`'s loopback, globals, lan and wan sections | none |
 | `hermes_main_read_log` | `logread` | none |
-| `hermes_main_change` | `uci_apply`, `uci_confirm`, any setting, each apply rolled back unless the agent confirms it | the factor |
+| `hermes_main_change` | `uci_apply`, `uci_confirm` on `network` (WireGuard included), `wireless`, `firewall`, `dhcp` and `system`, each apply rolled back unless the agent confirms it | the factor |
 | `hermes_main_change_ubus` | `ubus_call`, by method: `network.reload`, `network.restart`, an interface's `up`, `down` and `renew` (by `network.interface` or the interface's own object), `network.wireless.up`, `.down` and `.reconf`, and `rc.init` (start, stop, restart, reload, enable or disable a service) | the factor |
 
 `exec` and `wg_new_client` are not granted: the second answers with a WireGuard private
@@ -174,6 +174,15 @@ to you), `system.signal`, `uci` over ubus (it would go around `uci_apply`'s roll
 `exec`; openwrt-mcp refuses each of them before it reaches ubus, window or not. Until r11 the
 change policy granted `ubus_call` on everything, and a window was root for its length.
 
+`uci_apply` reaches five configs: `network` (interfaces, routes and the WireGuard VPN),
+`wireless`, `firewall`, `dhcp` and `system`. Nothing else, and in particular not the agent's own
+configuration or its guard's: a change to `hermes` (the profile set to `root`, then a restart
+through `rc.init`) or to `openwrt-mcp` (the agent's own client granted `exec` or every ubus
+method) would be the agent making itself root, and openwrt-mcp does not protect its own file.
+`rpcd`, `dropbear` and `uhttpd` (the ways into the router), `luci`, `fstab` and `ucitrack` are out
+too. A review of r11 on 2026-10-08 found `uci_apply` still granted on `*`, which allowed exactly
+that, before the release.
+
 `uci_apply` covers every setting, and some settings are themselves commands the router runs as
 root: a firewall or pbr `include`, a dnsmasq `dhcpscript`, and about sixty other hook options.
 From 0.5.0.3 openwrt-mcp refuses, for every client and before anything is staged, any batch with
@@ -188,7 +197,11 @@ services and never runs a command.
 The limits of that, named: openwrt-mcp's list of options that run code is a list (its own
 source names what it does not cover: a package it does not know, an option that writes a file
 somewhere, a service such as ttyd whose purpose is a shell); a ubus call has no rollback, so a
-service stopped stays stopped until it is started again; and a policy you grant `hermes-main`
+service stopped stays stopped until it is started again; and `rc.init` is granted for any
+service, because openwrt-mcp scopes a ubus call by its method and not by its arguments, so in a
+window the agent can stop or disable the firewall, `dropbear` or openwrt-mcp itself, which
+weakens the router or locks a way in without giving the agent anything new (restarting
+`hermes-agent` is harmless, its configuration being out of reach); and a policy you grant `hermes-main`
 yourself, `exec` included, is your own choice, which the package does not undo. Every call is in
 openwrt-mcp's audit log. Installing packages is not possible from a window at all. What the
 unlock protects against is the time outside the window: an agent misled by a web page, or anyone

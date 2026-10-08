@@ -187,7 +187,7 @@ jobs:
         env:
           MATRIX_SUITE: ${{ matrix.suite }}
 
-      # The owner unlock: 40 checks in OpenWrt's own rootfs with all four packages, the real
+      # The owner unlock: 41 checks in OpenWrt's own rootfs with all four packages, the real
       # gateway, the real daemon and the stand-ins for Telegram and the model.
       - name: changes wait for the owner's unlock, and the unlock never reaches the model
         if: matrix.suite == 'unlock'

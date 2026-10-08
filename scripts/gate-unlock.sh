@@ -49,7 +49,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -795,6 +795,41 @@ check_window_changes_settings_never_runs_commands() {
 	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "uci_apply did not arm its rollback: $out"
 	[ "$(desc)" = changed-by-gate ] || fail "the uci_apply change did not land"
 	pass "in an open window: file.exec, file.write, sysupgrade, firmware validation, reboot, uci.set, service.set and rpc-sys refused before ubus, a firewall include refused with nothing of its batch applied; rc.init restart, network.reload and uci_apply with its rollback allowed"
+}
+
+# In an open window uci_apply reaches the configs that are settings, the VPN and services, and
+# none of the agent's own: a change to hermes (the profile to root, then a restart through
+# rc.init) or to openwrt-mcp (its own client granted exec or every ubus method) would be the agent
+# making itself root, and rpcd and dropbear are the ways in. Found as '*' in review on 2026-10-08.
+check_window_cannot_reach_the_agents_own_config() {
+	reset; configure - pin
+	started
+	set_pin hermes-main 4821
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	before_mcp=$(md5sum < /etc/config/openwrt-mcp)
+	before_hermes=$(md5sum < /etc/config/hermes)
+	for change in '{"config":"hermes","section":"main","option":"profile","value":"root"}' \
+		'{"config":"openwrt-mcp","section":"hermes_main_change_ubus","option":"scopes","value":"*"}' \
+		'{"config":"openwrt-mcp","section":"gate_policy","type":"policy"}' \
+		'{"config":"rpcd","section":"gate_login","type":"login"}' \
+		'{"config":"dropbear","section":"gate_ssh","type":"dropbear"}' \
+		'{"config":"uhttpd","section":"main","option":"listen_http","value":"0.0.0.0:8081"}' \
+		'{"config":"fstab","section":"gate_mount","type":"mount"}'; do
+		if out=$(mcp "$TOKEN" uci_apply "{\"changes\":[$change]}"); then fail "applied in an open window: $change: $out"; fi
+		echo "$out" | grep -q 'no policy scope covers' || fail "refused, but not for want of a policy scope: $change: $out"
+	done
+	[ "$(md5sum < /etc/config/openwrt-mcp)" = "$before_mcp" ] || fail "/etc/config/openwrt-mcp changed"
+	[ "$(md5sum < /etc/config/hermes)" = "$before_hermes" ] || fail "/etc/config/hermes changed"
+	[ -z "$(uci -q get hermes.main.profile)" ] || fail "hermes.main.profile is now $(uci -q get hermes.main.profile)"
+	# Not vacuous: the VPN and the firewall, in one apply, with its rollback armed.
+	VPN='{"changes":[{"config":"network","section":"gatevpn","type":"interface"},{"config":"network","section":"gatevpn","option":"proto","value":"wireguard"},{"config":"firewall","section":"gatezone","type":"zone"},{"config":"firewall","section":"gatezone","option":"name","value":"gatevpn"}]}'
+	out=$(mcp "$TOKEN" uci_apply "$VPN") || fail "a WireGuard interface and a firewall zone were refused in an open window: $out"
+	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "the network and firewall change did not arm its rollback: $out"
+	[ "$(uci -q get network.gatevpn.proto)" = wireguard ] && [ "$(uci -q get firewall.gatezone.name)" = gatevpn ] \
+		|| fail "the network and firewall change did not land"
+	pass "in an open window: hermes, openwrt-mcp, rpcd, dropbear, uhttpd and fstab refused for want of a scope, their files unchanged; a WireGuard interface and a firewall zone applied with the rollback armed"
 }
 
 # A change policy only from an openwrt-mcp that refuses an apply that would run code (0.5.0.3 on,

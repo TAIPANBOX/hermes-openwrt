@@ -178,6 +178,14 @@ Feature: The agent changes the router only when its owner unlocks it
     And restarting a service, reloading the network and a uci_apply with its rollback still work
     # -> check_window_changes_settings_never_runs_commands
 
+  Scenario: An open window cannot reach the agent's own configuration
+    Given a factor is configured and the owner has unlocked changes
+    When the agent applies a change to its own settings (the profile to root), to openwrt-mcp's
+      policies, or to rpcd, dropbear, uhttpd or the mounts
+    Then each is refused for want of a scope, and none of those files changes
+    And a WireGuard interface and a firewall zone are still applied, with the rollback armed
+    # -> check_window_cannot_reach_the_agents_own_config
+
   Scenario: No change policy from an openwrt-mcp that does not refuse a setting that runs code
     Given a factor is configured
     And the openwrt-mcp installed does not report that uci_apply refuses code execution, as one before 0.5.0.3

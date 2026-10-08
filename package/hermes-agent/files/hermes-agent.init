@@ -66,6 +66,17 @@ MCP_READ_UCI_WIDE='system system.* dhcp dhcp.* firewall firewall.* network netwo
 # system.signal (kills any process), uci.* (a change over ubus would bypass uci_apply's checks and
 # its rollback), service.* (procd's service.set starts any command as a service), rpc-sys.* (its
 # package and upgrade methods), luci.* and luci-rpc.setInitAction. @claude 2026-10-08, 0.21.5-r11.
+# What a uci_apply may change once the owner has unlocked: the configs that are settings, the VPN
+# and services, and nothing else. WireGuard lives in network. Never this agent's own configuration
+# or its guard's: `hermes` (a change to hermes.main.profile=root, then a restart through rc.init,
+# would put the agent on root), `openwrt-mcp` (the agent could grant its own client exec or every
+# ubus method), nor `rpcd` (its logins and ACLs), `dropbear` and `uhttpd` (the ways in), `luci`,
+# `fstab` or `ucitrack`. openwrt-mcp scopes an apply as config.section or config.section.option and
+# matches with path.Match, whose `*` crosses dots, so `network.*` covers network.wg0 and
+# network.wg0.private_key, and cannot match hermes... or openwrt-mcp...; a setting in these configs
+# that runs code is refused by openwrt-mcp itself (uci_apply_refuses_code_exec). Until the review
+# of 2026-10-08 this was '*'. @claude 2026-10-08, 0.21.5-r11.
+MCP_CHANGE_UCI='network network.* wireless wireless.* firewall firewall.* dhcp dhcp.* system system.*'
 MCP_CHANGE_UBUS='network.reload network.restart network.interface.up network.interface.down network.interface.renew network.interface.*.up network.interface.*.down network.interface.*.renew network.wireless.up network.wireless.down network.wireless.reconf rc.init'
 
 # Read a secret from a file into stdout, or nothing if it is missing or empty.
@@ -182,8 +193,8 @@ hand_over_data_dir() {
 # it takes the FIRST policy of a client that covers every scope of a call, so the narrow
 # read grants come first, each tool in a policy of its own so that one tool's scope globs
 # cannot widen another's, and the two change policies, which ask for the second factor on
-# everything they grant, last: uci_apply and uci_confirm on any setting, each apply rolled back
-# unless confirmed, and ubus_call on MCP_CHANGE_UBUS only. With no factor configured neither is
+# everything they grant, last: uci_apply and uci_confirm on MCP_CHANGE_UCI only, each apply rolled
+# back unless the agent confirms it, and ubus_call on MCP_CHANGE_UBUS only. With no factor configured neither is
 # written, so a change finds no policy at all ("no policy grants").
 # Nor is either written when the daemon does not refuse an apply that runs code (may_change no).
 #   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout> <uci scopes> <may change>
@@ -203,7 +214,9 @@ mcp_policy_batch() {
 	# Not wg_new_client: its answer is a WireGuard peer's private key, and what a tool answers
 	# goes to the model provider. An owner who wants it grants it in a policy of their own.
 	for tool in uci_apply uci_confirm; do printf 'add_list openwrt-mcp.%schange.tools=%s\n' "$prefix" "$tool"; done
-	printf "add_list openwrt-mcp.%schange.scopes='*'\n" "$prefix"
+	set -f
+	for scope in $MCP_CHANGE_UCI; do printf "add_list openwrt-mcp.%schange.scopes='%s'\n" "$prefix" "$scope"; done
+	set +f
 	printf 'set openwrt-mcp.%schange_ubus=policy\nset openwrt-mcp.%schange_ubus.client=%s\nadd_list openwrt-mcp.%schange_ubus.tools=ubus_call\n' "$prefix" "$prefix" "$client" "$prefix"
 	set -f
 	for scope in $MCP_CHANGE_UBUS; do printf "add_list openwrt-mcp.%schange_ubus.scopes='%s'\n" "$prefix" "$scope"; done

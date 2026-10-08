@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (fifty-one in all, over forty checks). Each is a change a
+# or have several ways to go wrong (fifty-four in all, over forty-one checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -398,6 +398,20 @@ expect_red "the code-execution capability not asked for" check_no_change_policy_
 plant "$INIT" '	[ "$may_change" = yes ] || return 0' '	true'
 expect_red "a change policy written though the daemon may run code" check_no_change_policy_without_code_exec_refusal
 
+# ---- 52. uci_apply on every config again ----
+# The shape the review of 2026-10-08 found: the agent could set hermes.main.profile=root, or grant
+# its own client exec in openwrt-mcp's config, and restart itself through rc.init.
+plant "$INIT" "MCP_CHANGE_UCI='network " "MCP_CHANGE_UCI='* network "
+expect_red "uci_apply on every config in an open window" check_window_cannot_reach_the_agents_own_config
+
+# ---- 53. the agent's own config in the window ----
+plant "$INIT" "MCP_CHANGE_UCI='network " "MCP_CHANGE_UCI='hermes hermes.* network "
+expect_red "hermes among the window's configs" check_window_cannot_reach_the_agents_own_config
+
+# ---- 54. its guard's config in the window ----
+plant "$INIT" "MCP_CHANGE_UCI='network " "MCP_CHANGE_UCI='openwrt-mcp openwrt-mcp.* network "
+expect_red "openwrt-mcp among the window's configs" check_window_cannot_reach_the_agents_own_config
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -432,6 +446,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 51 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 51 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 54 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 54 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 51 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 54 faults (shard $SHARD), $N distinct checks, controls green"

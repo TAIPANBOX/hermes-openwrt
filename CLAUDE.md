@@ -293,6 +293,21 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     does not know is not caught; a ubus call has no rollback; a policy the owner grants
     `hermes-main` by hand, `exec` included, is the owner's own choice and the package leaves it
     alone. That `rc.init` refuses a service name with a `/` is my reading of rpcd, not measured.
+    `@claude` 2026-10-08: `uci_apply` too is on a list, `MCP_CHANGE_UCI`: network (WireGuard
+    included), wireless, firewall, dhcp and system, never `hermes`, `openwrt-mcp`, `rpcd`,
+    `dropbear`, `uhttpd`, `luci`, `fstab` or `ucitrack`. Found in review of the r11 branch on
+    2026-10-08, a reading and not a run, so not `@measured`: it was `*`, so in a window the agent could set
+    hermes.main.profile=root or grant its own client exec in /etc/config/openwrt-mcp and restart
+    itself through `rc.init`, which openwrt-mcp does nothing to stop. path.Match's `*` crosses
+    dots, so `network.*` covers network.x and network.x.y and cannot match hermes... or
+    openwrt-mcp... (checked with Go's path.Match). A limit named and not fixed: `rc.init` is scoped
+    by method, not by service, so in a window the agent can stop or disable the firewall, dropbear
+    or openwrt-mcp; that weakens the router and gives the agent nothing new (gate:
+    `check_window_cannot_reach_the_agents_own_config`, the real daemon with a window open: hermes,
+    openwrt-mcp, rpcd, dropbear, uhttpd and fstab refused for want of a scope and their files
+    unchanged, a WireGuard interface and a firewall zone applied with the rollback armed; teeth:
+    `scripts/teeth-unlock.sh` faults 52 to 54, `scripts/teeth-runtime.py`; the rc.init limit is
+    not enforced).
     (gate: `scripts/gate-unlock.sh` `check_window_changes_settings_never_runs_commands`, the real
     daemon with a window open: file.exec, file.write, sysupgrade, firmware validation, reboot,
     uci.set, service.set and rpc-sys refused and never reaching ubus, a firewall include refused

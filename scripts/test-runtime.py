@@ -1458,7 +1458,12 @@ procd_close_service
         self.assertNotIn("network.*", uci)
         change = section(lines, "hermes_unit_change")
         self.assertEqual(change["tools"], "'uci_apply' 'uci_confirm'")
-        self.assertEqual((change["scopes"], change["mfa_tools"], change["mfa_factor"]), ("'*'", "'*'", "'pin'"))
+        self.assertEqual((change["mfa_tools"], change["mfa_factor"]), ("'*'", "'pin'"))
+        # uci_apply on the configs that are settings, the VPN and services, never '*' and never the
+        # agent's own (hermes) or its guard's (openwrt-mcp), nor rpcd, dropbear or uhttpd.
+        self.assertEqual(change["scopes"].replace("'", "").split(),
+                         ["network", "network.*", "wireless", "wireless.*", "firewall", "firewall.*",
+                          "dhcp", "dhcp.*", "system", "system.*"])
         self.assertEqual((change["mfa_window"], change["mfa_max_failures"], change["mfa_lockout"]),
                          ("'20m'", "'3'", "'1h'"))
         # ubus_call in an open window: named methods for settings, the VPN and services, never
