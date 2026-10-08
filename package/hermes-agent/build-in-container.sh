@@ -106,7 +106,13 @@ esac
 # 0.21.5-r8: an endpoint on the LAN starts. The wrapper exports CUSTOM_BASE_URL equal to the UCI
 # endpoint, so upstream's bare `custom` (its auxiliary clients) resolves there with the main key
 # instead of falling to OpenRouter's default with none; the preflight keeps a .env off it.
-PKGREL=${PKGREL:-8}
+#
+# 0.21.5-r9: the agent can ping. BusyBox's ping opens a raw socket, which only root may, and the
+# agent runs as `hermes` since r3, so every ping it ran answered "permission denied" and a
+# network diagnosis failed at its first command (a clean install on a Flint 2, 2026-10-08).
+# iputils-ping, from OpenWrt's own feed, installs /usr/bin/ping setuid root, which comes before
+# BusyBox's /bin/ping on the service's PATH.
+PKGREL=${PKGREL:-9}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -120,7 +126,9 @@ PKGREL=${PKGREL:-8}
 # carries it beside this package. It has no version floor yet, because the branch still
 # says 0.5.0, the number the release without the second factor carries too; set one when
 # the companion is tagged.
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp"
+#
+# iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above).
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
