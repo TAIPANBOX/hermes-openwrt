@@ -170,7 +170,8 @@ without `/unlock`). `/unlock` on its own is answered "That does not look like wh
 asks for. Send /unlock followed by your PIN (4 to 8 digits)." and opens nothing. On the
 Security page the PIN and the factor have a Save each: a PIN saved while the factor is `none`
 unlocks nothing until PIN is chosen under "What unlocking asks for" and saved there.
-Explain to the person that an open window is root for its length
+Explain to the person what an open window allows: settings, the VPN and services, never a
+command, a firmware or a reboot, with the one gap security.md names
 ([security.md](security.md)). You may check the state, which holds no secret:
 
 ```sh

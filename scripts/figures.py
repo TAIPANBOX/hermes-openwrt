@@ -134,7 +134,7 @@ def unlock():
         ("You send", ["/unlock 4821", "in the private chat"], "only allowlisted ids", BLUE),
         ("Deleted first", ["the message is removed", "before anything else"], "never sent to the model", TEAL),
         ("Factor checked", ["by openwrt-mcp: PIN,", "app code or both"], "5 wrong: 15 min lockout", TEAL),
-        ("Window open", ["15 minutes of changes", "every call audited"], "root for its length", AMBER),
+        ("Window open", ["15 minutes of changes", "every call audited"], "settings, VPN, services", AMBER),
         ("Not confirmed?", ["the change is undone", "by itself"], "after a reboot too", GREEN),
     ]
     bw, gap, x0, y0 = 220, 20, 48, 120

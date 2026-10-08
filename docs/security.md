@@ -156,18 +156,31 @@ one of a client that covers a call:
 | `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
 | `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, `network` and `wireless`, from an openwrt-mcp that redacts (below); otherwise on `system`, `dhcp`, `firewall` and `network`'s loopback, globals, lan and wan sections | none |
 | `hermes_main_read_log` | `logread` | none |
-| `hermes_main_change` | `ubus_call`, `uci_apply`, `uci_confirm`, anything | the factor |
+| `hermes_main_change` | `uci_apply`, `uci_confirm`, any setting, each apply rolled back unless confirmed | the factor |
+| `hermes_main_change_ubus` | `ubus_call`, by method: `network.reload`, `network.restart`, an interface's `up`, `down` and `renew` (by `network.interface` or the interface's own object), `network.wireless.up`, `.down` and `.reconf`, and `rc.init` (start, stop, restart, reload, enable or disable a service) | the factor |
 
 `exec` and `wg_new_client` are not granted: the second answers with a WireGuard private
 key, and whatever a tool answers goes to the model provider.
 
-**An open unlock window is root for its length.** The change policy grants `ubus_call` and
-`uci_apply` on everything, and both reach far: rpcd's `file` object runs commands, and a
-firewall include is a script the router runs as root. So unlocking means trusting the agent
-with the router for the window (15 minutes unless changed), with every call in openwrt-mcp's
-audit log and a UCI change that is not confirmed undone by itself, a reboot included. What
-the unlock protects against is the time outside the window: an agent misled by a web page,
-or anyone who gets the bot to talk, cannot change the router without you.
+**What an open window allows.** Since 0.21.5-r11 an open window lets the agent change
+settings, the VPN and services, and nothing else by name: settings through `uci_apply`, which
+undoes a change nobody confirms (after a reboot too), and the ubus calls above, which bring a
+setting into effect or restart a service. No policy the package writes grants rpcd's `file`
+object (it runs commands and writes files), `system.sysupgrade` or
+`system.validate_firmware_image`, `system.reboot` (a reboot cannot be rolled back, so it is left
+to you), `system.signal`, `uci` over ubus (it would go around `uci_apply`'s rollback), procd's
+`service` object (`service.set` starts any command), `rpc-sys` (packages and upgrades) or
+`exec`; openwrt-mcp refuses each of them before it reaches ubus, window or not. Until r11 the
+change policy granted `ubus_call` on everything, and a window was root for its length.
+
+What is still wide, said plainly: `uci_apply` covers every setting, and some settings are
+themselves commands the router runs as root, a firewall `include` script or a dnsmasq
+`dhcpscript` among them. Until openwrt-mcp refuses those options in `uci_apply`, which a
+separate change to it does, an agent in an open window can still reach a root command that
+way. A ubus call has no rollback: a service stopped stays stopped until it is started again.
+Every call is in openwrt-mcp's audit log. Installing packages is not possible from a window at
+all. What the unlock protects against is the time outside the window: an agent misled by a web
+page, or anyone who gets the bot to talk, cannot change the router without you.
 
 Each tool has a policy of its own, so one tool's scope globs
 cannot widen another's, and no read is a glob over a whole ubus object: `system.*` would
@@ -386,7 +399,8 @@ What this does not do, measured and named:
 - With `allow_all`, anyone may chat and none may unlock.
 - A scheduled job that hands its work to a subagent asynchronously is not measured, and no
   gate covers the subagent path. The synchronous path was measured on hardware, as above.
-- The window is root for its length, as above. The gateway's own environment holds the
+- In a window, a setting that is itself a command (a firewall include, a dnsmasq script) can
+  still be written through `uci_apply` until openwrt-mcp refuses those options, as above. The gateway's own environment holds the
   router token and is readable by any process of the `hermes` user, as invariant 7 says.
 
 ### Pairing openwrt-mcp yourself

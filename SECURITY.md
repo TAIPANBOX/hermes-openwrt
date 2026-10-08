@@ -35,8 +35,8 @@ once routers can upgrade to it.
 ## Not a vulnerability here
 
 The README names the limits that are known and not fixed. Among them: a process running as
-`hermes` can read the gateway's environment, where the keys are; an open unlock window is
-root for its length; LuCI over plain HTTP carries the PIN and the QR unencrypted. A way
+`hermes` can read the gateway's environment, where the keys are; in an open unlock window a
+setting that is itself a command (a firewall include) can still be written; LuCI over plain HTTP carries the PIN and the QR unencrypted. A way
 past one of those that the README does not describe is still worth reporting.
 
 A flaw in Hermes Agent itself belongs upstream, at

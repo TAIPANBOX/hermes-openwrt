@@ -270,9 +270,27 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `hermes.security` for everything it grants. `exec` is never granted, and neither is
     `wg_new_client`, whose answer is a private key that would reach the model provider
     (gate: `scripts/gate-unlock.sh` `check_change_policy_hands_out_no_private_key`).
-    `@claude` 2026-10-01: an open unlock window is root for its length, since `ubus_call` on
-    everything reaches rpcd's `file` object and `uci_apply` a firewall include; the unlock
-    guards the time outside the window, and docs/security.md says so. With factor `none`, the default, no change policy is written,
+    `@claude` 2026-10-08, 0.21.5-r11, replacing the 2026-10-01 note that an open window was root
+    for its length: the change policy is two, both asking the same factor (openwrt-mcp unlocks per
+    client and refuses gating policies that disagree): `hermes_main_change`, `uci_apply` and
+    `uci_confirm` on any setting, and `hermes_main_change_ubus`, `ubus_call` on `MCP_CHANGE_UBUS`
+    only, named methods for settings, the VPN and services (`network.reload`, `network.restart`, an
+    interface's up, down and renew, `network.wireless` up, down and reconf, `rc.init`). No policy
+    the package writes grants `file.*`, `system.sysupgrade`, `system.validate_firmware_image`,
+    `system.reboot`, `system.signal`, `uci.*` over ubus, `service.*`, `rpc-sys.*` or `exec`, so
+    openwrt-mcp refuses them before ubus with a window open. `system.reboot` is left out on purpose,
+    a conservative call of mine: a reboot cannot be rolled back. The globs were checked against
+    Go's path.Match, which openwrt-mcp uses: none covers a forbidden method. What is still wide:
+    `uci_apply` on `*` can write a setting that is itself a root command (a firewall include, a
+    dnsmasq `dhcpscript`); a separate openwrt-mcp change refuses those options, and until its
+    version is this package's floor that path stays open (not enforced here). That `rc.init`
+    refuses a service name with a `/` is my reading of rpcd, not measured. (gate:
+    `scripts/gate-unlock.sh` `check_window_changes_settings_never_runs_commands`, the real daemon
+    with a window open: file.exec, file.write, sysupgrade, firmware validation, reboot, uci.set,
+    service.set and rpc-sys refused and never reaching ubus, rc.init and network.reload allowed and
+    reaching it, uci_apply with its rollback; `scripts/gate-runtime.sh`
+    `check_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone`; teeth:
+    `scripts/teeth-unlock.sh` faults 48 and 49, `scripts/teeth-runtime.py`.) With factor `none`, the default, no change policy is written,
     so nothing can change the router until the owner sets a factor, and the agent says so.
     The model is never offered `mfa_unlock` or `mfa_lock` (`tools.exclude` in the
     package-written `mcp_servers.openwrt` entry, in every profile), and is told to ask the
@@ -308,11 +326,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     run arbitrary commands, install anything from a link, or run a sysupgrade. Installing
     packages is allowed only from the official OpenWrt feed, and only when the owner has opted in.
     `@claude` 2026-10-08: the package-install part is NOT implemented: there is no install
-    policy, no feed check and no opt-in yet; it is planned work. And today's change policy is
-    wider than this scope: `ubus_call` on everything reaches rpcd's `file` object, which runs
-    commands, and a firewall include is a script, so an open window is still root for its length
-    (above). Only `uci_apply` has the automatic rollback; a `ubus_call` (a service restart, say)
-    has none. Narrowing the window to this scope is planned work too (not enforced).
+    policy, no feed check and no opt-in yet, so no package can be installed from a window at all;
+    it is planned work. The rest of the scope holds as the r11 note above says, gated, with its one
+    named gap (a setting that is itself a command, through `uci_apply`). Only `uci_apply` has the
+    automatic rollback; a `ubus_call` (a service restart, say) has none.
     Unlocking is per agent: `hermes-<name>` has its own token and its own window.
     An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
     so a reboot does not keep it. `@claude` 2026-10-01: wireless is not readable, and neither
