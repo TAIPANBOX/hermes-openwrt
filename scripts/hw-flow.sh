@@ -149,7 +149,7 @@ step_telegram() {
 
 step_ask() { # a person writes to the bot; nothing else can, since a bot cannot message itself
 	n0=$(on "grep -c 'API call #' /srv/hermes/logs/agent.log")
-	say "ASK: send the bot, from Telegram id $TG_ID: «Почему тормозит интернет? Проверь на роутере.»"
+	say "ASK: send the bot, from Telegram id $TG_ID: «Чому гальмує інтернет? Перевір на роутері.»"
 	say "     waiting up to ${ASK_WAIT:-300} s for the agent to answer"
 	t0=$(date +%s); seen=0
 	on 'cat > /tmp/tool-output.py' < "$ROOT/scripts/tool-output.py"
