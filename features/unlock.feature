@@ -61,6 +61,21 @@
 #                        under "The unlock message itself" that end "the agent is told" are
 #                        about that; what the agent is told never includes a PIN or a code.
 #
+#   @claude 2026-10-08   reported by a test run, not measured here: an agent on a Beryl AX could
+#                        not set up a guest Wi-Fi, because the package granted it no read of
+#                        wireless and only named sections of network, which hold the Wi-Fi keys
+#                        and a WireGuard private key that would reach the model provider. From
+#                        openwrt-mcp 0.5.0.2 every uci_get answer has each secret option replaced
+#                        by '<redacted>' and `status` says so (uci_get_redacts_credentials). The
+#                        three scenarios after "No tool that answers with a private key" are the
+#                        r11 answer: wireless and the whole of network are read only from a daemon
+#                        that says it redacts, and from nothing else.
+#   @decided 2026-10-08  What an unlock window is for: in it the agent may change settings, the VPN
+#                        and services; it may never run arbitrary commands, install anything from a
+#                        link, or run a sysupgrade. The scenario after "No tool that answers with a
+#                        private key" is that scope; a reboot is left out too, since it cannot be
+#                        rolled back (a conservative reading, not part of the decision).
+#
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
 # fix. A scenario whose check is not built yet is listed by the gate as NOT IMPLEMENTED and
@@ -143,7 +158,8 @@ Feature: The agent changes the router only when its owner unlocks it
 
   Scenario: A change that is not confirmed undoes itself, even across a reboot
     Given an unlock is open and the agent applies a configuration change
-    When nobody confirms it in time, or the router reboots first
+    When the agent does not confirm it in time (the change cut the router off, or the agent never
+      got to it), or the router reboots first
     Then the previous configuration is back
     # -> check_rollback_survives_reboot
 
@@ -152,6 +168,55 @@ Feature: The agent changes the router only when its owner unlocks it
     Then that policy does not grant wg_new_client, whose answer is a WireGuard private key
     And a call to it is refused even while the owner has unlocked changes
     # -> check_change_policy_hands_out_no_private_key
+
+  Scenario: An open window changes settings, the VPN and services, and never runs a command
+    Given a factor is configured and the owner has unlocked changes
+    When the agent asks over ubus to run a command or write a file through rpcd, flash or check a firmware,
+      reboot, set a UCI option around uci_apply, define a procd service or touch packages
+    Then each is refused before it reaches ubus
+    And a uci_apply that creates a firewall include is refused, with nothing of its batch applied
+    And restarting a service, reloading the network and a uci_apply with its rollback still work
+    # -> check_window_changes_settings_never_runs_commands
+
+  Scenario: An open window cannot reach the agent's own configuration
+    Given a factor is configured and the owner has unlocked changes
+    When the agent applies a change to its own settings (the profile to root), to openwrt-mcp's
+      policies, or to rpcd, dropbear, uhttpd or the mounts
+    Then each is refused for want of a scope, and none of those files changes
+    And a WireGuard interface and a firewall zone are still applied, with the rollback armed
+    # -> check_window_cannot_reach_the_agents_own_config
+
+  Scenario: No change policy from an openwrt-mcp that does not refuse a setting that runs code
+    Given a factor is configured
+    And the openwrt-mcp installed does not report that uci_apply refuses code execution, as one before 0.5.0.3
+    When the service starts
+    Then no change policy is written, and the start says why in one line
+    And after an unlock a uci_apply is still refused, for want of a policy
+    # -> check_no_change_policy_without_code_exec_refusal
+
+  Scenario: The agent can read the Wi-Fi and the whole network, and never their keys
+    Given the router's wireless configuration holds a Wi-Fi key and its network a WireGuard private key
+    And the openwrt-mcp installed reports that uci_get redacts credentials
+    When the agent reads wireless, or the whole of network, or the private key alone, with no unlock
+    Then it gets the settings, and every key in them reads '<redacted>', never the key itself
+    And netifd's wireless status, which carries the same key unredacted, is still refused
+    # -> check_wireless_and_network_reads_are_redacted
+
+  Scenario: No wide read from an openwrt-mcp that does not say it redacts
+    Given the openwrt-mcp installed does not report that uci_get redacts credentials, as one before 0.5.0.2
+    When the service starts
+    Then the agent is granted system, dhcp, firewall and the named network sections only, as before
+    And the start says why in one line
+    And a read of wireless or of the whole network is refused
+    # -> check_wide_reads_only_from_a_daemon_that_redacts
+
+  Scenario: A daemon left running from before an upgrade gets no wide read
+    Given openwrt-mcp was upgraded, and the daemon still serving is the older version
+    And restarting it does not change that
+    When the service starts
+    Then the agent is granted the narrow reads only, and the start names the version that is running
+    And with a daemon at the installed version the same start grants wireless and the whole of network
+    # -> check_daemon_from_before_the_upgrade_gets_no_wide_reads
 
   # ---- The factors, each optional ----
 

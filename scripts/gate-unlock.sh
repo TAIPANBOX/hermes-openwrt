@@ -49,7 +49,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -132,10 +132,17 @@ export PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1
 # ---- what a router has and a container does not ----
 cat > /stubs/ubus <<'EOF'
 #!/bin/sh
+# Every call the daemon let through, for the checks that ask whether a refused one got here.
+echo "$*" >> /tmp/ubus.calls
 case "$*" in
 	"call system board") echo '{"kernel":"6.12","hostname":"gate-router","model":"gate stand-in"}' ;;
 	"call network.interface dump") echo '{"interface":[{"interface":"lan","up":true,"proto":"static"}]}' ;;
+	# What netifd answers here holds each Wi-Fi interface's configuration, its key included, and
+	# openwrt-mcp does not redact ubus answers: so nothing may grant it.
+	"call network.wireless status") echo '{"radio0":{"interfaces":[{"section":"main","config":{"ssid":"gate","key":"GATE-WIFI-KEY-CANARY"}}]}}' ;;
 	"call uci reload_config"*) echo '{}' ;;
+	# What an open window may run: a reload of the network, a service restarted.
+	"call network reload"|"call rc init"*) echo '{}' ;;
 	*) echo "Command failed: Not found" >&2; exit 4 ;;
 esac
 EOF
@@ -592,17 +599,14 @@ check_reads_need_no_unlock() {
 	done
 	out=$(mcp "$TOKEN" logread) || fail "logread was refused: $out"
 	echo "$out" | grep -q 'gate log line one' || fail "logread gave: $out"
-	# What must NOT be readable: the wireless keys and the WireGuard key.
-	for q in '{"config":"wireless"}' '{"config":"network","section":"wg0"}' '{"config":"network"}'; do
-		if out=$(mcp "$TOKEN" uci_get "$q"); then fail "uci_get $q was answered: $out"; fi
-		echo "$out" | grep -q 'CANARY' && fail "a key reached the answer to $q"
-	done
+	# Wireless and the whole of network, and what keeps their keys out of the answer, are the
+	# three checks after check_change_policy_hands_out_no_private_key.
 	# Not vacuous: with a factor configured, the same token is refused a change, so the
 	# reads above were not answered by something that opens everything.
-	if out=$(mcp "$TOKEN" ubus_call '{"object":"system","method":"reboot"}'); then fail "system reboot was allowed with no unlock: $out"; fi
-	echo "$out" | grep -q 'second factor' || fail "system reboot was refused, but not for the second factor: $out"
+	if out=$(mcp "$TOKEN" ubus_call '{"object":"network","method":"reload"}'); then fail "network reload was allowed with no unlock: $out"; fi
+	echo "$out" | grep -q 'second factor' || fail "network reload was refused, but not for the second factor: $out"
 	if out=$(mcp "$TOKEN" exec '{"argv":["id"]}'); then fail "exec was allowed: $out"; fi
-	pass "state, interfaces, system, dhcp, firewall, one network section and the log answered with a PIN configured and no unlock; wireless, the WireGuard section and exec refused"
+	pass "state, interfaces, system, dhcp, firewall, one network section and the log answered with a PIN configured and no unlock; exec refused"
 }
 
 check_change_refused_while_locked() {
@@ -632,7 +636,7 @@ check_no_factor_means_no_changes() {
 	uci -q show openwrt-mcp | grep -q 'hermes_main_change' && fail "a change policy was written with no factor configured"
 	if out=$(mcp "$TOKEN" uci_apply "$CHANGE"); then fail "uci_apply was allowed with no factor configured: $out"; fi
 	echo "$out" | grep -q 'no policy grants uci_apply' || fail "uci_apply was refused, but not for want of a policy: $out"
-	if out=$(mcp "$TOKEN" ubus_call '{"object":"system","method":"reboot"}'); then fail "a ubus change was allowed: $out"; fi
+	if out=$(mcp "$TOKEN" ubus_call '{"object":"network","method":"reload"}'); then fail "a ubus change was allowed: $out"; fi
 	[ "$(desc)" = baseline-gate ] || fail "the change was applied anyway"
 	mcp "$TOKEN" ubus_call '{"object":"system","method":"board"}' >/dev/null || fail "reads stopped working with no factor"
 	probe_ids
@@ -745,6 +749,249 @@ check_rollback_survives_reboot() {
 	sleep 6
 	[ "$(desc)" = baseline-gate ] || fail "the unconfirmed change was not undone after its window"
 	pass "snapshot and pending record under /etc/openwrt-mcp, none in /tmp; the change undone after a reboot and again after its window"
+}
+
+# What an open unlock window lets the agent do: settings (uci_apply, rolled back unless
+# confirmed), the VPN and services through the named ubus methods, and nothing that runs a
+# command, writes a file, flashes a firmware or reboots. Every call the daemon lets through
+# reaches /stubs/ubus, which writes it to /tmp/ubus.calls, so "denied" is read twice: in the
+# daemon's refusal and in the absence of the call.
+check_window_changes_settings_never_runs_commands() {
+	reset; configure - pin
+	started
+	set_pin hermes-main 4821
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	uci -q show openwrt-mcp | grep -q "hermes_main_change_ubus.scopes=.*'\*'" && fail "the ubus change policy grants '*'"
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	: > /tmp/ubus.calls
+	for call in '{"object":"file","method":"exec","args":{"command":"/bin/id"}}' \
+		'{"object":"file","method":"write","args":{"path":"/etc/rc.local","data":"id"}}' \
+		'{"object":"system","method":"sysupgrade","args":{"path":"/tmp/fw.bin"}}' \
+		'{"object":"system","method":"validate_firmware_image","args":{"path":"/tmp/fw.bin"}}' \
+		'{"object":"system","method":"reboot"}' \
+		'{"object":"uci","method":"set","args":{"config":"system","section":"@system[0]","values":{"description":"via-ubus"}}}' \
+		'{"object":"service","method":"set","args":{"name":"x","instances":{"i":{"command":["/bin/id"]}}}}' \
+		'{"object":"rpc-sys","method":"upgrade_start"}'; do
+		if out=$(mcp "$TOKEN" ubus_call "$call"); then fail "allowed in an open window: $call: $out"; fi
+		echo "$out" | grep -q 'no policy scope covers' || fail "refused, but not for want of a policy scope: $call: $out"
+	done
+	! grep -E '^call (file|system|service|rpc-sys) |^call uci set' /tmp/ubus.calls || fail "a refused call reached ubus"
+	[ "$(desc)" = baseline-gate ] || fail "uci.set over ubus changed the router"
+	out=$(mcp "$TOKEN" ubus_call '{"object":"rc","method":"init","args":{"name":"dnsmasq","action":"restart"}}') || fail "rc.init restart of a service was refused in an open window: $out"
+	out=$(mcp "$TOKEN" ubus_call '{"object":"network","method":"reload"}') || fail "network.reload was refused in an open window: $out"
+	grep -q '^call rc init' /tmp/ubus.calls && grep -q '^call network reload' /tmp/ubus.calls \
+		|| fail "the allowed calls never reached ubus: $(cat /tmp/ubus.calls)"
+	# A setting that is itself a command: a firewall include, whose path fw4 runs as root on the
+	# reload uci_apply makes. In one batch with a harmless change, so "nothing applied" is read on
+	# that change too.
+	[ "$(mcp_status capabilities.uci_apply_refuses_code_exec)" = true ] || fail "measured nothing: the installed openwrt-mcp does not refuse code execution in uci_apply"
+	INCLUDE='{"changes":[{"config":"system","section":"@system[0]","option":"description","value":"changed-by-gate"},{"config":"firewall","section":"gateinc","type":"include"},{"config":"firewall","section":"gateinc","option":"path","value":"/tmp/gate-include.sh"}]}'
+	if out=$(mcp "$TOKEN" uci_apply "$INCLUDE"); then fail "a firewall include was applied in an open window: $out"; fi
+	echo "$out" | grep -q 'run code as root' || fail "the include was refused, but not as code: $out"
+	uci -q get firewall.gateinc >/dev/null && fail "the firewall include section exists after the refusal"
+	[ "$(desc)" = baseline-gate ] || fail "the harmless change in the refused batch was applied"
+	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "uci_apply was refused in an open window: $out"
+	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "uci_apply did not arm its rollback: $out"
+	[ "$(desc)" = changed-by-gate ] || fail "the uci_apply change did not land"
+	pass "in an open window: file.exec, file.write, sysupgrade, firmware validation, reboot, uci.set, service.set and rpc-sys refused before ubus, a firewall include refused with nothing of its batch applied; rc.init restart, network.reload and uci_apply with its rollback allowed"
+}
+
+# In an open window uci_apply reaches the configs that are settings, the VPN and services, and
+# none of the agent's own: a change to hermes (the profile to root, then a restart through
+# rc.init) or to openwrt-mcp (its own client granted exec or every ubus method) would be the agent
+# making itself root, and rpcd and dropbear are the ways in. Found as '*' in review on 2026-10-08.
+check_window_cannot_reach_the_agents_own_config() {
+	reset; configure - pin
+	started
+	set_pin hermes-main 4821
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	before_mcp=$(md5sum < /etc/config/openwrt-mcp)
+	before_hermes=$(md5sum < /etc/config/hermes)
+	for change in '{"config":"hermes","section":"main","option":"profile","value":"root"}' \
+		'{"config":"openwrt-mcp","section":"hermes_main_change_ubus","option":"scopes","value":"*"}' \
+		'{"config":"openwrt-mcp","section":"gate_policy","type":"policy"}' \
+		'{"config":"rpcd","section":"gate_login","type":"login"}' \
+		'{"config":"dropbear","section":"gate_ssh","type":"dropbear"}' \
+		'{"config":"uhttpd","section":"main","option":"listen_http","value":"0.0.0.0:8081"}' \
+		'{"config":"fstab","section":"gate_mount","type":"mount"}'; do
+		if out=$(mcp "$TOKEN" uci_apply "{\"changes\":[$change]}"); then fail "applied in an open window: $change: $out"; fi
+		echo "$out" | grep -q 'no policy scope covers' || fail "refused, but not for want of a policy scope: $change: $out"
+	done
+	[ "$(md5sum < /etc/config/openwrt-mcp)" = "$before_mcp" ] || fail "/etc/config/openwrt-mcp changed"
+	[ "$(md5sum < /etc/config/hermes)" = "$before_hermes" ] || fail "/etc/config/hermes changed"
+	[ -z "$(uci -q get hermes.main.profile)" ] || fail "hermes.main.profile is now $(uci -q get hermes.main.profile)"
+	# Not vacuous: the VPN and the firewall, in one apply, with its rollback armed.
+	VPN='{"changes":[{"config":"network","section":"gatevpn","type":"interface"},{"config":"network","section":"gatevpn","option":"proto","value":"wireguard"},{"config":"firewall","section":"gatezone","type":"zone"},{"config":"firewall","section":"gatezone","option":"name","value":"gatevpn"}]}'
+	out=$(mcp "$TOKEN" uci_apply "$VPN") || fail "a WireGuard interface and a firewall zone were refused in an open window: $out"
+	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "the network and firewall change did not arm its rollback: $out"
+	[ "$(uci -q get network.gatevpn.proto)" = wireguard ] && [ "$(uci -q get firewall.gatezone.name)" = gatevpn ] \
+		|| fail "the network and firewall change did not land"
+	pass "in an open window: hermes, openwrt-mcp, rpcd, dropbear, uhttpd and fstab refused for want of a scope, their files unchanged; a WireGuard interface and a firewall zone applied with the rollback armed"
+}
+
+# A change policy only from an openwrt-mcp that refuses an apply that would run code (0.5.0.3 on,
+# `uci_apply_refuses_code_exec` in its status). The installed binary behind a stand-in whose
+# status lacks that one key; a PIN is the factor, so without the check a change policy is written.
+check_no_change_policy_without_code_exec_refusal() {
+	reset; configure - pin
+	mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.real
+	cat > /usr/bin/openwrt-mcp <<'EOF'
+#!/bin/sh
+if [ "$1" = status ]; then
+	/usr/bin/openwrt-mcp.real "$@" | python3 -c 'import json, sys; d = json.load(sys.stdin); d.get("capabilities", {}).pop("uci_apply_refuses_code_exec", None); json.dump(d, sys.stdout)'
+	exit
+fi
+exec /usr/bin/openwrt-mcp.real "$@"
+EOF
+	chmod 755 /usr/bin/openwrt-mcp
+	[ "$(mcp_status capabilities.uci_get_redacts_credentials)" = true ] || fail "measured nothing: the stand-in lost more than the one capability"
+	[ -z "$(mcp_status capabilities.uci_apply_refuses_code_exec)" ] || fail "measured nothing: the stand-in still reports uci_apply_refuses_code_exec"
+	started
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_read_ubus=' || fail "measured nothing: no read policy was written"
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_change' && fail "a change policy was written for an openwrt-mcp that does not refuse code execution: $(uci -q show openwrt-mcp | grep hermes_main_change | head -3)"
+	n=$(grep -c 'does not report that uci_apply refuses code execution' /tmp/start.log)
+	[ "$n" = 1 ] || { cat /tmp/start.log; fail "the start said why in $n lines, not one"; }
+	set_pin hermes-main 4821
+	daemon_start
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null 2>&1
+	if out=$(mcp "$TOKEN" uci_apply "$CHANGE"); then fail "uci_apply was allowed: $out"; fi
+	echo "$out" | grep -q 'no policy grants uci_apply' || fail "uci_apply was refused, but not for want of a policy: $out"
+	[ "$(desc)" = baseline-gate ] || fail "the change was applied anyway"
+	# Not vacuous: with the real status the same start writes the change policy.
+	daemon_stop
+	mv -f /usr/bin/openwrt-mcp.real /usr/bin/openwrt-mcp
+	started
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_change_ubus=' || fail "the real status did not get a change policy written either, so the refusal above proves nothing"
+	pass "no uci_apply_refuses_code_exec: reads only, no change policy, said in one line, uci_apply refused for want of one after an unlock; the real status wrote it"
+}
+
+# ---- wireless and the whole of network: read only from a daemon that redacts their secrets ----
+
+# What the installed openwrt-mcp says of itself: one field of its status, by jsonfilter path.
+mcp_status() { openwrt-mcp status --json --audit 0 2>/dev/null | jsonfilter -e "@.$1" 2>/dev/null; }
+# The uci_get scopes the package granted the agent, one per line.
+read_uci_scopes() { uci -q get openwrt-mcp.hermes_main_read_uci.scopes | tr ' ' '\n'; }
+# Any scope that reaches wireless or the whole of network, rather than network's named sections.
+wide_scopes() { read_uci_scopes | grep -E '^(wireless|wireless\..*|network|network\.\*)$' || true; }
+
+# The read a guest Wi-Fi needs (on 2026-10-08 an agent on a Beryl AX could not set one up, refused
+# a read of wireless), from the openwrt-mcp the package depends on, which redacts every secret
+# option in every uci_get answer. The canaries are the keys reset() plants in /etc/config/wireless
+# and in the WireGuard section of /etc/config/network.
+check_wireless_and_network_reads_are_redacted() {
+	reset; configure - -
+	grep -q GATE-WIFI-KEY-CANARY /etc/config/wireless && grep -q GATE-WIREGUARD-PRIVATE-KEY-CANARY /etc/config/network \
+		|| fail "measured nothing: no key planted in wireless or network"
+	[ "$(mcp_status capabilities.uci_get_redacts_credentials)" = true ] \
+		|| fail "the installed openwrt-mcp $(mcp_status version) does not report uci_get_redacts_credentials, so this measured nothing; build it from the commit CI pins"
+	started
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	out=$(mcp "$TOKEN" uci_get '{"config":"wireless"}') || fail "uci_get wireless was refused: $out"
+	echo "$out" | grep -qF "wireless.main.ssid='gate'" || fail "uci_get wireless gave no settings: $out"
+	echo "$out" | grep -qF "wireless.main.key='<redacted>'" || fail "the Wi-Fi key does not read '<redacted>': $out"
+	echo "$out" | grep -q CANARY && fail "the Wi-Fi key reached the answer: $out"
+	out=$(mcp "$TOKEN" uci_get '{"config":"network"}') || fail "uci_get network was refused: $out"
+	echo "$out" | grep -qF "network.lan.ipaddr='192.168.77.1'" || fail "uci_get network gave no settings: $out"
+	echo "$out" | grep -qF "network.wg0.private_key='<redacted>'" || fail "the WireGuard private key does not read '<redacted>': $out"
+	echo "$out" | grep -q CANARY && fail "the WireGuard private key reached the answer: $out"
+	# Narrowed to the one option, the same.
+	out=$(mcp "$TOKEN" uci_get '{"config":"network","section":"wg0","option":"private_key"}') || fail "uci_get of the private key itself was refused: $out"
+	echo "$out" | grep -q CANARY && fail "the WireGuard private key reached the answer to a read of that option: $out"
+	# netifd's network.wireless status carries the same key and openwrt-mcp does not redact a ubus
+	# answer, so it stays ungranted however wide uci_get is.
+	if out=$(mcp "$TOKEN" ubus_call '{"object":"network.wireless","method":"status"}'); then fail "network.wireless status was answered: $out"; fi
+	echo "$out" | grep -q CANARY && fail "the Wi-Fi key reached a refusal: $out"
+	echo "$out" | grep -qE 'no policy (grants|scope covers)' || fail "network.wireless status was refused, but not for want of a policy: $out"
+	pass "wireless and the whole of network answered, the Wi-Fi key and the WireGuard private key read '<redacted>'; network.wireless status refused"
+}
+
+# What the init does when the openwrt-mcp it finds does not say it redacts: an older binary has no
+# capabilities key in its status. The installed binary is put behind a stand-in whose status lacks
+# that key and names an older version (the runner puts the real one back after every check).
+check_wide_reads_only_from_a_daemon_that_redacts() {
+	reset; configure - -
+	mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.real
+	cat > /usr/bin/openwrt-mcp <<'EOF'
+#!/bin/sh
+if [ "$1" = status ]; then
+	/usr/bin/openwrt-mcp.real "$@" | python3 -c 'import json, sys; d = json.load(sys.stdin); d.pop("capabilities", None); d["version"] = "0.5.0"; json.dump(d, sys.stdout)'
+	exit
+fi
+exec /usr/bin/openwrt-mcp.real "$@"
+EOF
+	chmod 755 /usr/bin/openwrt-mcp
+	[ -n "$(mcp_status version)" ] || fail "measured nothing: the stand-in gives no status"
+	[ -z "$(mcp_status capabilities)" ] || fail "measured nothing: the stand-in still reports capabilities"
+	started
+	[ -n "$(read_uci_scopes)" ] || fail "measured nothing: no uci_get policy was written"
+	wide=$(wide_scopes | tr '\n' ' ')
+	[ -z "$wide" ] || fail "granted $wide from an openwrt-mcp that does not report it redacts"
+	read_uci_scopes | grep -qx 'network\.lan\*' || fail "the narrow grants are missing too: $(read_uci_scopes | tr '\n' ' ')"
+	n=$(grep -c 'does not report that uci_get redacts credentials' /tmp/start.log)
+	[ "$n" = 1 ] || { cat /tmp/start.log; fail "the start said why in $n lines, not one"; }
+	daemon_start
+	for q in '{"config":"wireless"}' '{"config":"network","section":"wg0"}' '{"config":"network"}'; do
+		if out=$(mcp "$TOKEN" uci_get "$q"); then fail "uci_get $q was answered: $out"; fi
+		echo "$out" | grep -q CANARY && fail "a key reached the answer to $q"
+	done
+	# Not vacuous: the same router, with the binary's own status, gets the wide grant.
+	daemon_stop
+	mv -f /usr/bin/openwrt-mcp.real /usr/bin/openwrt-mcp
+	started
+	wide_scopes | grep -qx wireless || fail "the installed openwrt-mcp's own status did not widen the grant either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
+	pass "no capability: system, dhcp, firewall and the named network sections only, said in one line, wireless and network refused; the real status widened it"
+}
+
+# apk replaces openwrt-mcp's binary on an upgrade without restarting its daemon, so the one serving
+# can be a version from before redaction. A stand-in on the daemon's own address answers /health as
+# 0.5.0; with no procd in a container the init's restart cannot replace it, as a restart that did
+# not take on a router would not.
+health_standin() {
+	cat > /tmp/standin.py <<'EOF'
+import http.server, sys
+body = ("openwrt-mcp %s ok\nsource: gate stand-in\n" % sys.argv[1]).encode()
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+http.server.HTTPServer(("127.0.0.1", 8730), H).serve_forever()
+EOF
+	python3 /tmp/standin.py "$1" >/tmp/standin.log 2>&1 &
+	echo $! > /tmp/standin.pid
+	i=0
+	until python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8730/health", timeout=2)' 2>/dev/null; do
+		i=$((i + 1)); [ "$i" -lt 20 ] || { cat /tmp/standin.log; fail "the /health stand-in did not come up"; }
+		sleep 1
+	done
+}
+standin_stop() { [ ! -f /tmp/standin.pid ] || kill "$(cat /tmp/standin.pid)" 2>/dev/null || true; rm -f /tmp/standin.pid; sleep 1; }
+
+check_daemon_from_before_the_upgrade_gets_no_wide_reads() {
+	reset; configure - -
+	ver=$(mcp_status version)
+	[ -n "$ver" ] && [ "$ver" != 0.5.0 ] || fail "measured nothing: the installed openwrt-mcp is '$ver'"
+	health_standin 0.5.0
+	[ "$(mcp_status running)" = true ] || { standin_stop; fail "measured nothing: openwrt-mcp status does not see the stand-in as a running daemon"; }
+	started
+	standin_stop
+	wide=$(wide_scopes | tr '\n' ' ')
+	[ -z "$wide" ] || fail "granted $wide while an openwrt-mcp 0.5.0 was the one serving"
+	read_uci_scopes | grep -qx 'network\.lan\*' || fail "the narrow grants are missing too: $(read_uci_scopes | tr '\n' ' ')"
+	grep -q "the openwrt-mcp running is 0.5.0, not the installed $ver" /tmp/start.log || { cat /tmp/start.log; fail "the start did not say which daemon was running"; }
+	# Not vacuous: a daemon at the installed version, on the same address, gets the wide grant.
+	health_standin "$ver"
+	started
+	standin_stop
+	wide_scopes | grep -qx wireless || fail "a daemon at the installed $ver did not get the wide grant either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
+	pass "0.5.0 still serving beside an installed $ver: the narrow grants, and the start says which daemon runs; at $ver the wide grant"
 }
 
 # ======================================================= the Hermes side: the real gateway
@@ -979,6 +1226,7 @@ run_check() {
 	fi
 	unlock_down
 	daemon_stop
+	[ ! -f /tmp/standin.pid ] || { kill "$(cat /tmp/standin.pid)" 2>/dev/null || true; rm -f /tmp/standin.pid; }
 	cp /tmp/pristine/hermes.bin /usr/bin/hermes
 	recorders_off
 	if [ "$rc" -eq 0 ] && [ -f /tmp/verdict ]; then

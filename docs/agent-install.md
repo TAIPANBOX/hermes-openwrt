@@ -170,7 +170,8 @@ without `/unlock`). `/unlock` on its own is answered "That does not look like wh
 asks for. Send /unlock followed by your PIN (4 to 8 digits)." and opens nothing. On the
 Security page the PIN and the factor have a Save each: a PIN saved while the factor is `none`
 unlocks nothing until PIN is chosen under "What unlocking asks for" and saved there.
-Explain to the person that an open window is root for its length
+Explain to the person what an open window allows: settings, the VPN and services, never a
+command, a firmware or a reboot, with the one gap security.md names
 ([security.md](security.md)). You may check the state, which holds no secret:
 
 ```sh
@@ -241,6 +242,9 @@ Lines the service writes to `logread`, what they mean, and what to do.
 | `hermes.security.factor must be ...`, `... window and lockout are durations ...`, `... max_failures must be ...` | a bad value in `hermes.security` | report it to the owner; the factor is theirs |
 | `there is no user 'hermes'` | the account is missing | report it; reinstalling hermes-agent recreates it (its install and upgrade scripts both make the account), with the person's yes |
 | `could not start openwrt-mcp` / `could not pair hermes-main` | openwrt-mcp failed | `logread -e openwrt-mcp`; report it |
+| `openwrt-mcp ... does not report that uci_get redacts credentials` | an openwrt-mcp older than 0.5.0.2; the agent runs, but cannot read wireless or the whole of network | `apk update && apk upgrade openwrt-mcp`, then restart hermes-agent |
+| `openwrt-mcp ... does not report that uci_apply refuses code execution` | an openwrt-mcp older than 0.5.0.3; the agent reads, and nothing can change the router through it | `apk update && apk upgrade openwrt-mcp`, then restart hermes-agent |
+| `the openwrt-mcp running is ..., not the installed ...` | the daemon from before an upgrade is still serving and a restart did not replace it | `service openwrt-mcp restart`, then restart hermes-agent; report it if the line comes back |
 | the gateway starts, then stops five times within minutes | procd's bounded respawn gave up after repeated failures | read the first refusal above it |
 
 A diagnosis whose every ping says `permission denied (are you root?)` is a package before 0.21.5-r9:

@@ -149,13 +149,15 @@ nothing can change the router through it. Set one in **Services -> Hermes Agent 
 or over SSH, where the QR code is printed in the terminal:
 
 ```sh
-stty -echo; read -r PIN; stty echo; printf '%s\n' "$PIN" | openwrt-mcp pin set hermes-main; unset PIN
+python3 -c 'import getpass; print(getpass.getpass("PIN: "))' | openwrt-mcp pin set hermes-main
 openwrt-mcp mfa enrol hermes-main --pending --qr
 openwrt-mcp mfa activate hermes-main <code from the app>
 uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
+The first line reads the PIN without showing it, through the python3 the package already
+needs (OpenWrt's BusyBox has no `stty`); run it in an SSH session with a terminal (`ssh -t`).
 Then `/unlock` and the PIN in one message, `/unlock 4821`, in the private chat opens a 15-minute
 window (`/unlock 4821 503917` with `pin+totp`; the digits alone work too). `/unlock` on its own
 opens nothing: the bot answers with what to send. On the Security page the PIN and the factor
@@ -195,12 +197,19 @@ procd's service table.
 | `assistant` | `hermes`, no terminal, code or file tools | only through an MCP server you set up |
 | `root` | root, warned at every start | directly, no unlock |
 
-![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, an unconfirmed change rolls back by itself](docs/unlock.svg)
+![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, a change the agent does not confirm rolls back by itself](docs/unlock.svg)
 
 The owner unlocks from the private Telegram chat with a PIN, an app code or both. The message is
 deleted before anything else and never reaches the model or a log; five wrong tries lock
-unlocking for fifteen minutes; a change that is not confirmed is undone by itself, after a reboot
-too. An open window is root for its length. Everything, with the limits named:
+unlocking for fifteen minutes. Your consent is the `/unlock` itself: after a change the agent
+checks that the router still answers and confirms the change; one it does not confirm (the router
+lost its connection, or the agent never got that far) is undone by itself after about 90 seconds,
+after a reboot too. In a window the agent can change settings, the VPN and services; it cannot run a command
+over ubus, write a file, flash a firmware or reboot, and openwrt-mcp refuses a setting that would
+run code (a firewall include). The agent reads the Wi-Fi and network settings too,
+so it can set up a guest network, but never a key in them: openwrt-mcp answers every Wi-Fi key,
+WireGuard private key and password as `<redacted>`, and the package grants those reads only when
+openwrt-mcp says it does that. Everything, with the limits named:
 [docs/security.md](docs/security.md).
 
 ## Measured on hardware

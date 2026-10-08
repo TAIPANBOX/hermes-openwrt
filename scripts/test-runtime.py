@@ -1395,6 +1395,26 @@ procd_close_service
                           "config policy 'mine'\n\toption client 'someone-else'\n\tlist tools 'logread'\n")
         token = self.home / "unit.token"
         token.unlink(missing_ok=True)
+        # openwrt-mcp answering `status` without some of its capabilities, as an older one would.
+        # First without uci_get_redacts_credentials (0.5.0.2), so the init keeps the narrow uci_get
+        # grants most of this test reads; near the end without uci_apply_refuses_code_exec
+        # (0.5.0.3), so it writes no change policy; and last the real binary's own status.
+        binary, real = Path("/usr/bin/openwrt-mcp"), Path("/usr/bin/openwrt-mcp.real")
+        binary.rename(real)
+
+        def put_back():
+            if real.exists():
+                real.replace(binary)
+        self.addCleanup(put_back)
+
+        def stand_in(missing):
+            binary.write_text("#!/bin/sh\nif [ \"$1\" = status ]; then\n"
+                              "\t/usr/bin/openwrt-mcp.real \"$@\" | python3 -c 'import json, sys; "
+                              "d = json.load(sys.stdin); d.get(\"capabilities\", {}).pop(\"%s\", None); "
+                              "json.dump(d, sys.stdout)'\n"
+                              "\texit\nfi\nexec /usr/bin/openwrt-mcp.real \"$@\"\n" % missing)
+            binary.chmod(0o755)
+        stand_in("uci_get_redacts_credentials")
 
         def agent(factor, name="unit", window="20m", token_file=None):
             script = (f". /lib/functions.sh; . {shlex.quote(str(FILES / 'hermes-agent.init'))}; "
@@ -1414,11 +1434,13 @@ procd_close_service
         mine = [line for line in show() if line.startswith("openwrt-mcp.mine")]
         result = agent("pin")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr.count("does not report that uci_get redacts credentials"), 1, result.stderr)
         lines = show()
         # openwrt-mcp takes the first policy of a client that covers a call, so the reads come
-        # first, one tool each, and the change policy, which wants the factor, last.
+        # first, one tool each, and the two change policies, which want the factor, last.
         self.assertEqual(sections(lines), ["mine", "hermes_unit_read_ubus", "hermes_unit_read_uci",
-                                           "hermes_unit_read_log", "hermes_unit_change"])
+                                           "hermes_unit_read_log", "hermes_unit_change",
+                                           "hermes_unit_change_ubus"])
         self.assertEqual([line for line in lines if line.startswith("openwrt-mcp.mine")], mine)
         for name, tool in (("read_ubus", "ubus_call"), ("read_uci", "uci_get"), ("read_log", "logread")):
             body = section(lines, f"hermes_unit_{name}")
@@ -1435,10 +1457,29 @@ procd_close_service
         self.assertNotIn("network", uci)
         self.assertNotIn("network.*", uci)
         change = section(lines, "hermes_unit_change")
-        self.assertEqual(change["tools"], "'ubus_call' 'uci_apply' 'uci_confirm'")
-        self.assertEqual((change["scopes"], change["mfa_tools"], change["mfa_factor"]), ("'*'", "'*'", "'pin'"))
+        self.assertEqual(change["tools"], "'uci_apply' 'uci_confirm'")
+        self.assertEqual((change["mfa_tools"], change["mfa_factor"]), ("'*'", "'pin'"))
+        # uci_apply on the configs that are settings, the VPN and services, never '*' and never the
+        # agent's own (hermes) or its guard's (openwrt-mcp), nor rpcd, dropbear or uhttpd.
+        self.assertEqual(change["scopes"].replace("'", "").split(),
+                         ["network", "network.*", "wireless", "wireless.*", "firewall", "firewall.*",
+                          "dhcp", "dhcp.*", "system", "system.*"])
         self.assertEqual((change["mfa_window"], change["mfa_max_failures"], change["mfa_lockout"]),
                          ("'20m'", "'3'", "'1h'"))
+        # ubus_call in an open window: named methods for settings, the VPN and services, never
+        # '*' and nothing that runs a command, writes a file, flashes, reboots or goes around
+        # uci_apply's rollback; the same factor and settings, since openwrt-mcp unlocks per client.
+        change_ubus = section(lines, "hermes_unit_change_ubus")
+        self.assertEqual(change_ubus["tools"], "'ubus_call'")
+        scopes = change_ubus["scopes"].replace("'", "").split()
+        self.assertIn("rc.init", scopes)
+        self.assertIn("network.reload", scopes)
+        for scope in scopes:
+            self.assertNotEqual(scope, "*")
+            self.assertFalse(scope.split(".")[0] in ("file", "uci", "service", "rpc-sys", "luci", "system"), scope)
+        self.assertEqual((change_ubus["mfa_tools"], change_ubus["mfa_factor"], change_ubus["mfa_window"],
+                          change_ubus["mfa_max_failures"], change_ubus["mfa_lockout"]),
+                         ("'*'", "'pin'", "'20m'", "'3'", "'1h'"))
         # openwrt-mcp's own parser accepts what was written.
         policies = subprocess.run(["openwrt-mcp", "policies"], check=False, capture_output=True, text=True)
         self.assertEqual(policies.returncode, 0, policies.stderr)
@@ -1470,12 +1511,31 @@ procd_close_service
         self.assertEqual(sections(show()), ["mine", "hermes_unit_read_ubus", "hermes_unit_read_uci",
                                             "hermes_unit_read_log", "hermes_second_read_ubus",
                                             "hermes_second_read_uci", "hermes_second_read_log",
-                                            "hermes_second_change"])
+                                            "hermes_second_change", "hermes_second_change_ubus"])
         self.assertNotEqual(second_token.read_bytes(), token.read_bytes())
         # A name that cannot be part of a section name is refused, writing nothing.
         before = config.read_bytes()
         self.assertNotEqual(agent("pin", name="Bad-Name").returncode, 0)
         self.assertEqual(config.read_bytes(), before)
+        # One that does not say uci_apply refuses code execution: no change policy at all, factor or
+        # not, and the start says so in one line.
+        stand_in("uci_apply_refuses_code_exec")
+        result = agent("pin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr.count("does not report that uci_apply refuses code execution"), 1, result.stderr)
+        self.assertNotIn("hermes_unit_change", sections(show()))
+        self.assertNotIn("hermes_unit_change_ubus", sections(show()))
+        # An openwrt-mcp that reports uci_get_redacts_credentials (0.5.0.2 on): wireless and the whole
+        # of network as well, and nothing said about it.
+        put_back()
+        result = agent("pin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("redacts credentials", result.stderr)
+        self.assertNotIn("refuses code execution", result.stderr)
+        self.assertIn("hermes_unit_change_ubus", sections(show()))
+        uci = section(show(), "hermes_unit_read_uci")["scopes"].replace("'", "").split()
+        for scope in ("system", "dhcp", "firewall", "network", "network.*", "wireless", "wireless.*"):
+            self.assertIn(scope, uci)
 
     def _start(self, uci, data_dir=None, path=None):
         """The init's own start_service as root, after some UCI lines; the CompletedProcess."""

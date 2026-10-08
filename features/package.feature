@@ -116,3 +116,10 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
     When that user reads the running gateway's environment, as the agent's terminal could
     Then it is refused, and only root can read the keys there
     # -> check_gateway_keys_hidden_from_its_user
+
+  Scenario: the agent is never installed beside an openwrt-mcp that does not redact
+    Given the package installed with the openwrt-mcp it depends on
+    Then it requires openwrt-mcp 0.5.0.3 or later, the first version whose uci_get hides every secret
+      and whose uci_apply refuses every setting that runs code
+    And the openwrt-mcp installed beside it reports both
+    # -> check_needs_an_openwrt_mcp_that_redacts

@@ -120,7 +120,7 @@ def install_flow():
 
 def unlock():
     w, h = 1280, 400
-    out = frame(w, h, "An unlock: the owner sends /unlock in the private chat; the bot deletes the message first; openwrt-mcp checks the factor; a window opens for changes; a change that is not confirmed rolls back, after a reboot too")
+    out = frame(w, h, "An unlock: the owner sends /unlock in the private chat; the bot deletes the message first; openwrt-mcp checks the factor; a window opens for changes; a change the agent does not confirm rolls back, after a reboot too")
     n, period = 5, 10
     css = [f"@keyframes lit{{0%,{100 / n * 0.15:.1f}%{{opacity:.28}}{100 / n * 0.35:.1f}%,{100 / n * 1.25:.1f}%{{opacity:1}}{100 / n * 1.6:.1f}%,100%{{opacity:.28}}}}",
            f".st{{animation:lit {period}s ease-in-out infinite}}"]
@@ -134,7 +134,7 @@ def unlock():
         ("You send", ["/unlock 4821", "in the private chat"], "only allowlisted ids", BLUE),
         ("Deleted first", ["the message is removed", "before anything else"], "never sent to the model", TEAL),
         ("Factor checked", ["by openwrt-mcp: PIN,", "app code or both"], "5 wrong: 15 min lockout", TEAL),
-        ("Window open", ["15 minutes of changes", "every call audited"], "root for its length", AMBER),
+        ("Window open", ["15 minutes of changes", "every call audited"], "settings, VPN, services", AMBER),
         ("Not confirmed?", ["the change is undone", "by itself"], "after a reboot too", GREEN),
     ]
     bw, gap, x0, y0 = 220, 20, 48, 120

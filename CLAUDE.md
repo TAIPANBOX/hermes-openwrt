@@ -270,9 +270,53 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `hermes.security` for everything it grants. `exec` is never granted, and neither is
     `wg_new_client`, whose answer is a private key that would reach the model provider
     (gate: `scripts/gate-unlock.sh` `check_change_policy_hands_out_no_private_key`).
-    `@claude` 2026-10-01: an open unlock window is root for its length, since `ubus_call` on
-    everything reaches rpcd's `file` object and `uci_apply` a firewall include; the unlock
-    guards the time outside the window, and docs/security.md says so. With factor `none`, the default, no change policy is written,
+    `@claude` 2026-10-08, 0.21.5-r11, replacing the 2026-10-01 note that an open window was root
+    for its length: the change policy is two, both asking the same factor (openwrt-mcp unlocks per
+    client and refuses gating policies that disagree): `hermes_main_change`, `uci_apply` and
+    `uci_confirm` on any setting, and `hermes_main_change_ubus`, `ubus_call` on `MCP_CHANGE_UBUS`
+    only, named methods for settings, the VPN and services (`network.reload`, `network.restart`, an
+    interface's up, down and renew, `network.wireless` up, down and reconf, `rc.init`). No policy
+    the package writes grants `file.*`, `system.sysupgrade`, `system.validate_firmware_image`,
+    `system.reboot`, `system.signal`, `uci.*` over ubus, `service.*`, `rpc-sys.*` or `exec`, so
+    openwrt-mcp refuses them before ubus with a window open. `system.reboot` is left out on purpose,
+    a conservative call of mine: a reboot cannot be rolled back. The globs were checked against
+    Go's path.Match, which openwrt-mcp uses: none covers a forbidden method. `uci_apply` on `*`
+    could write a setting that is itself a root command (a firewall or pbr include, a dnsmasq
+    `dhcpscript`, some sixty hook options); openwrt-mcp 0.5.0.3 (the fork's commit 85a9ddd,
+    pinned in CI, and the package's floor) refuses every such batch for every client before
+    staging and reports `capabilities.uci_apply_refuses_code_exec`, and the init writes neither
+    change policy unless that is `true` and the daemon serving is the installed one
+    (`mcp_daemon_caps`, the same fail-closed check as the redaction below; without it one line in
+    the log and no change policy whatever the factor). So with both daemon checks and the ubus
+    list, an open window changes settings, the VPN and services and never runs a command. Limits
+    named and not fixed: openwrt-mcp's list of code-running options is a list, and a package it
+    does not know is not caught; a ubus call has no rollback; a policy the owner grants
+    `hermes-main` by hand, `exec` included, is the owner's own choice and the package leaves it
+    alone. That `rc.init` refuses a service name with a `/` is my reading of rpcd, not measured.
+    `@claude` 2026-10-08: `uci_apply` too is on a list, `MCP_CHANGE_UCI`: network (WireGuard
+    included), wireless, firewall, dhcp and system, never `hermes`, `openwrt-mcp`, `rpcd`,
+    `dropbear`, `uhttpd`, `luci`, `fstab` or `ucitrack`. Found in review of the r11 branch on
+    2026-10-08, a reading and not a run, so not `@measured`: it was `*`, so in a window the agent could set
+    hermes.main.profile=root or grant its own client exec in /etc/config/openwrt-mcp and restart
+    itself through `rc.init`, which openwrt-mcp does nothing to stop. path.Match's `*` crosses
+    dots, so `network.*` covers network.x and network.x.y and cannot match hermes... or
+    openwrt-mcp... (checked with Go's path.Match). A limit named and not fixed: `rc.init` is scoped
+    by method, not by service, so in a window the agent can stop or disable the firewall, dropbear
+    or openwrt-mcp; that weakens the router and gives the agent nothing new (gate:
+    `check_window_cannot_reach_the_agents_own_config`, the real daemon with a window open: hermes,
+    openwrt-mcp, rpcd, dropbear, uhttpd and fstab refused for want of a scope and their files
+    unchanged, a WireGuard interface and a firewall zone applied with the rollback armed; teeth:
+    `scripts/teeth-unlock.sh` faults 52 to 54, `scripts/teeth-runtime.py`; the rc.init limit is
+    not enforced).
+    (gate: `scripts/gate-unlock.sh` `check_window_changes_settings_never_runs_commands`, the real
+    daemon with a window open: file.exec, file.write, sysupgrade, firmware validation, reboot,
+    uci.set, service.set and rpc-sys refused and never reaching ubus, a firewall include refused
+    with the harmless change in its batch not applied, rc.init and network.reload allowed and
+    reaching it, uci_apply with its rollback; `check_no_change_policy_without_code_exec_refusal`, a
+    status stand-in without the key; `scripts/gate-package.sh`
+    `check_needs_an_openwrt_mcp_that_redacts` (the floor and both keys); `scripts/gate-runtime.sh`
+    `check_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone`; teeth:
+    `scripts/teeth-unlock.sh` faults 48 to 51, `scripts/teeth.sh` fault 12, `scripts/teeth-runtime.py`.) With factor `none`, the default, no change policy is written,
     so nothing can change the router until the owner sets a factor, and the agent says so.
     The model is never offered `mfa_unlock` or `mfa_lock` (`tools.exclude` in the
     package-written `mcp_servers.openwrt` entry, in every profile), and is told to ask the
@@ -308,20 +352,52 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     run arbitrary commands, install anything from a link, or run a sysupgrade. Installing
     packages is allowed only from the official OpenWrt feed, and only when the owner has opted in.
     `@claude` 2026-10-08: the package-install part is NOT implemented: there is no install
-    policy, no feed check and no opt-in yet; it is planned work. And today's change policy is
-    wider than this scope: `ubus_call` on everything reaches rpcd's `file` object, which runs
-    commands, and a firewall include is a script, so an open window is still root for its length
-    (above). Only `uci_apply` has the automatic rollback; a `ubus_call` (a service restart, say)
-    has none. Narrowing the window to this scope is planned work too (not enforced).
+    policy, no feed check and no opt-in yet, so no package can be installed from a window at all;
+    it is planned work. The rest of the scope holds as the r11 note above says, gated, within the
+    limits it names. Only `uci_apply` has the
+    automatic rollback; a `ubus_call` (a service restart, say) has none.
     Unlocking is per agent: `hermes-<name>` has its own token and its own window.
     An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
-    so a reboot does not keep it. `@claude` 2026-10-01: wireless is not readable, and neither
+    so a reboot does not keep it. `@decided 2026-10-08` (the owner's, paraphrased): the owner's
+    consent is the /unlock; after an applied change the agent confirms it once it has checked the
+    router still answers, and the automatic rollback (openwrt-mcp's, about 90 s) is for a change
+    nobody confirmed, because the router lost its connection or the agent did not get to it.
+    `@claude` 2026-10-08, reported from a run on a Flint 2 (the r11 release candidate, gpt-6.1-sol
+    through Telegram), not run here: in an open window the agent created a WireGuard interface
+    without a private key, an isolated firewall zone and a UDP rule, read them back, checked lan
+    and called `uci_confirm` itself. The owner note does not tell the agent to confirm;
+    openwrt-mcp's own tool descriptions do (not enforced here). `@claude` 2026-10-01: wireless is not readable, and neither
     is the whole of network, since a router running WireGuard keeps its private key in a
     network section and a read goes to the model provider; the first design listed network
     whole, and `MCP_READ_UCI` in the init is the one line that says otherwise. Read answers
     (state, addresses, hosts, the log) are sent to the model provider; that is what reading
     means. This stage proves reads, refusals, the factor's configuration, per-agent unlock
     and the rollback.
+    `@claude` 2026-10-08, 0.21.5-r11, superseding the line above for an openwrt-mcp that redacts:
+    `uci_get` on `wireless` and the whole of `network` is granted too (`MCP_READ_UCI_WIDE`), because
+    a guest Wi-Fi cannot be set up without reading wireless (reported by a test run on a Beryl AX,
+    whose agent was refused that read). Safe now because openwrt-mcp from 0.5.0.2 (pinned in CI at
+    85a9ddd, 0.5.0.3) replaces every secret option of every `uci_get` answer with
+    `'<redacted>'` (Wi-Fi keys, WireGuard private and preshared keys, passwords, RADIUS secrets,
+    decided by option name), for every client with no switch, refuses that marker in `uci_apply`,
+    and reports `capabilities.uci_get_redacts_credentials` in `status --json`. The init's
+    `mcp_daemon_caps` reads that at every start, fail-closed: no status, no key or not `true` means
+    `MCP_READ_UCI`, the narrow list, and one line in the log; and since apk replaces openwrt-mcp's
+    binary without restarting its daemon, a running daemon must give the installed version on
+    `/health`, or it is restarted once and, still older, the narrow list is kept and the line names
+    it. `hermes-agent` depends on `openwrt-mcp>=0.5.0.3`. netifd's `network.wireless status`
+    returns the keys unredacted and stays out of `MCP_READ_UBUS`. Limits named and not fixed: a
+    secret in an option whose name gives no sign of it is read as it is; a router whose
+    openwrt-mcp cannot be restarted keeps the narrow reads until it is. (gate:
+    `scripts/gate-unlock.sh` `check_wireless_and_network_reads_are_redacted` (the real daemon, canaries
+    planted in wireless and in a WireGuard section), `check_wide_reads_only_from_a_daemon_that_redacts`
+    (a status stand-in with no capability), `check_daemon_from_before_the_upgrade_gets_no_wide_reads`
+    (a `/health` stand-in at 0.5.0), `scripts/gate-package.sh` `check_needs_an_openwrt_mcp_that_redacts`,
+    `scripts/gate-runtime.sh` `check_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone`;
+    teeth: `scripts/teeth-unlock.sh` faults 43 to 47, `scripts/teeth.sh` fault 12,
+    `scripts/teeth-runtime.py`). Red first only by running the init's own functions against
+    stand-ins on a workstation: the r10 init gave the narrow list with the capability reported;
+    the gate's container runs need a build, which CI makes.
     `@decided 2026-10-01` (the owner's, paraphrased): unlocking happens in the same Telegram
     chat as the agent; the message that unlocks is removed from the chat at once and never
     reaches the model; the factor is the owner's choice (PIN, app code, or both); five wrong

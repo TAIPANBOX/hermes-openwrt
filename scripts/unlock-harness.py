@@ -344,10 +344,11 @@ def mcp(tool, args=None):
 
 
 def locked():
-    """True while changes need the unlock. ubus_call on a method that is not on the read list
-    reaches the change policy: refused for the second factor when locked, and when open it is
-    let through to ubus, which the container has no answer for."""
-    ok, text = mcp("ubus_call", {"object": "gate", "method": "noop"})
+    """True while changes need the unlock. ubus_call on network.reload, which the change policy
+    grants and the read list does not: refused for the second factor when locked, and when open
+    let through to the gate's stand-in ubus, which answers it. (A method outside the change
+    policy's list is refused whether or not the window is open, since 0.21.5-r11.)"""
+    ok, text = mcp("ubus_call", {"object": "network", "method": "reload"})
     if ok:
         return False
     if "second factor" in text:

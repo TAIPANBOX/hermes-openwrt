@@ -135,12 +135,14 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, from the code tagged `v0.5.0-taipanbox.1` on the fork's `main`
-(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`). Upstream has
-the code factor and its enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the
-lockout, `mfa_lock` and the two-step enrolment are the fork's, and its README documents them. The
-dependency has no version floor yet, because the fork still says 0.5.0, the number
-upstream's release without the factor carries too.
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.3 since
+0.21.5-r11 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
+commit is the one in `.github/workflows/ci.yml`). Upstream has the code factor and its
+enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the
+two-step enrolment, the redaction of every `uci_get` answer and the refusal of every `uci_apply`
+that would run code are the fork's, and its README documents them. `hermes-agent` depends on
+`openwrt-mcp>=0.5.0.3`, the first version that does both, so an upgrade of the agent cannot
+leave an older one beside it.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -153,29 +155,83 @@ one of a client that covers a call:
 | policy | grants | unlock |
 |---|---|---|
 | `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
-| `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, and `network`'s loopback, globals, lan and wan sections | none |
+| `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, `network` and `wireless`, from an openwrt-mcp that redacts (below); otherwise on `system`, `dhcp`, `firewall` and `network`'s loopback, globals, lan and wan sections | none |
 | `hermes_main_read_log` | `logread` | none |
-| `hermes_main_change` | `ubus_call`, `uci_apply`, `uci_confirm`, anything | the factor |
+| `hermes_main_change` | `uci_apply`, `uci_confirm` on `network` (WireGuard included), `wireless`, `firewall`, `dhcp` and `system`, each apply rolled back unless the agent confirms it | the factor |
+| `hermes_main_change_ubus` | `ubus_call`, by method: `network.reload`, `network.restart`, an interface's `up`, `down` and `renew` (by `network.interface` or the interface's own object), `network.wireless.up`, `.down` and `.reconf`, and `rc.init` (start, stop, restart, reload, enable or disable a service) | the factor |
 
 `exec` and `wg_new_client` are not granted: the second answers with a WireGuard private
 key, and whatever a tool answers goes to the model provider.
 
-**An open unlock window is root for its length.** The change policy grants `ubus_call` and
-`uci_apply` on everything, and both reach far: rpcd's `file` object runs commands, and a
-firewall include is a script the router runs as root. So unlocking means trusting the agent
-with the router for the window (15 minutes unless changed), with every call in openwrt-mcp's
-audit log and a UCI change that is not confirmed undone by itself, a reboot included. What
-the unlock protects against is the time outside the window: an agent misled by a web page,
-or anyone who gets the bot to talk, cannot change the router without you.
+**What an open window allows.** Since 0.21.5-r11 an open window lets the agent change
+settings, the VPN and services, and nothing else by name: settings through `uci_apply`, which
+undoes a change the agent does not confirm (after a reboot too), and the ubus calls above, which bring a
+setting into effect or restart a service. No policy the package writes grants rpcd's `file`
+object (it runs commands and writes files), `system.sysupgrade` or
+`system.validate_firmware_image`, `system.reboot` (a reboot cannot be rolled back, so it is left
+to you), `system.signal`, `uci` over ubus (it would go around `uci_apply`'s rollback), procd's
+`service` object (`service.set` starts any command), `rpc-sys` (packages and upgrades) or
+`exec`; openwrt-mcp refuses each of them before it reaches ubus, window or not. Until r11 the
+change policy granted `ubus_call` on everything, and a window was root for its length.
+
+`uci_apply` reaches five configs: `network` (interfaces, routes and the WireGuard VPN),
+`wireless`, `firewall`, `dhcp` and `system`. Nothing else, and in particular not the agent's own
+configuration or its guard's: a change to `hermes` (the profile set to `root`, then a restart
+through `rc.init`) or to `openwrt-mcp` (the agent's own client granted `exec` or every ubus
+method) would be the agent making itself root, and openwrt-mcp does not protect its own file.
+`rpcd`, `dropbear` and `uhttpd` (the ways into the router), `luci`, `fstab` and `ucitrack` are out
+too. A review of r11 on 2026-10-08 found `uci_apply` still granted on `*`, which allowed exactly
+that, before the release.
+
+`uci_apply` covers every setting, and some settings are themselves commands the router runs as
+root: a firewall or pbr `include`, a dnsmasq `dhcpscript`, and about sixty other hook options.
+From 0.5.0.3 openwrt-mcp refuses, for every client and before anything is staged, any batch with
+one of those in it, a value with a line break in it, or a name outside uci's alphabet, and
+nothing in that batch is applied; its `status --json` says so in
+`capabilities.uci_apply_refuses_code_exec`. The package writes a change policy at all only when
+that is `true` (and, as for reading, only when the daemon serving is the installed one); without
+it there is no change policy, whatever the factor, and the start says so in one line. So with
+both daemon checks and the ubus list above, an open window changes settings, the VPN and
+services and never runs a command.
+
+The limits of that, named: openwrt-mcp's list of options that run code is a list (its own
+source names what it does not cover: a package it does not know, an option that writes a file
+somewhere, a service such as ttyd whose purpose is a shell); a ubus call has no rollback, so a
+service stopped stays stopped until it is started again; and `rc.init` is granted for any
+service, because openwrt-mcp scopes a ubus call by its method and not by its arguments, so in a
+window the agent can stop or disable the firewall, `dropbear` or openwrt-mcp itself, which
+weakens the router or locks a way in without giving the agent anything new (restarting
+`hermes-agent` is harmless, its configuration being out of reach); and a policy you grant `hermes-main`
+yourself, `exec` included, is your own choice, which the package does not undo. Every call is in
+openwrt-mcp's audit log. Installing packages is not possible from a window at all. What the
+unlock protects against is the time outside the window: an agent misled by a web page, or anyone
+who gets the bot to talk, cannot change the router without you.
 
 Each tool has a policy of its own, so one tool's scope globs
 cannot widen another's, and no read is a glob over a whole ubus object: `system.*` would
-include `system.reboot`. The wireless config is not readable, because its keys would go to
-the model provider, and neither is the whole of `network`, because a router running
-WireGuard keeps its private key in a network section. What the agent reads (addresses,
-hosts, the log, the settings above) is sent to the model provider, which is what reading
-means; read them as that before turning the profile on. A policy of your own for
-`hermes-main` is yours, and if it grants a change without a factor, no unlock applies to it.
+include `system.reboot`. What the agent reads (addresses, hosts, the log, the settings above)
+is sent to the model provider, which is what reading means; read them as that before turning
+the profile on. A policy of your own for `hermes-main` is yours, and if it grants a change
+without a factor, no unlock applies to it.
+
+**Wi-Fi and network settings, never their keys.** Setting up a guest Wi-Fi means reading the
+wireless config, and a router's `wireless` and `network` configs hold its secrets beside its
+settings: the Wi-Fi passphrases, a WireGuard private key, a PPPoE password. From openwrt-mcp
+0.5.0.2 every `uci_get` answer has each secret option replaced by `'<redacted>'`, for every
+client and with no way to turn it off, `uci_apply` refuses that marker as a value, and
+`openwrt-mcp status --json` says so in `capabilities.uci_get_redacts_credentials`. At every
+start the package reads that and grants `uci_get` on `wireless` and the whole of `network` only
+when it is `true`. When it is missing (an older openwrt-mcp has no such key) or the status
+cannot be read, the grants stay as they were before 0.21.5-r11, `network`'s named sections
+only, and the start says why in one line. apk replaces openwrt-mcp's program on an upgrade
+without restarting the daemon, so when one is running the package also asks it, through
+`/health`, which version it is; when that is not the installed version it restarts openwrt-mcp
+once, and if the old one is still the one serving it keeps the narrow grants and names the
+version in the log. Two limits, named: openwrt-mcp decides what is secret by the option's name,
+so a secret inside an option whose name gives no sign of it (a token pasted into a DDNS update
+address, a password inside `pppd_options`) is not redacted; and `ubus call network.wireless
+status`, which returns each Wi-Fi interface's configuration with its key, is not redacted at
+all, so the package never grants it.
 
 `hermes.security` sets what unlocking asks for, and the Security page (below) writes it for you:
 
@@ -204,8 +260,17 @@ The owner note also tells the agent that a UCI section name holds only letters, 
 underscores, that a port forward is a firewall `redirect`, not a `rule`, and to read a change
 back with `uci_get` and report only what the router holds. Unlocking is per agent:
 a second agent would be `hermes-<name>`, with its own token, its own policies and its own
-window. An unconfirmed `uci_apply` is undone from a snapshot under `/etc/openwrt-mcp`, not
-in `/tmp`, so it is undone after a reboot as well as after its timeout.
+window.
+
+**Who confirms a change.** Your consent is the `/unlock` itself; you are not asked again for each
+change. After a `uci_apply` the agent checks that the router still answers (it reads the change
+back and looks at the LAN) and then confirms it with `uci_confirm`. The automatic rollback,
+about 90 seconds unless the call sets another timeout, is for the case where that does not
+happen: the change cut the router off, or the agent never got to confirm. An unconfirmed
+`uci_apply` is undone from a snapshot under `/etc/openwrt-mcp`, not in `/tmp`, so it is undone
+after a reboot as well as after its timeout. On a Flint 2 on 2026-10-08, in an open window, the
+agent created a WireGuard interface (without a private key, as asked), an isolated firewall zone
+and a UDP rule, read them back, checked the LAN and confirmed the change itself.
 
 ### Setting up what unlocking asks for
 
@@ -243,12 +308,17 @@ calls, so a stale tab or a hand-made request gets the same answer.
 **Over SSH**, the QR code is printed in the terminal:
 
 ```sh
-stty -echo; read -r PIN; stty echo; printf '%s\n' "$PIN" | openwrt-mcp pin set hermes-main; unset PIN
+python3 -c 'import getpass; print(getpass.getpass("PIN: "))' | openwrt-mcp pin set hermes-main
 openwrt-mcp mfa enrol hermes-main --pending --qr
 openwrt-mcp mfa activate hermes-main <code from the app>
 uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
+
+The first line reads the PIN from the terminal without showing it, through the python3 the
+package already needs, so it needs an SSH session with a terminal (`ssh -t`). OpenWrt's BusyBox
+has no `stty`, and on a Flint 2 on 25.12.5 the `stty -echo` form these pages gave before printed
+the PIN on the screen; the form above set it ("PIN set.").
 
 `--pending` is the point: it keeps the new secret apart until `activate` has seen a current code, so
 a scan that did not work cannot replace the phone in force. Without it `openwrt-mcp mfa enrol` takes
@@ -368,7 +438,8 @@ What this does not do, measured and named:
 - With `allow_all`, anyone may chat and none may unlock.
 - A scheduled job that hands its work to a subagent asynchronously is not measured, and no
   gate covers the subagent path. The synchronous path was measured on hardware, as above.
-- The window is root for its length, as above. The gateway's own environment holds the
+- In a window, a setting that runs code is refused by openwrt-mcp's list, and an option it does
+  not know is not, as above. The gateway's own environment holds the
   router token and is readable by any process of the `hermes` user, as invariant 7 says.
 
 ### Pairing openwrt-mcp yourself

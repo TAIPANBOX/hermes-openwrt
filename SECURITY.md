@@ -35,8 +35,8 @@ once routers can upgrade to it.
 ## Not a vulnerability here
 
 The README names the limits that are known and not fixed. Among them: a process running as
-`hermes` can read the gateway's environment, where the keys are; an open unlock window is
-root for its length; LuCI over plain HTTP carries the PIN and the QR unencrypted. A way
+`hermes` can read the gateway's environment, where the keys are; openwrt-mcp's list of settings that run code
+is a list, so a package it does not know can still be configured from an open window; LuCI over plain HTTP carries the PIN and the QR unencrypted. A way
 past one of those that the README does not describe is still worth reporting.
 
 A flaw in Hermes Agent itself belongs upstream, at
