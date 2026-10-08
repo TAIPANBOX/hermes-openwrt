@@ -114,6 +114,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] The owner note says how UCI names sections, that a port forward is a `redirect`, and to read a change back before reporting it (0.21.5-r10)
 - [x] A factor saved on the Security page reaches the agent even when `reload_config` has nothing to tell procd (LuCI 0.21.5-r2)
 - [x] A PIN saved while the factor is `none` says to choose PIN and press the factor's Save (LuCI 0.21.5-r2)
+- [x] The agent reads the Wi-Fi and the whole network config, every key in them `<redacted>`, only from an openwrt-mcp that reports it redacts; the package needs openwrt-mcp 0.5.0.2 or later (0.21.5-r11)
 
 ## Prior art, and what is not ours
 

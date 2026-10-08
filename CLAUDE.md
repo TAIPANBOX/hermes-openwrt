@@ -322,6 +322,31 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     (state, addresses, hosts, the log) are sent to the model provider; that is what reading
     means. This stage proves reads, refusals, the factor's configuration, per-agent unlock
     and the rollback.
+    `@claude` 2026-10-08, 0.21.5-r11, superseding the line above for an openwrt-mcp that redacts:
+    `uci_get` on `wireless` and the whole of `network` is granted too (`MCP_READ_UCI_WIDE`), because
+    a guest Wi-Fi cannot be set up without reading wireless (reported by a test run on a Beryl AX,
+    whose agent was refused that read). Safe now because openwrt-mcp 0.5.0.2 (the fork's commit
+    fb25c7d, pinned in CI) replaces every secret option of every `uci_get` answer with
+    `'<redacted>'` (Wi-Fi keys, WireGuard private and preshared keys, passwords, RADIUS secrets,
+    decided by option name), for every client with no switch, refuses that marker in `uci_apply`,
+    and reports `capabilities.uci_get_redacts_credentials` in `status --json`. The init's
+    `mcp_uci_scopes` reads that at every start, fail-closed: no status, no key or not `true` means
+    `MCP_READ_UCI`, the narrow list, and one line in the log; and since apk replaces openwrt-mcp's
+    binary without restarting its daemon, a running daemon must give the installed version on
+    `/health`, or it is restarted once and, still older, the narrow list is kept and the line names
+    it. `hermes-agent` depends on `openwrt-mcp>=0.5.0.2`. netifd's `network.wireless status`
+    returns the keys unredacted and stays out of `MCP_READ_UBUS`. Limits named and not fixed: a
+    secret in an option whose name gives no sign of it is read as it is; a router whose
+    openwrt-mcp cannot be restarted keeps the narrow reads until it is. (gate:
+    `scripts/gate-unlock.sh` `check_wireless_and_network_reads_are_redacted` (the real daemon, canaries
+    planted in wireless and in a WireGuard section), `check_wide_reads_only_from_a_daemon_that_redacts`
+    (a status stand-in with no capability), `check_daemon_from_before_the_upgrade_gets_no_wide_reads`
+    (a `/health` stand-in at 0.5.0), `scripts/gate-package.sh` `check_needs_an_openwrt_mcp_that_redacts`,
+    `scripts/gate-runtime.sh` `check_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone`;
+    teeth: `scripts/teeth-unlock.sh` faults 43 to 47, `scripts/teeth.sh` fault 12,
+    `scripts/teeth-runtime.py`). Red first only by running the init's own functions against
+    stand-ins on a workstation: the r10 init gave the narrow list with the capability reported;
+    the gate's container runs need a build, which CI makes.
     `@decided 2026-10-01` (the owner's, paraphrased): unlocking happens in the same Telegram
     chat as the agent; the message that unlocks is removed from the chat at once and never
     reaches the model; the factor is the owner's choice (PIN, app code, or both); five wrong

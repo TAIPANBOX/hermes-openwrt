@@ -135,12 +135,13 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, from the code tagged `v0.5.0-taipanbox.1` on the fork's `main`
-(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`). Upstream has
-the code factor and its enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the
-lockout, `mfa_lock` and the two-step enrolment are the fork's, and its README documents them. The
-dependency has no version floor yet, because the fork still says 0.5.0, the number
-upstream's release without the factor carries too.
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.2 since
+0.21.5-r11 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
+commit is the one in `.github/workflows/ci.yml`). Upstream has the code factor and its
+enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the
+two-step enrolment and the redaction of every `uci_get` answer are the fork's, and its README
+documents them. `hermes-agent` depends on `openwrt-mcp>=0.5.0.2`, the first version that
+redacts, so an upgrade of the agent cannot leave an older one beside it.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -153,7 +154,7 @@ one of a client that covers a call:
 | policy | grants | unlock |
 |---|---|---|
 | `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
-| `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, and `network`'s loopback, globals, lan and wan sections | none |
+| `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, `network` and `wireless`, from an openwrt-mcp that redacts (below); otherwise on `system`, `dhcp`, `firewall` and `network`'s loopback, globals, lan and wan sections | none |
 | `hermes_main_read_log` | `logread` | none |
 | `hermes_main_change` | `ubus_call`, `uci_apply`, `uci_confirm`, anything | the factor |
 
@@ -170,12 +171,29 @@ or anyone who gets the bot to talk, cannot change the router without you.
 
 Each tool has a policy of its own, so one tool's scope globs
 cannot widen another's, and no read is a glob over a whole ubus object: `system.*` would
-include `system.reboot`. The wireless config is not readable, because its keys would go to
-the model provider, and neither is the whole of `network`, because a router running
-WireGuard keeps its private key in a network section. What the agent reads (addresses,
-hosts, the log, the settings above) is sent to the model provider, which is what reading
-means; read them as that before turning the profile on. A policy of your own for
-`hermes-main` is yours, and if it grants a change without a factor, no unlock applies to it.
+include `system.reboot`. What the agent reads (addresses, hosts, the log, the settings above)
+is sent to the model provider, which is what reading means; read them as that before turning
+the profile on. A policy of your own for `hermes-main` is yours, and if it grants a change
+without a factor, no unlock applies to it.
+
+**Wi-Fi and network settings, never their keys.** Setting up a guest Wi-Fi means reading the
+wireless config, and a router's `wireless` and `network` configs hold its secrets beside its
+settings: the Wi-Fi passphrases, a WireGuard private key, a PPPoE password. From openwrt-mcp
+0.5.0.2 every `uci_get` answer has each secret option replaced by `'<redacted>'`, for every
+client and with no way to turn it off, `uci_apply` refuses that marker as a value, and
+`openwrt-mcp status --json` says so in `capabilities.uci_get_redacts_credentials`. At every
+start the package reads that and grants `uci_get` on `wireless` and the whole of `network` only
+when it is `true`. When it is missing (an older openwrt-mcp has no such key) or the status
+cannot be read, the grants stay as they were before 0.21.5-r11, `network`'s named sections
+only, and the start says why in one line. apk replaces openwrt-mcp's program on an upgrade
+without restarting the daemon, so when one is running the package also asks it, through
+`/health`, which version it is; when that is not the installed version it restarts openwrt-mcp
+once, and if the old one is still the one serving it keeps the narrow grants and names the
+version in the log. Two limits, named: openwrt-mcp decides what is secret by the option's name,
+so a secret inside an option whose name gives no sign of it (a token pasted into a DDNS update
+address, a password inside `pppd_options`) is not redacted; and `ubus call network.wireless
+status`, which returns each Wi-Fi interface's configuration with its key, is not redacted at
+all, so the package never grants it.
 
 `hermes.security` sets what unlocking asks for, and the Security page (below) writes it for you:
 
