@@ -1,8 +1,10 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Thirty-one faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
+# Thirty-five faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
 # the pages. Faults 19 to 31 are LuCI r13's, for the Security page and the PIN and phone behind it.
+# Faults 32 and 33 are r14's, the factor announced to procd once; 34 and 35 are 0.21.5-r2's, the
+# two states in which reload_config has nothing to tell and set_factor must.
 # The original eighteen: each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
@@ -388,7 +390,7 @@ cp "$SRC_RPCD" "$RPCD"
 # ---- fault 32: only reload_config, as until LuCI r14 ----
 # Its first run after a boot keeps a copy and tells procd nothing, so the first factor chosen
 # after a boot stayed out of the openwrt-mcp policies until a restart.
-plant "$RPCD" 'if [ "$had_copy" != 1 ] || [ ! -x "$RELOAD" ]; then' 'if false; then' "fault 32"
+plant "$RPCD" 'if [ "$reload_tells" != 1 ] || [ ! -x "$RELOAD" ]; then' 'if false; then' "fault 32"
 repack_luci
 expect_red "the first choice after a boot announced by nobody" check_security_factor_never_outruns_what_exists
 cp "$SRC_RPCD" "$RPCD"
@@ -396,9 +398,25 @@ cp "$SRC_RPCD" "$RPCD"
 # ---- fault 33: announced as well as reloaded, every time ----
 # Once reload_config has its copy it tells procd itself, so a second announcement restarts the
 # agent twice for one choice.
-plant "$RPCD" 'if [ "$had_copy" != 1 ] || [ ! -x "$RELOAD" ]; then' 'if true; then' "fault 33"
+plant "$RPCD" 'if [ "$reload_tells" != 1 ] || [ ! -x "$RELOAD" ]; then' 'if true; then' "fault 33"
 repack_luci
 expect_red "one choice announced twice" check_security_factor_never_outruns_what_exists
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 34: a copy read from the md5 file being there, as until LuCI 0.21.5-r2 ----
+# A file without a line for hermes (reload_config ran while /etc/config/hermes did not exist) then
+# reads as a copy reload_config will compare, so nobody tells procd.
+plant "$RPCD" '[ -n "$old_sum" ] && [ "$old_sum" != "$new_sum" ] && reload_tells=1' \
+	'[ -f "$CONFIG_MD5" ] && [ "$old_sum" != "$new_sum" ] && reload_tells=1' "fault 34"
+repack_luci
+expect_red "an md5 file without a hermes line taken for a copy" check_security_factor_announced_when_reload_cannot_tell
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 35: a copy whose sum already matches taken as one reload_config will tell ----
+plant "$RPCD" '[ -n "$old_sum" ] && [ "$old_sum" != "$new_sum" ] && reload_tells=1' \
+	'[ -n "$old_sum" ] && reload_tells=1' "fault 35"
+repack_luci
+expect_red "a hermes sum that already matches taken for a change" check_security_factor_announced_when_reload_cannot_tell
 cp "$SRC_RPCD" "$RPCD"
 
 # ---- and green again, so the reds were the faults and not the harness ----
@@ -408,6 +426,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 33 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 33 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 35 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 35 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 33 faults on 22 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 35 faults on 23 checks (shard $SHARD), green restored"

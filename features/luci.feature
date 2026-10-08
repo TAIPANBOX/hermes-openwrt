@@ -46,6 +46,11 @@
 #                        has never been started, it offers nothing, and the backend refuses the
 #                        same calls. The scenarios about the QR, the PIN and the SSH enrolment are in
 #                        features/unlock.feature, bound to scripts/gate-unlock.sh.
+#   @measured 2026-10-08 on a Flint 2 and a Beryl AX, LuCI 0.21.5-r1: a factor saved on the
+#                        Security page reached UCI, but the agent was not restarted and the
+#                        change policy not written, in two states: reload_config's md5 file
+#                        without a line for hermes (the Flint, the line deleted by hand) and a
+#                        line for hermes already holding the new content's sum (the Beryl).
 #
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
@@ -236,6 +241,16 @@ Feature: The web page manages the agent and never hands a key back
     And it is told exactly once, the first choice after a boot included, so the new factor is in force without a restart
     And the PIN the factor in force asks for cannot be cleared
     # -> check_security_factor_never_outruns_what_exists
+
+  Scenario: a saved factor reaches the agent even when the router's own reload has nothing to tell
+    Given the copy reload_config keeps has no line for the agent's configuration, as after a reinstall
+    When the owner saves a factor on the Security page
+    Then the agent is told its configuration changed, exactly once
+    Given the copy reload_config keeps already matches what the agent's configuration will hold
+    When the owner saves that factor
+    Then the agent is told, exactly once
+    And an ordinary change, which reload_config itself tells, is not told a second time
+    # -> check_security_factor_announced_when_reload_cannot_tell
 
   Scenario: outside the owner profile the Security calls refuse
     Given the profile is root, admin, assistant or nothing the service accepts
