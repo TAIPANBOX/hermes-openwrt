@@ -415,6 +415,16 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     whose numbers are not read from the data file, and the commands in docs/agent-install.md,
     which no check runs).
 
+23. `@claude` 2026-10-08: a download downloads.openwrt.org cuts off does not fail a build or a gate.
+    Every script that runs `apk update` or `apk add` inside an OpenWrt container sources
+    `scripts/apk-retry.sh`, whose `apk` retries only output that says a download was cut off
+    (`Connection aborted`, `wget: exited with error`, 429, a timeout), up to five times; any other
+    failure returns at once, so a gate that expects apk to refuse sees it refuse the first time.
+    `@measured` 2026-10-08: CI's build step died on "libreadline8 ... Connection aborted", a gate on
+    429, and a Flint 2 installing from the README got "2 errors;" (gate: `scripts/test-apk-retry.sh`,
+    in CI's `scenarios` job, a stand-in apk plus a scan that every such script sources the helper;
+    red-first against a helper that never retries and one that retries every failure).
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

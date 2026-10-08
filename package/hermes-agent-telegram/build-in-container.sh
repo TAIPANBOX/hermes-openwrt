@@ -67,10 +67,11 @@ mkdir -p "$WORK"
 ARCHIVE=$("$ROOT/package/upstream/fetch.sh")
 
 echo "==> assembling the telegram tree inside $IMAGE"
-docker run --rm -i --platform "linux/$ARCH" \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --rm -i --platform "linux/$ARCH" \
 	-v "$SRC:/src:ro" -v "$WORK:/work" -v "$BASE_TREE:/base:ro" \
 	-v "$ROOT/package/upstream:/upstream-src:ro" -v "$ARCHIVE:/upstream/archive.tar.gz:ro" \
 	"$IMAGE" /bin/sh -s <<CONTAINER
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 mkdir -p /var/lock /var/run /var/state
 apk update -q

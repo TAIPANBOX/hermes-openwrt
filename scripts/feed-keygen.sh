@@ -41,7 +41,8 @@ fi
 
 # In a container, so the key is made by a pinned openssl rather than whatever the host
 # happens to have, and so no key material is written outside the two files below.
-docker run --rm -i -v "$OUT:/out" "$ALPINE" /bin/sh -s <<'CONTAINER'
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --rm -i -v "$OUT:/out" "$ALPINE" /bin/sh -s <<'CONTAINER'
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 apk add -q --no-cache openssl
 umask 077
