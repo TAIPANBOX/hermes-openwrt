@@ -1262,7 +1262,7 @@ procd_close_service
         # the port was forwarded. And models that saw openwrt-mcp's exec pinged through it instead of
         # their own terminal. The owner note says all three, whatever the factor, and the gateway
         # loads it as its system prompt.
-        sentences = ("use your own terminal",
+        sentences = ("use your own terminal", "never ask the owner to widen it",
                      "A UCI section name holds only letters, digits and underscores",
                      "`name` option",
                      "A port forward is a firewall section of type redirect (DNAT), not a rule",

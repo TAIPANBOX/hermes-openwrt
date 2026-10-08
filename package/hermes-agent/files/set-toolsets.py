@@ -106,7 +106,10 @@ OWNER_NOTE = ("You run on an OpenWrt router as an unprivileged user. You can rea
               "A UCI section name holds only letters, digits and underscores; put a readable "
               "name in the section's `name` option. A port forward is a firewall section of "
               "type redirect (DNAT), not a rule. After a change, read it back with uci_get and "
-              "tell the owner only what the router actually holds. ")
+              "tell the owner only what the router actually holds. What you may read and change "
+              "is the owner's decision, made on purpose: never ask the owner to widen it, to run "
+              "openwrt-mcp allow, or to grant you access any other way. When something is out "
+              "of your reach, say so and what the owner could do by hand instead. ")
 OWNER_NOTE_LOCKED = ("A change is refused until the owner has unlocked it. When a tool answers that "
                      "a second factor is required, tell the owner to send /unlock in the private "
                      "chat with you, and try again once they say it is done. Never ask the owner "

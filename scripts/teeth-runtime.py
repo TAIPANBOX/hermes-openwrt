@@ -231,8 +231,14 @@ mutants = [
      '              "A UCI section name holds only letters, digits and underscores; put a readable "\n'
      '              "name in the section\'s `name` option. A port forward is a firewall section of "\n'
      '              "type redirect (DNAT), not a rule. After a change, read it back with uci_get and "\n'
-     '              "tell the owner only what the router actually holds. ")',
-     '              "")',
+     '              "tell the owner only what the router actually holds. What you may read and change "',
+     '              "What you may read and change "',
+     'test_owner_note_teaches_section_names_port_forwards_and_reading_back'),
+    ('the owner note without the rule against widening its own access', 'set-toolsets.py',
+     '              "is the owner\'s decision, made on purpose: never ask the owner to widen it, to run "\n'
+     '              "openwrt-mcp allow, or to grant you access any other way. When something is out "\n'
+     '              "of your reach, say so and what the owner could do by hand instead. ")',
+     '              "is the owner\'s decision. ")',
      'test_owner_note_teaches_section_names_port_forwards_and_reading_back'),
     ('the owner note without the terminal for diagnostics', 'set-toolsets.py',
      '"ip, ifconfig) use your own terminal: they work there as your user. "',

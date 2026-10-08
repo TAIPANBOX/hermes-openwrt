@@ -297,6 +297,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     gpt-4o-mini had named a section `hermes-test` three times ("uci: Invalid argument"), then
     written a `rule` with target ACCEPT and called the port forwarded (gate:
     `scripts/gate-runtime.sh` `check_owner_note_teaches_section_names_port_forwards_and_reading_back`,
+    which also holds the note's rule that the agent never asks the owner to widen its access or
+    run `openwrt-mcp allow`: on a Beryl AX, refused a read of `wireless`, gpt-6.1-sol asked the
+    owner to run `openwrt-mcp allow hermes-main uci_get 'wireless' 60m`;
     in config.yaml and in what the gateway loads; teeth: `scripts/teeth-runtime.py`). The four
     runtime changes were shown red first locally against the earlier bridge, not in the gate's
     container, which needs a build.
@@ -489,7 +492,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 23. `@claude` 2026-10-08: a download downloads.openwrt.org cuts off does not fail a build or a gate.
     Every script that runs `apk update` or `apk add` inside an OpenWrt container sources
     `scripts/apk-retry.sh`, whose `apk` retries only output that says a download was cut off
-    (`Connection aborted`, `wget: exited with error`, 429, a timeout), up to five times; any other
+    (`Connection aborted`, `wget: exited with error`, 429, a timeout and apk 3's own fetch-failure
+    words), up to eight times, with packages kept in `/apk-cache` when a builder mounts one (CI does,
+    from actions/cache, so a package fetched once is not fetched again); any other
     failure returns at once, so a gate that expects apk to refuse sees it refuse the first time.
     `@measured` 2026-10-08: CI's build step died on "libreadline8 ... Connection aborted", a gate on
     429, and a Flint 2 installing from the README got "2 errors;" (gate: `scripts/test-apk-retry.sh`,
