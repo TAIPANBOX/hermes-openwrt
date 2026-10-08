@@ -135,13 +135,14 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.2 since
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.3 since
 0.21.5-r11 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
 commit is the one in `.github/workflows/ci.yml`). Upstream has the code factor and its
 enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the
-two-step enrolment and the redaction of every `uci_get` answer are the fork's, and its README
-documents them. `hermes-agent` depends on `openwrt-mcp>=0.5.0.2`, the first version that
-redacts, so an upgrade of the agent cannot leave an older one beside it.
+two-step enrolment, the redaction of every `uci_get` answer and the refusal of every `uci_apply`
+that would run code are the fork's, and its README documents them. `hermes-agent` depends on
+`openwrt-mcp>=0.5.0.3`, the first version that does both, so an upgrade of the agent cannot
+leave an older one beside it.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -173,14 +174,25 @@ to you), `system.signal`, `uci` over ubus (it would go around `uci_apply`'s roll
 `exec`; openwrt-mcp refuses each of them before it reaches ubus, window or not. Until r11 the
 change policy granted `ubus_call` on everything, and a window was root for its length.
 
-What is still wide, said plainly: `uci_apply` covers every setting, and some settings are
-themselves commands the router runs as root, a firewall `include` script or a dnsmasq
-`dhcpscript` among them. Until openwrt-mcp refuses those options in `uci_apply`, which a
-separate change to it does, an agent in an open window can still reach a root command that
-way. A ubus call has no rollback: a service stopped stays stopped until it is started again.
-Every call is in openwrt-mcp's audit log. Installing packages is not possible from a window at
-all. What the unlock protects against is the time outside the window: an agent misled by a web
-page, or anyone who gets the bot to talk, cannot change the router without you.
+`uci_apply` covers every setting, and some settings are themselves commands the router runs as
+root: a firewall or pbr `include`, a dnsmasq `dhcpscript`, and about sixty other hook options.
+From 0.5.0.3 openwrt-mcp refuses, for every client and before anything is staged, any batch with
+one of those in it, a value with a line break in it, or a name outside uci's alphabet, and
+nothing in that batch is applied; its `status --json` says so in
+`capabilities.uci_apply_refuses_code_exec`. The package writes a change policy at all only when
+that is `true` (and, as for reading, only when the daemon serving is the installed one); without
+it there is no change policy, whatever the factor, and the start says so in one line. So with
+both daemon checks and the ubus list above, an open window changes settings, the VPN and
+services and never runs a command.
+
+The limits of that, named: openwrt-mcp's list of options that run code is a list (its own
+source names what it does not cover: a package it does not know, an option that writes a file
+somewhere, a service such as ttyd whose purpose is a shell); a ubus call has no rollback, so a
+service stopped stays stopped until it is started again; and a policy you grant `hermes-main`
+yourself, `exec` included, is your own choice, which the package does not undo. Every call is in
+openwrt-mcp's audit log. Installing packages is not possible from a window at all. What the
+unlock protects against is the time outside the window: an agent misled by a web page, or anyone
+who gets the bot to talk, cannot change the router without you.
 
 Each tool has a policy of its own, so one tool's scope globs
 cannot widen another's, and no read is a glob over a whole ubus object: `system.*` would
@@ -399,8 +411,8 @@ What this does not do, measured and named:
 - With `allow_all`, anyone may chat and none may unlock.
 - A scheduled job that hands its work to a subagent asynchronously is not measured, and no
   gate covers the subagent path. The synchronous path was measured on hardware, as above.
-- In a window, a setting that is itself a command (a firewall include, a dnsmasq script) can
-  still be written through `uci_apply` until openwrt-mcp refuses those options, as above. The gateway's own environment holds the
+- In a window, a setting that runs code is refused by openwrt-mcp's list, and an option it does
+  not know is not, as above. The gateway's own environment holds the
   router token and is readable by any process of the `hermes` user, as invariant 7 says.
 
 ### Pairing openwrt-mcp yourself

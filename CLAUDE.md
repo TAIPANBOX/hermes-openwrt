@@ -280,17 +280,28 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `system.reboot`, `system.signal`, `uci.*` over ubus, `service.*`, `rpc-sys.*` or `exec`, so
     openwrt-mcp refuses them before ubus with a window open. `system.reboot` is left out on purpose,
     a conservative call of mine: a reboot cannot be rolled back. The globs were checked against
-    Go's path.Match, which openwrt-mcp uses: none covers a forbidden method. What is still wide:
-    `uci_apply` on `*` can write a setting that is itself a root command (a firewall include, a
-    dnsmasq `dhcpscript`); a separate openwrt-mcp change refuses those options, and until its
-    version is this package's floor that path stays open (not enforced here). That `rc.init`
-    refuses a service name with a `/` is my reading of rpcd, not measured. (gate:
-    `scripts/gate-unlock.sh` `check_window_changes_settings_never_runs_commands`, the real daemon
-    with a window open: file.exec, file.write, sysupgrade, firmware validation, reboot, uci.set,
-    service.set and rpc-sys refused and never reaching ubus, rc.init and network.reload allowed and
-    reaching it, uci_apply with its rollback; `scripts/gate-runtime.sh`
+    Go's path.Match, which openwrt-mcp uses: none covers a forbidden method. `uci_apply` on `*`
+    could write a setting that is itself a root command (a firewall or pbr include, a dnsmasq
+    `dhcpscript`, some sixty hook options); openwrt-mcp 0.5.0.3 (the fork's commit 85a9ddd,
+    pinned in CI, and the package's floor) refuses every such batch for every client before
+    staging and reports `capabilities.uci_apply_refuses_code_exec`, and the init writes neither
+    change policy unless that is `true` and the daemon serving is the installed one
+    (`mcp_daemon_caps`, the same fail-closed check as the redaction below; without it one line in
+    the log and no change policy whatever the factor). So with both daemon checks and the ubus
+    list, an open window changes settings, the VPN and services and never runs a command. Limits
+    named and not fixed: openwrt-mcp's list of code-running options is a list, and a package it
+    does not know is not caught; a ubus call has no rollback; a policy the owner grants
+    `hermes-main` by hand, `exec` included, is the owner's own choice and the package leaves it
+    alone. That `rc.init` refuses a service name with a `/` is my reading of rpcd, not measured.
+    (gate: `scripts/gate-unlock.sh` `check_window_changes_settings_never_runs_commands`, the real
+    daemon with a window open: file.exec, file.write, sysupgrade, firmware validation, reboot,
+    uci.set, service.set and rpc-sys refused and never reaching ubus, a firewall include refused
+    with the harmless change in its batch not applied, rc.init and network.reload allowed and
+    reaching it, uci_apply with its rollback; `check_no_change_policy_without_code_exec_refusal`, a
+    status stand-in without the key; `scripts/gate-package.sh`
+    `check_needs_an_openwrt_mcp_that_redacts` (the floor and both keys); `scripts/gate-runtime.sh`
     `check_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone`; teeth:
-    `scripts/teeth-unlock.sh` faults 48 and 49, `scripts/teeth-runtime.py`.) With factor `none`, the default, no change policy is written,
+    `scripts/teeth-unlock.sh` faults 48 to 51, `scripts/teeth.sh` fault 12, `scripts/teeth-runtime.py`.) With factor `none`, the default, no change policy is written,
     so nothing can change the router until the owner sets a factor, and the agent says so.
     The model is never offered `mfa_unlock` or `mfa_lock` (`tools.exclude` in the
     package-written `mcp_servers.openwrt` entry, in every profile), and is told to ask the
@@ -327,8 +338,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     packages is allowed only from the official OpenWrt feed, and only when the owner has opted in.
     `@claude` 2026-10-08: the package-install part is NOT implemented: there is no install
     policy, no feed check and no opt-in yet, so no package can be installed from a window at all;
-    it is planned work. The rest of the scope holds as the r11 note above says, gated, with its one
-    named gap (a setting that is itself a command, through `uci_apply`). Only `uci_apply` has the
+    it is planned work. The rest of the scope holds as the r11 note above says, gated, within the
+    limits it names. Only `uci_apply` has the
     automatic rollback; a `ubus_call` (a service restart, say) has none.
     Unlocking is per agent: `hermes-<name>` has its own token and its own window.
     An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
@@ -342,16 +353,16 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `@claude` 2026-10-08, 0.21.5-r11, superseding the line above for an openwrt-mcp that redacts:
     `uci_get` on `wireless` and the whole of `network` is granted too (`MCP_READ_UCI_WIDE`), because
     a guest Wi-Fi cannot be set up without reading wireless (reported by a test run on a Beryl AX,
-    whose agent was refused that read). Safe now because openwrt-mcp 0.5.0.2 (the fork's commit
-    fb25c7d, pinned in CI) replaces every secret option of every `uci_get` answer with
+    whose agent was refused that read). Safe now because openwrt-mcp from 0.5.0.2 (pinned in CI at
+    85a9ddd, 0.5.0.3) replaces every secret option of every `uci_get` answer with
     `'<redacted>'` (Wi-Fi keys, WireGuard private and preshared keys, passwords, RADIUS secrets,
     decided by option name), for every client with no switch, refuses that marker in `uci_apply`,
     and reports `capabilities.uci_get_redacts_credentials` in `status --json`. The init's
-    `mcp_uci_scopes` reads that at every start, fail-closed: no status, no key or not `true` means
+    `mcp_daemon_caps` reads that at every start, fail-closed: no status, no key or not `true` means
     `MCP_READ_UCI`, the narrow list, and one line in the log; and since apk replaces openwrt-mcp's
     binary without restarting its daemon, a running daemon must give the installed version on
     `/health`, or it is restarted once and, still older, the narrow list is kept and the line names
-    it. `hermes-agent` depends on `openwrt-mcp>=0.5.0.2`. netifd's `network.wireless status`
+    it. `hermes-agent` depends on `openwrt-mcp>=0.5.0.3`. netifd's `network.wireless status`
     returns the keys unredacted and stays out of `MCP_READ_UBUS`. Limits named and not fixed: a
     secret in an option whose name gives no sign of it is read as it is; a router whose
     openwrt-mcp cannot be restarted keeps the narrow reads until it is. (gate:

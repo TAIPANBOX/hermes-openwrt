@@ -195,8 +195,8 @@ The owner unlocks from the private Telegram chat with a PIN, an app code or both
 deleted before anything else and never reaches the model or a log; five wrong tries lock
 unlocking for fifteen minutes; a change that is not confirmed is undone by itself, after a reboot
 too. In a window the agent can change settings, the VPN and services; it cannot run a command
-over ubus, write a file, flash a firmware or reboot, though a setting that is itself a command
-(a firewall include) is still reachable until openwrt-mcp refuses it. The agent reads the Wi-Fi and network settings too,
+over ubus, write a file, flash a firmware or reboot, and openwrt-mcp refuses a setting that would
+run code (a firewall include). The agent reads the Wi-Fi and network settings too,
 so it can set up a guest network, but never a key in them: openwrt-mcp answers every Wi-Fi key,
 WireGuard private key and password as `<redacted>`, and the package grants those reads only when
 openwrt-mcp says it does that. Everything, with the limits named:
