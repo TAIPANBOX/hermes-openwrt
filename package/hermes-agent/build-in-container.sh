@@ -126,7 +126,16 @@ esac
 #   - the owner note says a UCI section name holds only letters, digits and underscores (a
 #     readable name goes in `option name`), a port forward is a firewall `redirect`, not a `rule`,
 #     and a change is read back with uci_get before the owner is told what the router holds.
-PKGREL=${PKGREL:-10}
+#
+# 0.21.5-r11: the agent may read wireless and the whole of network through uci_get, so it can set
+# up a guest Wi-Fi (on 2026-10-08 an agent on a Beryl AX could not, refused a read of wireless),
+# but only from an openwrt-mcp that reports uci_get_redacts_credentials, which replaces every
+# secret option (Wi-Fi keys, WireGuard private and preshared keys, passwords, RADIUS secrets) with
+# '<redacted>' in every answer. The init asks `openwrt-mcp status` at every start and keeps the
+# narrow grants, with one line in the log, when the key is missing or a daemon from before an
+# upgrade is still the one serving; and the package depends on openwrt-mcp>=0.5.0.2, the first
+# version with the key, so an upgrade cannot pair this init with an older daemon.
+PKGREL=${PKGREL:-11}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -137,12 +146,12 @@ PKGREL=${PKGREL:-10}
 # openwrt-mcp is the router-side half of the owner profile: the agent reads and changes the
 # router only through it. It is not in OpenWrt's feed. Ours is built from the companion
 # branch with that repository's own mkapk.sh (scripts/build-openwrt-mcp.sh) and the feed
-# carries it beside this package. It has no version floor yet, because the branch still
-# says 0.5.0, the number the release without the second factor carries too; set one when
-# the companion is tagged.
+# carries it beside this package. Its floor, 0.5.0.2 (r11), is the first version whose uci_get
+# redacts every secret option and says so in `status`; the init grants wireless and the whole
+# of network only on that word, and the floor keeps an upgrade from leaving an older one in place.
 #
 # iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above).
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping"
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.2 iputils-ping"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
