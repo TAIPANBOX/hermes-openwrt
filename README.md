@@ -133,7 +133,9 @@ uci add_list hermes.telegram.allow_user_id=<your numeric id, from @userinfobot>
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
-More, including what a first test chat shows: [docs/telegram.md](docs/telegram.md).
+The first reply in a new chat may be Hermes's own onboarding question, which offers to build a
+short profile of you; answer it, or send your message again. More, including what a first test
+chat shows: [docs/telegram.md](docs/telegram.md).
 
 **4. Let it change the router** (optional). In the default `owner` profile the agent reads the
 router freely and changes it only after you unlock it with a second factor. With none set,
@@ -148,8 +150,11 @@ uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
-Then `/unlock` in the private chat opens a 15-minute window. That window is root for its
-length: [how it keeps the router yours](#how-it-keeps-the-router-yours).
+Then `/unlock` and the PIN in one message, `/unlock 4821`, in the private chat opens a 15-minute
+window (`/unlock 4821 503917` with `pin+totp`; the digits alone work too). `/unlock` on its own
+opens nothing: the bot answers with what to send. On the Security page the PIN and the factor
+have a Save each, and a PIN unlocks nothing until the factor asks for it. The window is root for
+its length: [how it keeps the router yours](#how-it-keeps-the-router-yours).
 
 **Upgrading.** `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (and
 `hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`: an upgrade
@@ -259,6 +264,12 @@ terminal tool and give the uptime in minutes.
 
 The floor is native tool calling, not size: an 8B model works, a 12B one without tool support
 does not. Pick for function calling.
+
+Changing the router asks more of a model than one tool call. On 2026-10-08, on a Brume 2 and a
+Flint 2 through Telegram and openwrt-mcp, `gpt-6.1-sol` through a ChatGPT subscription ran the
+diagnosis correctly, while `gpt-4o-mini` looped on its memory tool and made a wrong firewall
+change. A subscription is signed in with `hermes-login chatgpt` and picked per chat with
+`/model gpt-6.1-sol --provider openai-codex` ([docs/providers.md](docs/providers.md)).
 
 ## How it is built
 

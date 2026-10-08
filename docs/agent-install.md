@@ -164,6 +164,12 @@ owner sets a second factor and unlocks. **You do not set the factor.** Tell the 
   [README's install](../README.md#install).
 
 Then `/unlock` in the private Telegram chat opens a 15-minute window, and `/lock` closes it.
+Tell the person to put the PIN in the same message: `/unlock 4821` with the factor `pin`,
+`/unlock 503917` with `totp`, `/unlock 4821 503917` with `pin+totp` (or the same digits alone,
+without `/unlock`). `/unlock` on its own is answered "That does not look like what this router
+asks for. Send /unlock followed by your PIN (4 to 8 digits)." and opens nothing. On the
+Security page the PIN and the factor have a Save each: a PIN saved while the factor is `none`
+unlocks nothing until PIN is chosen under "What unlocking asks for" and saved there.
 Explain to the person that an open window is root for its length
 ([security.md](security.md)). You may check the state, which holds no secret:
 

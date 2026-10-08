@@ -193,7 +193,16 @@ the agent is told so. With one set, a change is refused until the owner unlocks 
 refusal names the second factor, and the agent is told to ask its owner to send /unlock
 in the private chat and never to ask for a PIN or a code in a message. The model is not
 offered openwrt-mcp's `mfa_unlock` and `mfa_lock` tools at all (`tools.exclude` on the
-package-written `mcp_servers.openwrt` entry, in every profile). Unlocking is per agent:
+package-written `mcp_servers.openwrt` entry, in every profile), and since 0.21.5-r10 not `exec`
+or `wg_new_client` either: it is never granted them, and on 2026-10-08 models that were offered
+`exec` pinged through it, were refused, and reported ping as blocked instead of using their own
+terminal, where ping works. The agent is told to run network diagnostics there. Also since r10,
+upstream's tool search is off (`tools.tool_search.enabled: 'off'` in the agent's `config.yaml`)
+unless you set it yourself: it hid every MCP tool behind a search the models did not make, so
+they never saw openwrt-mcp's tools and tried `uci` in the terminal, which as `hermes` fails.
+The owner note also tells the agent that a UCI section name holds only letters, digits and
+underscores, that a port forward is a firewall `redirect`, not a `rule`, and to read a change
+back with `uci_get` and report only what the router holds. Unlocking is per agent:
 a second agent would be `hermes-<name>`, with its own token, its own policies and its own
 window. An unconfirmed `uci_apply` is undone from a snapshot under `/etc/openwrt-mcp`, not
 in `/tmp`, so it is undone after a reboot as well as after its timeout.
@@ -272,6 +281,17 @@ whoever finds typing the command a nuisance):
 | `pin` | `/unlock 4821`, or just the PIN |
 | `totp` | `/unlock 503917`, or just the six-digit code from the app |
 | `pin+totp` | `/unlock 4821 503917`, or the same without `/unlock` |
+
+Exactly what the bot accepts, from `openwrt_unlock.py`:
+
+- One message: `/unlock`, a space, then the PIN, the code, or the PIN and the code. A space or a
+  comma separates them, and `/unlock@<your bot's name>` works as Telegram writes it.
+- The same digits as a message of their own, with no `/unlock`, once a factor is set.
+- A PIN is 4 to 8 digits and a code is 6. With `pin+totp` the PIN comes first.
+- `/unlock` on its own opens nothing. The bot deletes it and answers with what to send; with
+  the factor `pin` that is "That does not look like what this router asks for. Send /unlock
+  followed by your PIN (4 to 8 digits)." Send the PIN after it, as its own message or as
+  `/unlock 4821`.
 
 `/lock` closes the window at once. The bot deletes the message first, then asks
 openwrt-mcp, and answers only the outcome: open until what time, refused, or locked out

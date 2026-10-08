@@ -74,6 +74,10 @@ the package, and each of them looks like one the first time.
 
 - The first message in a new conversation can be taken by Hermes's own onboarding question,
   which offers to build a short profile of you, instead of being acted on. Send it again.
+- `/unlock` with nothing after it opens nothing: the bot answers "That does not look like what
+  this router asks for. Send /unlock followed by your PIN (4 to 8 digits)." (with the factor
+  `pin`). Put the PIN in the same message, `/unlock 4821`, or send the PIN alone. Every form it
+  takes: [security.md](security.md#unlocking-from-telegram).
 - Each new conversation prints a notice that no home channel is set. `/sethome` once makes that
   chat the home channel, which is where the results of scheduled jobs go.
 - A scheduled check that finds a problem can answer with Hermes's own failure marker, so the run
