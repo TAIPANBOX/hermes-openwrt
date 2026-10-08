@@ -33,6 +33,18 @@ wall clock is mostly the model's own time.
 
 ![Measured on hardware](measured.svg)
 
+## The agent's own ping
+
+On 2026-10-08 a Flint 2 was cleaned of every trace of the package and Hermes installed again
+from the feed, 0.21.5-r8, by [the agent runbook](agent-install.md). A one-off job asked the
+gateway for the same five-command diagnosis: every `ping` it ran answered "permission denied
+(are you root?)". BusyBox's ping opens a raw socket, which only root may, and the agent runs as
+`hermes` since 0.21.5-r3; the table above was measured with r1, when it still ran as root.
+From r9 the package depends on iputils-ping, whose `/usr/bin/ping` is setuid root and comes
+first on the service's PATH. With it the same job ran as `hermes`, pinged 1.1.1.1 (10.1 ms
+average) and the gateway (0.38 ms) with no loss, and answered in 9 s: two model calls of
+`openai/gpt-4o-mini` on OpenRouter, five commands.
+
 ## Re-run on the published release, 2026-10-04
 
 The same two routers, with the package, Python, ffmpeg and their configuration removed first

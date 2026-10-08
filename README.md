@@ -28,7 +28,7 @@ read ordinary web pages without a web API key.
 
 | Use | What it looks like | Status |
 |---|---|---|
-| **The home network, from a phone** | "why is the internet slow?" in Telegram; it runs commands on the router and answers from their output | measured on both routers: a five-command diagnosis in 18 to 25 s |
+| **The home network, from a phone** | "why is the internet slow?" in Telegram; it runs commands on the router and answers from their output | measured on both routers: a five-command diagnosis in 18 to 25 s; on a clean Flint 2 with 0.21.5-r9's ping, 9 s ([measured](docs/measured.md#the-agents-own-ping)) |
 | **A watch that speaks only when something is wrong** | every hour a script collects loss, latency, DNS, memory, flash and temperature; the model reads them in one call and stays silent if all is normal | 19 hours on a Brume 2, one model call per check ([one way it stays silent](docs/use.md#scheduled-jobs-in-practice)) |
 | **A morning message** | weather, the exchange rate and one news item at 08:00 | delivered on time; a small free model skipped the search it was asked for |
 | **An assistant that is always on** | reminders and lists set in plain words in a chat | not measured yet |
@@ -90,6 +90,9 @@ echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/pack
 
 apk update && apk add hermes-agent luci-app-hermes
 ```
+
+If apk ends with `N errors;` after `Connection aborted`, a download from OpenWrt's own server was
+cut off: run the same `apk add` again until it ends with `OK:`.
 
 No `--allow-untrusted` and no `--force`: that is the point of signing the feed. `hermes-agent`
 pulls in `openwrt-mcp` from the same feed and creates the `hermes` account the agent runs as.
@@ -292,7 +295,7 @@ What helps most is what has not been measured yet:
 2. **The gateway's memory over days.** The longest run so far was 19 hours, and in its
    last 14.5 the gateway grew from 204 to 215 MB, too short to tell a leak from warming
    up. That figure is the gateway's own resident memory; every hour or so:
-   `grep VmRSS /proc/$(pgrep -o -f 'main.py gateway')/status`.
+   `grep VmRSS /proc/$(pgrep -o -f '[m]ain.py gateway')/status`.
 3. **Web search with the model you use.** It works on a router (see
    [the re-run](docs/measured.md#re-run-on-the-published-release-2026-10-04)), but
    whether a model reaches for it unasked depends on the model.

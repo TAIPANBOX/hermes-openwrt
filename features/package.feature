@@ -9,6 +9,10 @@
 #                        boot was off before the upgrade and on after it, because post-upgrade
 #                        ran the same enable as post-install. OpenWrt's own default_postinst
 #                        enables a service on install and not on upgrade (PKG_UPGRADE=1).
+#   @measured 2026-10-08 on a Flint 2, a clean install of 0.21.5-r8 from the feed: a scheduled
+#                        diagnosis ran as `hermes` and every ping answered "permission denied
+#                        (are you root?)"; with iputils-ping installed the same job pinged the
+#                        internet and the gateway with no loss.
 #   @claude 2026-10-05   Scenarios 1 to 11 describe what scripts/gate-package.sh has checked
 #                        since before this file existed, written down so that gate binds both
 #                        ways like every other; they paraphrase the gate's own comments.
@@ -88,3 +92,9 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
     Then the start at boot is still off
     And a start at boot that was on is still on after an upgrade
     # -> check_upgrade_keeps_boot_start
+
+  Scenario: the agent can measure the internet from the default profile
+    Given the package just installed, with the agent running as its own unprivileged user
+    When the agent runs ping, as the first step of finding out why the internet is slow
+    Then the ping is answered, instead of refused for not being root
+    # -> check_agent_can_ping

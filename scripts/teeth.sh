@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Eight faults, each one a real change could introduce, each caught by a different
+# Nine faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -91,7 +91,7 @@ cp /tmp/shim.bak "$SITE/webbrowser.py"
 # ---- fault 2: an undeclared runtime dependency ----
 # apk would not complain: the package installs fine without ffmpeg declared, and the
 # gap only shows the first time someone sends a voice message.
-repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp"
+repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp iputils-ping"
 expect_red "ffmpeg undeclared" check_deps_resolve
 
 # ---- fault 3: a post-install that does not enable the service ----
@@ -180,10 +180,16 @@ repack "$DEPS_OK"
 expect_red "an install that takes the new defaults over the owner's" check_config_survives
 cp /tmp/postinstall.bak "$W/post-install"; chmod 0755 "$W/post-install"
 
+# ---- fault 9: the package without iputils-ping ----
+# The shape r3 to r8 shipped in: the agent runs as `hermes`, BusyBox's ping needs root, and every
+# ping the agent ran answered "permission denied". Everything else installs and starts.
+repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp"
+expect_red "iputils-ping undeclared" check_agent_can_ping
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 8 faults, 8 distinct checks, green restored"
+echo "teeth: 9 faults, 9 distinct checks, green restored"

@@ -20,6 +20,12 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    `@decided 2026-10-05`: an upgrade leaves the service's start at boot as the owner set it;
    only an install switches it on, as OpenWrt's own `default_postinst` does
    (gate: `scripts/gate-package.sh`, bound to `features/package.feature`, teeth: `scripts/teeth.sh`).
+   `@claude` 2026-10-08, 0.21.5-r9: the agent's own user can ping. BusyBox's ping needs root for its
+   raw socket, so from r3 to r8 every ping the agent ran was refused; the package depends on
+   iputils-ping, whose `/usr/bin/ping` is setuid root and comes first on the service's PATH.
+   `@measured` 2026-10-08 on a Flint 2, clean r8 from the feed, a one-off cron job: ping refused,
+   then answered once iputils-ping was added (gate: `scripts/gate-package.sh`
+   `check_agent_can_ping`; teeth: `scripts/teeth.sh` fault 9).
 2. Telegram is optional, disjoint from the base payload, and refuses unusable setup
    (gate: `scripts/gate-telegram.sh`).
 3. All provider, Telegram and MCP credentials are read, as root, by the exec wrapper on
