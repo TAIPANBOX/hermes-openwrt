@@ -56,11 +56,28 @@ echo "==> publishing commit $PUBLISH_SHA"
 
 EC_KEY=${EC_KEY:-$ROOT/keys/hermes-openwrt.private.pem}
 SKIP_BUILD=${SKIP_BUILD:-0}
+# FROM_CI=<run id>: take the packages CI built and gated instead of building them here. A full
+# build writes hundreds of megabytes per run, and a workstation's SSD is not where that belongs;
+# this machine only signs. The run must have succeeded, and the git tree it built from must be the
+# tree being published, so a signature never lands on packages built from other source.
+FROM_CI=${FROM_CI:-}
 
 for k in "$EC_KEY"; do
 	[ -f "$k" ] || { echo "publish-feed.sh: missing signing key $k" >&2
 		echo "  generate them once with: ./scripts/feed-keygen.sh" >&2; exit 1; }
 done
+
+if [ -n "$FROM_CI" ]; then
+	concl=$(gh run view "$FROM_CI" --json conclusion --jq .conclusion)
+	[ "$concl" = success ] || { echo "publish-feed.sh: CI run $FROM_CI concluded '$concl', not success" >&2; exit 1; }
+	rm -rf "$ROOT/build/25.12" "$ROOT/build/luci-app-hermes-apk" "$ROOT/build/source-tree"
+	mkdir -p "$ROOT/build"
+	gh run download "$FROM_CI" -n hermes-agent-aarch64_generic -D "$ROOT/build"
+	want=$(git rev-parse 'HEAD^{tree}'); got=$(cat "$ROOT/build/source-tree" 2>/dev/null || echo none)
+	[ "$got" = "$want" ] || { echo "publish-feed.sh: CI run $FROM_CI built tree $got, publishing tree $want; refusing" >&2; exit 1; }
+	echo "==> packages from CI run $FROM_CI, built from tree $got"
+	SKIP_BUILD=1
+fi
 
 if [ "$SKIP_BUILD" != 1 ]; then
 	# The add-on is built after the base package for the same architecture, never

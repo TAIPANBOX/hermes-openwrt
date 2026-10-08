@@ -76,7 +76,7 @@ jobs:
       # because the one failure it can have is claiming a file the base already owns and
       # that cannot be checked against a tree which is not there.
       - name: build the Telegram add-on
-        run: ./package/hermes-agent-telegram/build-in-container.sh ${{ matrix.arch }}
+        run: EXTRA_ARCHES=${{ matrix.arch == 'aarch64_generic' && 'aarch64_cortex-a53' || '' }} ./package/hermes-agent-telegram/build-in-container.sh ${{ matrix.arch }}
 
       # Architecture-independent, so one build serves every router; it is built here
       # rather than in its own job because both gates want both packages present.
@@ -97,6 +97,10 @@ jobs:
           go-version-file: openwrt-mcp-src/go.mod
       - name: build the openwrt-mcp apk the gates install beside hermes-agent
         run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh ${{ matrix.arch }}
+      # The feed serves openwrt-mcp under both labels; only the core leg's packages are published.
+      - name: and openwrt-mcp under the label a Flint 2 and a Brume 2 report, for the feed
+        if: matrix.suite == 'core' && matrix.arch == 'aarch64_generic'
+        run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh aarch64_cortex-a53
 
       # apk mkpkg records each file's owner as found on disk, and this runner's uid 1001 became
       # `nobody` on the router, /etc/hermes-agent included. A Mac never shows it, so it is read
@@ -180,14 +184,20 @@ jobs:
           # The unlock leg runs the whole gate with nothing planted; shard 0 need not repeat it.
           CLEAN_RUN_ELSEWHERE: '1'
 
+      # What the feed publishes, exactly as built and gated here, so publish-feed.sh FROM_CI=<run>
+      # only signs on the workstation and builds nothing there. source-tree names the git tree it
+      # was built from; publish-feed.sh refuses a run whose tree is not the one it publishes.
+      - name: record the source tree these packages were built from
+        if: matrix.suite == 'core'
+        run: git rev-parse 'HEAD^{tree}' > build/source-tree
       - uses: actions/upload-artifact@v4
         if: matrix.suite == 'core'
         with:
           name: hermes-agent-${{ matrix.arch }}
           path: |
-            hermes-agent-*.apk
-            hermes-agent-telegram-*.apk
-            luci-app-hermes-*.apk
+            build/source-tree
+            build/25.12/*/*.apk
+            build/luci-app-hermes-apk/*.apk
           # About 71 MB per architecture since 0.21.5; a fortnight is long enough to try one on a router
           # and short enough not to hoard.
           retention-days: 14
