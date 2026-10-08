@@ -1210,6 +1210,52 @@ procd_close_service
                 self.assertEqual(check.returncode, 0, check.stderr)
                 self.assertEqual(check.stdout.strip().splitlines()[-1], "False False True True")
 
+    def test_tool_search_is_off_unless_the_operator_set_it(self):
+        # Upstream defers every MCP tool behind tool_search by default, and on routers on
+        # 2026-10-08 models never searched: they never saw openwrt-mcp's tools and looped on
+        # `uci` in the terminal. With tools.tool_search.enabled 'off' the agent called
+        # mcp__openwrt__uci_apply. Upstream's own loader is what reads it here.
+        code = ("from tools.tool_search import load_config, should_activate; c = load_config(); "
+                "print(c.enabled, should_activate(c, 1000, 128000))")
+
+        def upstream():
+            check = subprocess.run(["python3", "-c", code], env=self.env, check=False,
+                                   capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stderr)
+            return check.stdout.strip().splitlines()[-1]
+
+        for profile in ("owner", "assistant", "root", "admin"):
+            with self.subTest(profile=profile):
+                (self.home / "config.yaml").unlink(missing_ok=True)
+                result = self.bridge(profile, factor="pin", mcp="http://127.0.0.1:8730/mcp")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.config()["tools"]["tool_search"], {"enabled": "off"})
+                self.assertEqual(upstream(), "off False")
+                # A start that changes nothing changes nothing.
+                before = (self.home / "config.yaml").read_bytes()
+                self.assertEqual(self.bridge(profile, factor="pin", mcp="http://127.0.0.1:8730/mcp").returncode, 0)
+                self.assertEqual((self.home / "config.yaml").read_bytes(), before)
+        # The operator's own settings beside it are kept; their own value, either form, wins.
+        (self.home / "config.yaml").write_text(yaml.safe_dump(
+            {"tools": {"tool_search": {"threshold_pct": 7}, "other": 1}}))
+        self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        self.assertEqual(self.config()["tools"], {"tool_search": {"threshold_pct": 7, "enabled": "off"}, "other": 1})
+        for theirs, seen in (({"enabled": "on"}, "on True"), ({"enabled": "auto"}, "auto True"),
+                             (True, "auto True"), (False, "off False")):
+            with self.subTest(theirs=theirs):
+                (self.home / "config.yaml").write_text(yaml.safe_dump({"tools": {"tool_search": theirs}}))
+                self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+                self.assertEqual(self.config()["tools"]["tool_search"], theirs)
+                self.assertEqual(upstream(), seen)
+        # Callers that predate profiles leave it alone, as they do the note and the plugin.
+        (self.home / "config.yaml").unlink()
+        self.assertEqual(self.configure().returncode, 0)
+        self.assertNotIn("tools", self.config())
+        # A tools key that is not a mapping refuses and leaves the file as it was.
+        (self.home / "config.yaml").write_text("tools: 7\n")
+        self.assertNotEqual(self.bridge("owner", factor="pin").returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_text(), "tools: 7\n")
+
 
     def test_config_written_by_root_takes_the_data_dir_owner(self):
         # A root-owned config.yaml is one the gateway, which is hermes, cannot update.

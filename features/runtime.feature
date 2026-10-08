@@ -66,8 +66,11 @@
 #                        and in these tests on 127.0.0.1, which upstream trusts by name.
 #   @decided 2026-10-05  An endpoint on the LAN works as UCI names it, with nothing added by
 #                        hand to the agent's .env.
-#   @measured 2026-10-08 on a Brume 2, 0.21.5-r9 release candidate, a person writing to the
-#                        bot: offered openwrt-mcp's exec, three model setups pinged through it and
+#   @measured 2026-10-08 on a Flint 2, a Brume 2 and a Beryl AX, 0.21.5-r9 release candidate, a
+#                        person writing to the bot: with upstream's tool search on, the models
+#                        never saw openwrt-mcp's tools and looped on uci in the terminal; with
+#                        tools.tool_search.enabled off the agent called mcp__openwrt__uci_apply.
+#                        Offered openwrt-mcp's exec, three model setups pinged through it and
 #                        reported "blocked by policy"; with exec and wg_new_client hidden and one
 #                        sentence sending diagnostics to the terminal, one ran the diagnosis in 3
 #                        model calls.
@@ -282,6 +285,16 @@ Feature: What is set on the router is what the gateway runs with
     Then the entry names exec and wg_new_client as excluded, beside the unlock tools
     And upstream's own filter registers neither of them and still registers the read tools
     # -> check_mcp_entry_hides_exec_and_wg_new_client_in_every_profile
+
+  Scenario: the model sees the router tools by name instead of behind a search tool
+    Given the operator has set nothing about upstream's tool search
+    When the package writes the configuration in any profile
+    Then tool search is off, upstream's own loader reads it as off and defers nothing
+    And a start that changes nothing changes nothing
+    When the operator has set tool search themselves, as a value or as the older true or false
+    Then their setting is kept and the settings beside it too
+    And a tools setting that is not a mapping refuses the start and leaves the file as it was
+    # -> check_tool_search_is_off_unless_the_operator_set_it
 
   # ---- The model and its endpoint ----
 

@@ -42,6 +42,11 @@ up first. The package-written mcp_servers.openwrt entry carries tools.exclude, s
 model is never offered openwrt-mcp's unlock or lock tools in any profile (upstream's
 tools/mcp_tool_registration.py reads that key).
 
+@claude 2026-10-08, 0.21.5-r10: exec and wg_new_client are excluded the same way, since the
+agent's client is never granted them and models that saw them reached for them; every profile
+writes tools.tool_search.enabled 'off' where the operator has set nothing, so upstream does not
+defer the MCP tools behind its search tool.
+
 @decided 2026-10-01 (the unlock plugin): in the owner profile the bridge also enables the
 plugin openwrt-unlock, which ships in the package's own site-packages and takes /unlock and
 /lock in Telegram (its own header says how). It adds the name to plugins.enabled, keeping
@@ -178,6 +183,12 @@ MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")
 # What 0.21.5-r3 to r9 hid, so an entry those releases wrote, pasted back by hand, is still ours.
 MCP_HIDDEN_R9 = ("mfa_unlock", "mfa_lock")
 
+# Upstream's tools/tool_search.py defers every MCP tool behind a search tool by default
+# (tools.tool_search.enabled "auto"), and on routers on 2026-10-08 the models never searched:
+# they never saw openwrt-mcp's tools and looped on `uci` in the terminal, which as hermes fails
+# with an I/O error. With "off" the same agent called mcp__openwrt__uci_apply. Written only where
+# the operator has set nothing: an explicit enabled value, or the legacy bool, is theirs.
+TOOL_SEARCH_OFF = "off"
 
 # What marks a `providers` entry as written by this package rather than the operator.
 KEY_ENV = re.compile(r"^HERMES_PROVIDER_[A-Z0-9_]+_KEY$")
@@ -486,6 +497,22 @@ def main() -> int:
                     agent_cfg["system_prompt"] = own
                 elif noted:
                     agent_cfg.pop("system_prompt", None)
+
+        # Upstream's tool search, off where the operator has set nothing (see TOOL_SEARCH_OFF),
+        # in every profile, so the model sees openwrt-mcp's tools by name. Left alone when no
+        # profile was passed, like the note and the plugin above.
+        if profile is not None:
+            tools_cfg = config.get("tools")
+            if tools_cfg is None:
+                tools_cfg = {}
+            if not isinstance(tools_cfg, dict):
+                raise ValueError("tools must be a mapping")
+            search = tools_cfg.get("tool_search")
+            if search is None:
+                search = {}
+            if isinstance(search, dict) and search.get("enabled") is None:
+                tools_cfg["tool_search"] = dict(search, enabled=TOOL_SEARCH_OFF)
+                config["tools"] = tools_cfg
 
         # The per-turn step budget, from UCI. Unset leaves whatever is there.
         turns = os.environ.get("HERMES_OPENWRT_MAX_TURNS")
