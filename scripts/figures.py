@@ -120,7 +120,7 @@ def install_flow():
 
 def unlock():
     w, h = 1280, 400
-    out = frame(w, h, "An unlock: the owner sends /unlock in the private chat; the bot deletes the message first; openwrt-mcp checks the factor; a window opens for changes; a change that is not confirmed rolls back, after a reboot too")
+    out = frame(w, h, "An unlock: the owner sends /unlock in the private chat; the bot deletes the message first; openwrt-mcp checks the factor; a window opens for changes; a change the agent does not confirm rolls back, after a reboot too")
     n, period = 5, 10
     css = [f"@keyframes lit{{0%,{100 / n * 0.15:.1f}%{{opacity:.28}}{100 / n * 0.35:.1f}%,{100 / n * 1.25:.1f}%{{opacity:1}}{100 / n * 1.6:.1f}%,100%{{opacity:.28}}}}",
            f".st{{animation:lit {period}s ease-in-out infinite}}"]

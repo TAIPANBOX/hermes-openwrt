@@ -343,7 +343,15 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     automatic rollback; a `ubus_call` (a service restart, say) has none.
     Unlocking is per agent: `hermes-<name>` has its own token and its own window.
     An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
-    so a reboot does not keep it. `@claude` 2026-10-01: wireless is not readable, and neither
+    so a reboot does not keep it. `@decided 2026-10-08` (the owner's, paraphrased): the owner's
+    consent is the /unlock; after an applied change the agent confirms it once it has checked the
+    router still answers, and the automatic rollback (openwrt-mcp's, about 90 s) is for a change
+    nobody confirmed, because the router lost its connection or the agent did not get to it.
+    `@claude` 2026-10-08, reported from a run on a Flint 2 (the r11 release candidate, gpt-6.1-sol
+    through Telegram), not run here: in an open window the agent created a WireGuard interface
+    without a private key, an isolated firewall zone and a UDP rule, read them back, checked lan
+    and called `uci_confirm` itself. The owner note does not tell the agent to confirm;
+    openwrt-mcp's own tool descriptions do (not enforced here). `@claude` 2026-10-01: wireless is not readable, and neither
     is the whole of network, since a router running WireGuard keeps its private key in a
     network section and a read goes to the model provider; the first design listed network
     whole, and `MCP_READ_UCI` in the init is the one line that says otherwise. Read answers

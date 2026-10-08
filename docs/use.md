@@ -87,6 +87,12 @@ router's board, hostname and uptime; its audit log shows those three reads and n
 else. A grant of `ubus_call` on `system.*` would also cover `system.reboot`: grant methods
 by name for anything that should stay read-only.
 
+**It will not install packages.** No policy the package writes lets the agent install one,
+in an unlock window or out of it, so what a change needs from the feed you install yourself. A
+WireGuard VPN needs the kernel module and the tools: `apk add kmod-wireguard wireguard-tools`.
+Without them the agent can write the interface's settings, but the interface stays `NO_DEVICE`;
+on a Flint 2 on 2026-10-08 it did, and the agent said so.
+
 **Browser, vision, image generation and the wake-word stack are not packaged.** They pull
 heavy dependencies for capabilities a headless router does not have. `ffmpeg` is included,
 because voice messages and speech transcoding do work here and are cheap.

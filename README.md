@@ -191,12 +191,14 @@ procd's service table.
 | `assistant` | `hermes`, no terminal, code or file tools | only through an MCP server you set up |
 | `root` | root, warned at every start | directly, no unlock |
 
-![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, an unconfirmed change rolls back by itself](docs/unlock.svg)
+![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, a change the agent does not confirm rolls back by itself](docs/unlock.svg)
 
 The owner unlocks from the private Telegram chat with a PIN, an app code or both. The message is
 deleted before anything else and never reaches the model or a log; five wrong tries lock
-unlocking for fifteen minutes; a change that is not confirmed is undone by itself, after a reboot
-too. In a window the agent can change settings, the VPN and services; it cannot run a command
+unlocking for fifteen minutes. Your consent is the `/unlock` itself: after a change the agent
+checks that the router still answers and confirms the change; one it does not confirm (the router
+lost its connection, or the agent never got that far) is undone by itself after about 90 seconds,
+after a reboot too. In a window the agent can change settings, the VPN and services; it cannot run a command
 over ubus, write a file, flash a firmware or reboot, and openwrt-mcp refuses a setting that would
 run code (a firewall include). The agent reads the Wi-Fi and network settings too,
 so it can set up a guest network, but never a key in them: openwrt-mcp answers every Wi-Fi key,

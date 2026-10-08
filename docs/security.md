@@ -157,7 +157,7 @@ one of a client that covers a call:
 | `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
 | `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, `network` and `wireless`, from an openwrt-mcp that redacts (below); otherwise on `system`, `dhcp`, `firewall` and `network`'s loopback, globals, lan and wan sections | none |
 | `hermes_main_read_log` | `logread` | none |
-| `hermes_main_change` | `uci_apply`, `uci_confirm`, any setting, each apply rolled back unless confirmed | the factor |
+| `hermes_main_change` | `uci_apply`, `uci_confirm`, any setting, each apply rolled back unless the agent confirms it | the factor |
 | `hermes_main_change_ubus` | `ubus_call`, by method: `network.reload`, `network.restart`, an interface's `up`, `down` and `renew` (by `network.interface` or the interface's own object), `network.wireless.up`, `.down` and `.reconf`, and `rc.init` (start, stop, restart, reload, enable or disable a service) | the factor |
 
 `exec` and `wg_new_client` are not granted: the second answers with a WireGuard private
@@ -165,7 +165,7 @@ key, and whatever a tool answers goes to the model provider.
 
 **What an open window allows.** Since 0.21.5-r11 an open window lets the agent change
 settings, the VPN and services, and nothing else by name: settings through `uci_apply`, which
-undoes a change nobody confirms (after a reboot too), and the ubus calls above, which bring a
+undoes a change the agent does not confirm (after a reboot too), and the ubus calls above, which bring a
 setting into effect or restart a service. No policy the package writes grants rpcd's `file`
 object (it runs commands and writes files), `system.sysupgrade` or
 `system.validate_firmware_image`, `system.reboot` (a reboot cannot be rolled back, so it is left
@@ -247,8 +247,17 @@ The owner note also tells the agent that a UCI section name holds only letters, 
 underscores, that a port forward is a firewall `redirect`, not a `rule`, and to read a change
 back with `uci_get` and report only what the router holds. Unlocking is per agent:
 a second agent would be `hermes-<name>`, with its own token, its own policies and its own
-window. An unconfirmed `uci_apply` is undone from a snapshot under `/etc/openwrt-mcp`, not
-in `/tmp`, so it is undone after a reboot as well as after its timeout.
+window.
+
+**Who confirms a change.** Your consent is the `/unlock` itself; you are not asked again for each
+change. After a `uci_apply` the agent checks that the router still answers (it reads the change
+back and looks at the LAN) and then confirms it with `uci_confirm`. The automatic rollback,
+about 90 seconds unless the call sets another timeout, is for the case where that does not
+happen: the change cut the router off, or the agent never got to confirm. An unconfirmed
+`uci_apply` is undone from a snapshot under `/etc/openwrt-mcp`, not in `/tmp`, so it is undone
+after a reboot as well as after its timeout. On a Flint 2 on 2026-10-08, in an open window, the
+agent created a WireGuard interface (without a private key, as asked), an isolated firewall zone
+and a UDP rule, read them back, checked the LAN and confirmed the change itself.
 
 ### Setting up what unlocking asks for
 

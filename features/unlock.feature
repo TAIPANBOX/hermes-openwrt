@@ -158,7 +158,8 @@ Feature: The agent changes the router only when its owner unlocks it
 
   Scenario: A change that is not confirmed undoes itself, even across a reboot
     Given an unlock is open and the agent applies a configuration change
-    When nobody confirms it in time, or the router reboots first
+    When the agent does not confirm it in time (the change cut the router off, or the agent never
+      got to it), or the router reboots first
     Then the previous configuration is back
     # -> check_rollback_survives_reboot
 
