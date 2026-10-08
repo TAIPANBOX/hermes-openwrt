@@ -12,7 +12,10 @@
 apk() {
 	_ar_n=0
 	while :; do
-		_ar_out=$(command apk "$@" 2>&1); _ar_rc=$?
+		# `|| _ar_rc=$?`, not `; _ar_rc=$?`: every build and gate sources this under set -e, and there a
+		# failing command substitution ends the whole shell before the retry, and before apk's own
+		# message is printed (CI's build died that way, silently, on 2026-10-08).
+		_ar_rc=0; _ar_out=$(command apk "$@" 2>&1) || _ar_rc=$?
 		[ -n "$_ar_out" ] && printf '%s\n' "$_ar_out"
 		[ "$_ar_rc" -eq 0 ] && return 0
 		case "$_ar_out" in

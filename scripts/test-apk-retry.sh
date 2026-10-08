@@ -25,6 +25,12 @@ fail() { echo "FAIL $1: $2"; exit 1; }
 [ "$(run 9 'ERROR: wget: exited with error 4')" = "1 5" ] || fail check_gives_up_after_five "a feed that never answers should be tried five times, then fail"
 [ "$(run 1 'ERROR: UNTRUSTED signature')" = "1 1" ] || fail check_never_retries_a_real_refusal "an untrusted signature must fail at once, untried again"
 [ "$(run 0 '')" = "0 1" ] || fail check_success_is_one_call "a clean apk must run once"
+# Under set -eu, as every build and gate sources it: a cut-off must still be retried, not end the shell.
+rm -f "$T/calls"
+out=$(PATH="$T:$PATH" STATE=$T FAILS=2 MSG='ERROR: wget: exited with error 4' \
+	sh -eu -c 'sleep() { :; }; . "$1"; apk update -q; echo after-apk' x "$ROOT/scripts/apk-retry.sh" 2>&1) || true
+case "$out" in *after-apk*) ;; *) fail check_retries_under_set_e "under set -eu a cut-off ended the shell instead of being retried: $out" ;; esac
+[ "$(cat "$T/calls")" = 3 ] || fail check_retries_under_set_e "under set -eu, two cut-offs then OK should take three calls"
 # Every script that starts an OpenWrt container and runs apk update or add in it sources the helper,
 # so a new gate written without it cannot quietly go back to dying on the first cut-off download.
 n=0
@@ -42,4 +48,4 @@ for f in "$ROOT"/scripts/*.sh "$ROOT"/package/*/build-in-container.sh; do
 	fi
 done
 [ "$n" -gt 0 ] || fail check_every_container_script_sources_it "measured nothing: no script runs apk in a container"
-echo "PASS: test-apk-retry (cut-off retried, five tries at most, a refusal never retried, success once; $n container scripts source it)"
+echo "PASS: test-apk-retry (cut-off retried, also under set -e, five tries at most, a refusal never retried, success once; $n container scripts source it)"
