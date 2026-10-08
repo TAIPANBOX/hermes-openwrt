@@ -9,6 +9,16 @@
 #                        boot was off before the upgrade and on after it, because post-upgrade
 #                        ran the same enable as post-install. OpenWrt's own default_postinst
 #                        enables a service on install and not on upgrade (PKG_UPGRADE=1).
+#   @measured 2026-10-08 on a Flint 2, a clean install of 0.21.5-r8 from the feed: a scheduled
+#                        diagnosis ran as `hermes` and every ping answered "permission denied
+#                        (are you root?)"; with iputils-ping installed the same job pinged the
+#                        internet and the gateway with no loss.
+#   @measured 2026-10-08 on the same Flint 2: one `hermes chat` typed in a shell, its provider
+#                        answering 401, pip-installed boto3 and botocore into /srv/hermes/.local;
+#                        the gateway, started by the service, refused the same lazy install.
+#   @measured 2026-10-08 on the same Flint 2: as hermes, `tr '\0' '\n' < /proc/<gateway>/environ`
+#                        printed OPENAI_API_KEY; with the gateway made non-dumpable it was refused,
+#                        root still read it, and a live diagnosis ran as before.
 #   @claude 2026-10-05   Scenarios 1 to 11 describe what scripts/gate-package.sh has checked
 #                        since before this file existed, written down so that gate binds both
 #                        ways like every other; they paraphrase the gate's own comments.
@@ -88,3 +98,21 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
     Then the start at boot is still off
     And a start at boot that was on is still on after an upgrade
     # -> check_upgrade_keeps_boot_start
+
+  Scenario: the agent can measure the internet from the default profile
+    Given the package just installed, with the agent running as its own unprivileged user
+    When the agent runs ping, as the first step of finding out why the internet is slow
+    Then the ping is answered, instead of refused for not being root
+    # -> check_agent_can_ping
+
+  Scenario: hermes typed in a shell never downloads Python packages onto the router
+    Given the package installed
+    When hermes is run from a shell, as root or as the agent's own user
+    Then it is held to the same rule as the service: nothing is pip-installed at runtime
+    # -> check_shell_never_lazy_installs
+
+  Scenario: the agent cannot read its own keys out of the running service
+    Given the service started with a key, the agent running as its own user
+    When that user reads the running gateway's environment, as the agent's terminal could
+    Then it is refused, and only root can read the keys there
+    # -> check_gateway_keys_hidden_from_its_user

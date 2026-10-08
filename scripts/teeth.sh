@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth.sh -- prove gate-package.sh can actually fail, and fail at the right check.
 #
-# Eight faults, each one a real change could introduce, each caught by a different
+# Eleven faults, each one a real change could introduce, each caught by a different
 # check. If two faults trip the same check, one of them is not testing what its name
 # says, and the gate is thinner than its list of checks suggests.
 #
@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -40,6 +40,8 @@ cleanup() {
 	[ -f /tmp/postupgrade.bak ] && cp /tmp/postupgrade.bak "$W/post-upgrade" 2>/dev/null
 	chmod 0755 "$W/post-upgrade" 2>/dev/null || true
 	[ -f /tmp/wrap.bak ] && cp /tmp/wrap.bak "$W/tree/usr/sbin/hermes-gateway" 2>/dev/null
+	[ -f /tmp/env.bak ] && cp /tmp/env.bak "$W/tree/usr/lib/hermes-agent/hermes-env" 2>/dev/null
+	[ -f /tmp/boot.bak ] && cp /tmp/boot.bak "$W/tree/usr/lib/hermes-agent/gateway-boot/sitecustomize.py" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
 	# The init is restored from the repository rather than from a backup: a backup taken
 	# at the top of a run that had already been poisoned by an earlier crashed run would
@@ -51,7 +53,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 # a backup is taken by the fault that changes its file; one left by an earlier run that
 # stopped half way would otherwise be restored over a fresh build's file
-rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak
+rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak /tmp/env.bak /tmp/boot.bak
 
 repack() {
 	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
@@ -91,7 +93,7 @@ cp /tmp/shim.bak "$SITE/webbrowser.py"
 # ---- fault 2: an undeclared runtime dependency ----
 # apk would not complain: the package installs fine without ffmpeg declared, and the
 # gap only shows the first time someone sends a voice message.
-repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp"
+repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp iputils-ping"
 expect_red "ffmpeg undeclared" check_deps_resolve
 
 # ---- fault 3: a post-install that does not enable the service ----
@@ -180,10 +182,39 @@ repack "$DEPS_OK"
 expect_red "an install that takes the new defaults over the owner's" check_config_survives
 cp /tmp/postinstall.bak "$W/post-install"; chmod 0755 "$W/post-install"
 
+# ---- fault 9: the package without iputils-ping ----
+# The shape r3 to r8 shipped in: the agent runs as `hermes`, BusyBox's ping needs root, and every
+# ping the agent ran answered "permission denied". Everything else installs and starts.
+repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp"
+expect_red "iputils-ping undeclared" check_agent_can_ping
+
+# ---- fault 10: hermes from a shell allowed to pip-install ----
+# The shape every release up to r9 had: hermes-env did not set HERMES_DISABLE_LAZY_INSTALLS, so
+# only the gateway was held to it, and a `hermes chat` typed in a shell pip-installed boto3.
+ENVF="$W/tree/usr/lib/hermes-agent/hermes-env"
+cp "$ENVF" /tmp/env.bak
+grep -q '^export HERMES_DISABLE_LAZY_INSTALLS=1$' "$ENVF" || {
+	echo "teeth: fault 10 planted nothing; hermes-env no longer sets HERMES_DISABLE_LAZY_INSTALLS" >&2; exit 1; }
+sed '/^export HERMES_DISABLE_LAZY_INSTALLS=1$/d' /tmp/env.bak > "$ENVF"
+repack "$DEPS_OK"
+expect_red "hermes from a shell allowed to pip-install" check_shell_never_lazy_installs
+cp /tmp/env.bak "$ENVF"
+
+# ---- fault 11: a gateway that stays dumpable ----
+# The shape every release up to r9 had: the keys the wrapper exports were readable in
+# /proc/<gateway>/environ by the gateway's own user, the agent's terminal included.
+BOOT="$W/tree/usr/lib/hermes-agent/gateway-boot/sitecustomize.py"
+[ -f "$BOOT" ] || { echo "teeth: fault 11 planted nothing; no gateway sitecustomize in the tree" >&2; exit 1; }
+cp "$BOOT" /tmp/boot.bak
+printf '# deliberately empty: teeth.sh fault 11\n' > "$BOOT"
+repack "$DEPS_OK"
+expect_red "a gateway that stays dumpable" check_gateway_keys_hidden_from_its_user
+cp /tmp/boot.bak "$BOOT"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 8 faults, 8 distinct checks, green restored"
+echo "teeth: 11 faults, 11 distinct checks, green restored"

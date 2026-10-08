@@ -29,9 +29,10 @@ MCP=$("$ROOT/scripts/mcp-apk.sh" "$ARCH") || exit 1
 RUNTIME_TESTS="$*"
 # This privileged container has a PRIVATE cgroup namespace and no writable host
 # mounts. Its root cgroup is the disposable container, never the host namespace.
-docker run --rm -i --platform "linux/$ARCH" --privileged --cgroupns private --memory 1g \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "linux/$ARCH" --privileged --cgroupns private --memory 1g \
     -e RUNTIME_TESTS="$RUNTIME_TESTS" \
     -v "$ROOT:/src:ro" -v "$BUILD:/build:ro" -v "$BUILD-telegram:/addon:ro" -v "$MCP:/openwrt-mcp.apk:ro" "$IMAGE" sh -s <<'CONTAINER'
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 mkdir -p /var/lock /var/run /var/state /etc/hermes-agent
 apk update -q

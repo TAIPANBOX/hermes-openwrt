@@ -120,4 +120,9 @@ unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OP
 # The root profile asks for root, so the launcher must not second-guess it from who owns
 # the data directory (see /usr/bin/hermes).
 [ "$run_user" != root ] || export HERMES_OPENWRT_AS_ROOT=1
+# The gateway's sitecustomize makes it non-dumpable, so /proc/<gateway>/environ, which holds the keys
+# exported above, is root's alone and not the agent's terminal's (see the file). The launcher puts
+# its own site-packages first and this after it. Added to, not set: procd hands the wrapper no
+# PYTHONPATH, and a caller that does (the runtime gate, reproducing this environment) keeps its own.
+export PYTHONPATH="/usr/lib/hermes-agent/gateway-boot${PYTHONPATH:+:$PYTHONPATH}"
 exec $DROP "$run_user" /usr/bin/hermes gateway run --external-supervisor

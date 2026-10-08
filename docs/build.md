@@ -106,6 +106,9 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] A daily check opens an issue when upstream tags a release newer than the pinned one (`scripts/upstream-watch.sh`); moving to it stays a reviewed change, built, gated and run on both routers first
 - [x] An upgrade leaves the service's start at boot as the owner set it; only an install switches it on (0.21.5-r7)
 - [x] An endpoint on the LAN starts: the wrapper exports `CUSTOM_BASE_URL` equal to the endpoint in UCI (0.21.5-r8)
+- [x] The agent can ping as its own user: the package depends on iputils-ping, BusyBox's ping needing root (0.21.5-r9)
+- [x] `hermes` run from a shell never pip-installs, as the gateway never did (0.21.5-r9)
+- [x] The agent cannot read its keys out of the running gateway: the gateway is non-dumpable (0.21.5-r9)
 
 ## Prior art, and what is not ours
 

@@ -92,9 +92,10 @@ trap 'rm -rf "$WWW"' EXIT
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 # -i is load-bearing: without it docker hands `sh -s` an empty stdin, nothing runs, the
 # container exits 0, and this gate passes having measured nothing.
-docker run --rm -i --platform "$PLATFORM" \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" \
 	-v "$AGENT:/agent.apk:ro" -v "$LUCI:/luci.apk:ro" -v "$MCP:/mcp.apk:ro" -v "$WWW:/out" \
 	"$IMAGE" /bin/sh -s <<'CONTAINER'
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 fail() { echo "FAIL $1: $2"; exit 1; }
 CANARY=sk-luci-gate-canary

@@ -38,11 +38,14 @@ cat /etc/apk/arch                                  # expect: aarch64_cortex-a53 
 . /etc/openwrt_release; echo "$DISTRIB_ID $DISTRIB_RELEASE"   # expect: OpenWrt 25.12.<n>
 command -v apk                                     # expect: /usr/bin/apk (vendor firmwares use opkg)
 awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo   # expect: 900 or more (1 GB); 450 to 900 is 512 MB, see below
-df -m /overlay | awk 'NR==2 {print $4}'            # expect: 450 or more (MB free)
+df -m / | awk 'NR==2 {print $4}'                   # expect: 450 or more (MB free)
 grep -ow memory /sys/fs/cgroup/cgroup.controllers  # expect: memory
 wget -q --spider https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem && echo reachable   # expect: reachable
 ```
 
+- `df -m /`, not `df -m /overlay`: on a Flint 2 `/overlay` is not a mount point of its own and
+  `df` answers "can't find mount point" (measured 2026-10-08); `/` shows the same free space
+  wherever the overlay is.
 - A different architecture: stop. Nothing else is built.
 - Not 25.12, or no `apk`: stop. The package is for vanilla OpenWrt 25.12 only.
 - 512 MB of memory: one conversation at a time fits, with little to spare. Tell the person.
@@ -117,11 +120,15 @@ sleep 30
 **Check:**
 
 ```sh
-pgrep -f 'main.py gateway' >/dev/null && echo running          # expect: running
+pgrep -f '[m]ain.py gateway' >/dev/null && echo running        # expect: running
 logread | awk '/hermes-runbook: start/{n=0;f=1} f&&/hermes/&&/refus|ot starting/{n++} END{print n+0}'   # expect: 0
-[ "$(awk '/^Uid/{print $2}' /proc/$(pgrep -o -f 'main.py gateway')/status)" = "$(id -u hermes)" ] && echo as-hermes   # expect: as-hermes
+[ "$(awk '/^Uid/{print $2}' /proc/$(pgrep -o -f '[m]ain.py gateway')/status)" = "$(id -u hermes)" ] && echo as-hermes   # expect: as-hermes
 uci get hermes.main.profile                                     # expect: owner
 ```
+
+The `[m]` in the pattern is load-bearing when you send these lines as `ssh router '...'`: the
+router's `sh -c` then carries the text `main.py gateway` in its own command line, `pgrep -o -f`
+picks that shell, and the checks read the wrong process (measured 2026-10-08).
 
 Not running: read `logread | sed -n '/hermes-runbook: start/,$p' | tail -n 40` and match the line in
 [Failures](#failures). The gateway takes 4 to 5 s to exec and about 200 MB of memory.
@@ -213,6 +220,7 @@ Lines the service writes to `logread`, what they mean, and what to do.
 
 | The log says | Cause | Do |
 |---|---|---|
+| apk: `Connection aborted`, `wget: exited with error 4`, then `N errors;` | a download from downloads.openwrt.org was cut off; the packages it names are not installed | run the same `apk add` again until it ends with `OK:`; never `--force` |
 | `disabled in /etc/config/hermes; not starting` | `hermes.main.enabled` is 0 | step 4 |
 | `no API key in /etc/hermes-agent/provider.key` | the key file is missing or empty | step 3 |
 | `base_url is empty` / `model is empty` | UCI not set | step 3 |
@@ -228,6 +236,9 @@ Lines the service writes to `logread`, what they mean, and what to do.
 | `there is no user 'hermes'` | the account is missing | report it; reinstalling hermes-agent recreates it (its install and upgrade scripts both make the account), with the person's yes |
 | `could not start openwrt-mcp` / `could not pair hermes-main` | openwrt-mcp failed | `logread -e openwrt-mcp`; report it |
 | the gateway starts, then stops five times within minutes | procd's bounded respawn gave up after repeated failures | read the first refusal above it |
+
+A diagnosis whose every ping says `permission denied (are you root?)` is a package before 0.21.5-r9:
+`apk upgrade hermes-agent`, which brings iputils-ping.
 
 A model that answers but will not act is usually the model: try one from the working list in
 step 3 before anything else.

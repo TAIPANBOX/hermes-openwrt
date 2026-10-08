@@ -20,6 +20,17 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    `@decided 2026-10-05`: an upgrade leaves the service's start at boot as the owner set it;
    only an install switches it on, as OpenWrt's own `default_postinst` does
    (gate: `scripts/gate-package.sh`, bound to `features/package.feature`, teeth: `scripts/teeth.sh`).
+   `@claude` 2026-10-08, 0.21.5-r9: the agent's own user can ping. BusyBox's ping needs root for its
+   raw socket, so from r3 to r8 every ping the agent ran was refused; the package depends on
+   iputils-ping, whose `/usr/bin/ping` is setuid root and comes first on the service's PATH.
+   `@measured` 2026-10-08 on a Flint 2, clean r8 from the feed, a one-off cron job: ping refused,
+   then answered once iputils-ping was added (gate: `scripts/gate-package.sh`
+   `check_agent_can_ping`; teeth: `scripts/teeth.sh` fault 9).
+   `@claude` 2026-10-08, 0.21.5-r9: nothing of Hermes pip-installs at runtime, from a shell either.
+   `hermes-env`, which the launcher and hermes-login source, exports HERMES_DISABLE_LAZY_INSTALLS=1
+   as the init does for the gateway. `@measured` 2026-10-08 on a Flint 2 by check 14's own lines
+   against r8: red in both launcher branches (`lazy=` empty); green with the new hermes-env (gate:
+   `scripts/gate-package.sh` `check_shell_never_lazy_installs`; teeth: `scripts/teeth.sh` fault 10).
 2. Telegram is optional, disjoint from the base payload, and refuses unusable setup
    (gate: `scripts/gate-telegram.sh`).
 3. All provider, Telegram and MCP credentials are read, as root, by the exec wrapper on
@@ -54,7 +65,16 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    controls are an OS security sandbox. `@claude` 2026-10-01, a limit named and not fixed:
    a process running as hermes, the agent's own terminal included, can read the gateway's
    environment in `/proc/<gateway>/environ`, which is where the keys are; the files on disk
-   stay root-only. `@claude` 2026-10-02, 0.21.5-r5: a data directory that does not exist is
+   stay root-only. `@claude` 2026-10-08, 0.21.5-r9, that limit closed: the gateway's own
+   sitecustomize (`/usr/lib/hermes-agent/gateway-boot`, on PYTHONPATH for the gateway's exec
+   only) makes it non-dumpable, fail-closed, so its /proc entries are root's. `@measured`
+   2026-10-08 on a Flint 2: as hermes the read printed OPENAI_API_KEY before and was refused
+   after, root still read it, a live diagnosis ran as before, and the agent's file tool refused
+   /proc/self/environ as a device file (gate: `scripts/gate-package.sh`
+   `check_gateway_keys_hidden_from_its_user`, with `--cap-add SYS_PTRACE` so the container's root
+   can read it as a router's can; teeth: `scripts/teeth.sh` fault 11). Upstream already keeps the
+   model key out of the terminal's environment; the openwrt-mcp token is there, and it carries the
+   agent's own policies only. `@claude` 2026-10-02, 0.21.5-r5: a data directory that does not exist is
    made 0700 and any missing parent 0755, each under a umask the init sets itself, because a
    boot starts the service with 077 and `mkdir -p` then closed a new `/srv` to everyone but
    root, so `hermes` could not reach its own directory and the start was refused as "cannot
@@ -414,6 +434,16 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scenarios` job; teeth: `scripts/teeth-figures.sh`; not gated: the older hand-drawn SVGs,
     whose numbers are not read from the data file, and the commands in docs/agent-install.md,
     which no check runs).
+
+23. `@claude` 2026-10-08: a download downloads.openwrt.org cuts off does not fail a build or a gate.
+    Every script that runs `apk update` or `apk add` inside an OpenWrt container sources
+    `scripts/apk-retry.sh`, whose `apk` retries only output that says a download was cut off
+    (`Connection aborted`, `wget: exited with error`, 429, a timeout), up to five times; any other
+    failure returns at once, so a gate that expects apk to refuse sees it refuse the first time.
+    `@measured` 2026-10-08: CI's build step died on "libreadline8 ... Connection aborted", a gate on
+    429, and a Flint 2 installing from the README got "2 errors;" (gate: `scripts/test-apk-retry.sh`,
+    in CI's `scenarios` job, a stand-in apk plus a scan that every such script sources the helper;
+    red-first against a helper that never retries and one that retries every failure).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

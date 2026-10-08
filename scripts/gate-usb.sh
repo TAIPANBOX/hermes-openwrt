@@ -48,8 +48,9 @@ EXTRA=""
 echo "PASS: artefacts $(basename "$APK"), $(basename "$MCP")"
 
 # shellcheck disable=SC2086
-docker run --rm -i --platform "$PLATFORM" --privileged -e ONLY="${ONLY:-}" -e CHECKS="$CHECKS" \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" --privileged -e ONLY="${ONLY:-}" -e CHECKS="$CHECKS" \
 	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" $EXTRA "$IMAGE" /bin/sh -s <<'CONTAINER'
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -u
 mkdir -p /var/lock /var/run /var/state /stub /tmp/cg
 apk add --allow-untrusted /pkg.apk /mcp.apk >/tmp/install.log 2>&1 || { tail -5 /tmp/install.log; echo "FAIL setup: the package would not install"; exit 1; }

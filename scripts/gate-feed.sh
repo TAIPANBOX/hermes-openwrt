@@ -43,7 +43,8 @@ echo "PASS: feed present for $ARCH"
 # The feed is mounted rather than served: what is under test is the signature, and an
 # HTTP server between here and apk would only add a way for the test to fail for a
 # reason that has nothing to do with it.
-docker run --rm -i --platform "$PLATFORM" -v "$FEED:/feed:ro" "$IMAGE" /bin/sh -s <<CONTAINER
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" -v "$FEED:/feed:ro" "$IMAGE" /bin/sh -s <<CONTAINER
+. /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 fail() { echo "FAIL \$1: \$2"; exit 1; }
 
