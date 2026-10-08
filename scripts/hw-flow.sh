@@ -135,7 +135,9 @@ step_telegram() {
 	mark telegram; on '/etc/init.d/hermes-agent restart' >>"$LOG" 2>&1
 	gateway_up 90 && sleep 15
 	bad=$(since telegram | grep -c 'telegram is enabled but')
-	conn=$(on "grep -ciE 'telegram.*(connected|polling|started)' /srv/hermes/logs/gateway.log")
+	# connected is logged some seconds after the gateway is up; wait for the line itself
+	i=0; while [ "$i" -lt 90 ] && ! on "grep -q 'telegram connected' /srv/hermes/logs/gateway.log"; do sleep 3; i=$((i + 3)); done
+	conn=$(on "grep -c 'telegram connected' /srv/hermes/logs/gateway.log")
 	[ "$bad" = 0 ] && [ "$conn" -gt 0 ] && pass telegram "$out; adapter up, only $TG_ID allowed" \
 		|| fail telegram "$out; refusals $bad, adapter lines $conn"
 }
@@ -155,10 +157,18 @@ step_ask() { # a person writes to the bot; nothing else can, since a bot cannot 
 	done
 	[ "$seen" = 0 ] && { fail ask "no model call within ${ASK_WAIT:-300} s of asking"; return; }
 	on "tail -n 400 /srv/hermes/logs/agent.log" > "$OUT/ask.log"
-	denied=$(grep -c 'permission denied' "$OUT/ask.log")
-	pings=$(grep -c 'packet loss' "$OUT/ask.log")
-	[ "$denied" = 0 ] && pass ask "$((last - n0)) model calls, $pings ping result(s) read, no permission denied; read the reply in Telegram" \
-		|| fail ask "$denied 'permission denied' in the agent's tool output"
+	# Tool output is not in agent.log (it logs "terminal completed (N chars)"); it is in the
+	# conversation database, as tool messages. Count what the tools returned since asking.
+	on 'cat > /tmp/tool-output.py' < "$ROOT/scripts/tool-output.py"
+	tool_out=$(on "python3 /tmp/tool-output.py $((t0 - 30)); rm -f /tmp/tool-output.py")
+	printf '%s\n' "$tool_out" > "$OUT/ask-tools.txt"
+	denied=$(grep -c 'permission denied' "$OUT/ask-tools.txt")
+	pings=$(grep -c 'packet loss' "$OUT/ask-tools.txt")
+	# A diagnosis that ran no ping is not a diagnosis: on 2026-10-08 the first turn of a new chat
+	# answered with upstream's onboarding question, one model call and no tool, and this step said PASS.
+	if [ "$denied" != 0 ]; then fail ask "$denied 'permission denied' in the agent's tool output"
+	elif [ "$pings" = 0 ]; then fail ask "$((last - n0)) model call(s) and no ping read: the agent answered without diagnosing"
+	else pass ask "$((last - n0)) model calls, $pings ping result(s) read, no permission denied; read the reply in Telegram"; fi
 }
 
 step_watch() { # docs/use.md's hourly watch, with docs/examples/router_check.sh, run once now
