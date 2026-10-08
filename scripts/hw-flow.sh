@@ -16,7 +16,9 @@
 #   TG_CMD='security find-generic-password -s <bot token item> -w' TG_ID=<your numeric id> \
 #   ./scripts/hw-flow.sh [step ...]
 #
-# Steps, in order when none are named: clean install model start telegram ask watch upgrade.
+# Steps, in order when none are named: clean install model start telegram ask watch admin upgrade.
+# `admin` probes the agent's own openwrt-mcp token: reads, a refused change, and with FLOW_PIN (a
+# throwaway PIN it sets and clears) the unlock window and the rollback of an unconfirmed change.
 # FEED_BASE=http://<host>:<port> installs from a release candidate signed with the feed's key and
 # served from that address, before it is published; the step `clean` also drops that line.
 # `reboot` runs only when named and REBOOT_OK=1, and `remove` only when named: one cuts the
@@ -173,6 +175,42 @@ step_watch() { # docs/use.md's hourly watch, with docs/examples/router_check.sh,
 		|| fail watch "router_check.sh output not as expected (see $OUT/watch.md)"
 }
 
+step_admin() { # what the agent's own token may do to the router, through openwrt-mcp, as the agent would
+	on 'cat > /tmp/mcp-probe.py' < "$ROOT/scripts/mcp-probe.py"
+	probe() { on "python3 /tmp/mcp-probe.py '$1' '$2'"; }
+	r=$(probe ubus_call '{"object":"luci-rpc","method":"getDHCPLeases"}')
+	case "$r" in OK*) pass admin-read-clients "DHCP leases readable without unlocking" ;; *) fail admin-read-clients "$r" ;; esac
+	r=$(probe ubus_call '{"object":"network.interface","method":"dump"}')
+	case "$r" in OK*) pass admin-read-network "interfaces readable without unlocking" ;; *) fail admin-read-network "$r" ;; esac
+	CHANGE='{"changes":[{"config":"system","section":"@system[0]","option":"description","value":"hw-flow"}]}'
+	r=$(probe uci_apply "$CHANGE")
+	case "$r" in ERROR*denied*) pass admin-locked "a change with no factor set is refused: ${r#ERROR }" ;; *) fail admin-locked "a change went through with no factor: $r" ;; esac
+	# The policy as written, so the report says what an open window grants rather than what we hope.
+	on "uci -q get openwrt-mcp.hermes_main_change.scopes; uci -q get openwrt-mcp.hermes_main_change.tools" > "$OUT/change-policy.txt" 2>&1 || true
+	[ -n "${FLOW_PIN:-}" ] || { say "SKIP admin-unlock: FLOW_PIN (a throwaway test PIN) not given"; on 'rm -f /tmp/mcp-probe.py'; return; }
+	printf '%s\n' "$FLOW_PIN" | on 'openwrt-mcp pin set hermes-main >/dev/null 2>&1'
+	on 'uci set hermes.security.factor=pin; uci commit hermes; /etc/init.d/hermes-agent restart >/dev/null 2>&1'
+	gateway_up 90; sleep 15
+	scopes=$(on "uci -q get openwrt-mcp.hermes_main_change.scopes" 2>/dev/null)
+	say "admin: the change policy written with factor pin grants scopes: ${scopes:-<none>}"
+	r=$(probe uci_apply "$CHANGE")
+	case "$r" in ERROR*"second factor"*) pass admin-needs-unlock "with a PIN set, a change waits for the owner's unlock" ;; *) fail admin-needs-unlock "$r" ;; esac
+	r=$(probe mfa_unlock '{"pin":"00000000"}')
+	case "$r" in ERROR*) pass admin-wrong-pin "a wrong PIN is refused" ;; *) fail admin-wrong-pin "$r" ;; esac
+	r=$(probe mfa_unlock "{\"pin\":\"$FLOW_PIN\"}")
+	case "$r" in OK*Unlocked*) pass admin-unlock "${r#OK }" ;; *) fail admin-unlock "$r" ;; esac
+	r=$(probe uci_apply "$CHANGE")
+	now=$(on "uci -q get system.@system[0].description")
+	case "$r" in OK*"ROLLBACK ARMED"*) pass admin-change-in-window "applied (value now '$now'), rollback armed" ;; *) fail admin-change-in-window "$r" ;; esac
+	secs=$(echo "$r" | sed -n 's/.*(in \([0-9]*\)m\([0-9]*\)s).*/\1 \2/p' | awk '{print $1*60+$2+20}')
+	sleep "${secs:-110}"
+	after=$(on "uci -q get system.@system[0].description || echo unset")
+	[ "$after" != "hw-flow" ] && pass admin-rollback "unconfirmed change undone by itself (now '$after')" || fail admin-rollback "still '$after' after the deadline"
+	probe mfa_lock '{}' >/dev/null
+	on 'uci set hermes.security.factor=none; uci commit hermes; openwrt-mcp pin clear hermes-main >/dev/null 2>&1; /etc/init.d/hermes-agent restart >/dev/null 2>&1; rm -f /tmp/mcp-probe.py'
+	say "admin: test PIN cleared, factor back to none"
+}
+
 step_reboot() {
 	[ "${REBOOT_OK:-0}" = 1 ] || { say "SKIP reboot: needs REBOOT_OK=1, given for this router by its owner"; return; }
 	on 'reboot' >/dev/null 2>&1; sleep 30
@@ -196,7 +234,7 @@ step_remove() {
 		|| fail remove "$left package paths left"
 }
 
-STEPS=${*:-clean install model start telegram ask watch upgrade}
+STEPS=${*:-clean install model start telegram ask watch admin upgrade}
 say "hw-flow on $ROUTER, $(on 'cat /etc/apk/arch; . /etc/openwrt_release; echo $DISTRIB_RELEASE' | tr '\n' ' '), steps: $STEPS"
 for s in $STEPS; do "step_$s"; done
 say "hw-flow: $FAILED failed; log $LOG"
