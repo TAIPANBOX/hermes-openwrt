@@ -73,7 +73,8 @@
 #                        Offered openwrt-mcp's exec, three model setups pinged through it and
 #                        reported "blocked by policy"; with exec and wg_new_client hidden and one
 #                        sentence sending diagnostics to the terminal, one ran the diagnosis in 3
-#                        model calls.
+#                        model calls. gpt-4o-mini named a section hermes-test three times, then
+#                        wrote a firewall rule and called the port forwarded.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -295,6 +296,15 @@ Feature: What is set on the router is what the gateway runs with
     Then their setting is kept and the settings beside it too
     And a tools setting that is not a mapping refuses the start and leaves the file as it was
     # -> check_tool_search_is_off_unless_the_operator_set_it
+
+  Scenario: the owner profile tells the agent how to change the router so that the change is real
+    Given the owner profile, whatever the second factor
+    Then the agent is told to run network diagnostics in its own terminal
+    And that a UCI section name holds only letters, digits and underscores, with a readable name in its name option
+    And that a port forward is a firewall redirect, not a rule
+    And to read a change back with uci_get and tell the owner only what the router holds
+    And the gateway loads all of it as its system prompt, while assistant and root carry none of it
+    # -> check_owner_note_teaches_section_names_port_forwards_and_reading_back
 
   # ---- The model and its endpoint ----
 

@@ -1256,6 +1256,35 @@ procd_close_service
         self.assertNotEqual(self.bridge("owner", factor="pin").returncode, 0)
         self.assertEqual((self.home / "config.yaml").read_text(), "tools: 7\n")
 
+    def test_owner_note_teaches_section_names_port_forwards_and_reading_back(self):
+        # Measured need, 2026-10-08: gpt-4o-mini named a section "hermes-test" three times and got
+        # "uci: Invalid argument", then wrote a firewall `rule` with target ACCEPT and told the owner
+        # the port was forwarded. And models that saw openwrt-mcp's exec pinged through it instead of
+        # their own terminal. The owner note says all three, whatever the factor, and the gateway
+        # loads it as its system prompt.
+        sentences = ("use your own terminal",
+                     "A UCI section name holds only letters, digits and underscores",
+                     "`name` option",
+                     "A port forward is a firewall section of type redirect (DNAT), not a rule",
+                     "read it back with uci_get",
+                     "tell the owner only what the router actually holds")
+        env = {k: v for k, v in self.env.items() if k != "HERMES_EPHEMERAL_SYSTEM_PROMPT"}
+        for factor in ("none", "pin", "totp", "pin+totp"):
+            with self.subTest(factor=factor):
+                (self.home / "config.yaml").unlink(missing_ok=True)
+                self.assertEqual(self.bridge("owner", factor=factor).returncode, 0)
+                prompt = self.config()["agent"]["system_prompt"]
+                loaded = subprocess.run(["python3", "-c", "from gateway.run import GatewayRunner; "
+                                         "print(GatewayRunner._load_ephemeral_system_prompt())"],
+                                        env=env, check=False, capture_output=True, text=True)
+                self.assertEqual(loaded.returncode, 0, loaded.stderr)
+                for sentence in sentences:
+                    self.assertIn(sentence, prompt)
+                    self.assertIn(sentence, loaded.stdout)
+        # The other profiles do not carry it: assistant has no terminal and root has no note.
+        for other in ("assistant", "root"):
+            self.assertEqual(self.bridge(other).returncode, 0)
+            self.assertNotIn("port forward", self.config().get("agent", {}).get("system_prompt") or "")
 
     def test_config_written_by_root_takes_the_data_dir_owner(self):
         # A root-owned config.yaml is one the gateway, which is hermes, cannot update.

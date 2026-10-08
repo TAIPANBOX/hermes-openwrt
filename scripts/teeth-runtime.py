@@ -227,6 +227,17 @@ mutants = [
      '            if isinstance(search, dict) and search.get("enabled") is None:',
      '            if isinstance(search, dict):',
      'test_tool_search_is_off_unless_the_operator_set_it'),
+    ('the owner note without UCI names, port forwards and the read-back', 'set-toolsets.py',
+     '              "A UCI section name holds only letters, digits and underscores; put a readable "\n'
+     '              "name in the section\'s `name` option. A port forward is a firewall section of "\n'
+     '              "type redirect (DNAT), not a rule. After a change, read it back with uci_get and "\n'
+     '              "tell the owner only what the router actually holds. ")',
+     '              "")',
+     'test_owner_note_teaches_section_names_port_forwards_and_reading_back'),
+    ('the owner note without the terminal for diagnostics', 'set-toolsets.py',
+     '"ip, ifconfig) use your own terminal: they work there as your user. "',
+     '"ip, ifconfig) are not for you. "',
+     'test_owner_note_teaches_section_names_port_forwards_and_reading_back'),
     ('a config written as root stays root', 'set-toolsets.py',
      '                    os.fchown(stream.fileno(), owner.st_uid, owner.st_gid)', '                    pass',
      'test_config_written_by_root_takes_the_data_dir_owner'),

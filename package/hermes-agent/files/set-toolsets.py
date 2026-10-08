@@ -45,7 +45,8 @@ tools/mcp_tool_registration.py reads that key).
 @claude 2026-10-08, 0.21.5-r10: exec and wg_new_client are excluded the same way, since the
 agent's client is never granted them and models that saw them reached for them; every profile
 writes tools.tool_search.enabled 'off' where the operator has set nothing, so upstream does not
-defer the MCP tools behind its search tool.
+defer the MCP tools behind its search tool; and the owner note says how UCI names sections, what
+a port forward is, and to read a change back before reporting it.
 
 @decided 2026-10-01 (the unlock plugin): in the owner profile the bridge also enables the
 plugin openwrt-unlock, which ships in the package's own site-packages and takes /unlock and
@@ -101,7 +102,11 @@ OWNER_NOTE = ("You run on an OpenWrt router as an unprivileged user. You can rea
               "state, interfaces and log through the openwrt tools without asking anyone. Change "
               "the router only through those tools, never by editing its files or running "
               "commands that reconfigure it. For network diagnostics (ping, traceroute, nslookup, "
-              "ip, ifconfig) use your own terminal: they work there as your user. ")
+              "ip, ifconfig) use your own terminal: they work there as your user. "
+              "A UCI section name holds only letters, digits and underscores; put a readable "
+              "name in the section's `name` option. A port forward is a firewall section of "
+              "type redirect (DNAT), not a rule. After a change, read it back with uci_get and "
+              "tell the owner only what the router actually holds. ")
 OWNER_NOTE_LOCKED = ("A change is refused until the owner has unlocked it. When a tool answers that "
                      "a second factor is required, tell the owner to send /unlock in the private "
                      "chat with you, and try again once they say it is done. Never ask the owner "
