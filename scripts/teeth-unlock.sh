@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (forty-seven in all, over thirty-eight checks). Each is a change a
+# or have several ways to go wrong (forty-nine in all, over thirty-nine checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -121,18 +121,18 @@ expect_red "the data directory left with root" check_upgrade_hands_data_dir_to_h
 plant "$INIT" 'hermes_profile_canonical "${profile_set:-owner}"' 'hermes_profile_canonical "${profile_set:-root}"'
 expect_red "an unset profile means root" check_root_profile_is_opt_in_and_warned
 
-# ---- 6. the change policy written ahead of the reads ----
-# openwrt-mcp takes the first policy of a client that covers a call, so a change policy that
-# comes first and covers everything asks for the second factor on a plain read of the board.
-plant "$INIT" 'uci -q batch < "$scratch/batch" && uci -q commit openwrt-mcp || {' \
-	'uci -q batch < "$scratch/batch" && { uci -q reorder "openwrt-mcp.${prefix}change=0"; true; } && uci -q commit openwrt-mcp || {'
-expect_red "the change policy ahead of the read policies" check_reads_need_no_unlock
+# ---- 6. a read left off the read list ----
+# Until 0.21.5-r11 this was the change policy written ahead of the reads, which with its scope '*'
+# asked for the second factor on a plain read of the board. Since r11 no change policy covers a
+# read method, so the order no longer decides a read, and that fault would be a non-fault. What
+# can still make a read need an unlock, or fail, is a read missing from the list.
+plant "$INIT" "MCP_READ_UBUS='system.board " "MCP_READ_UBUS='"
+expect_red "system.board off the read list" check_reads_need_no_unlock
 
 # ---- 7. a change policy that asks for no second factor ----
 # Present, granting every change, and never consulting the factor: the shape of a control that
 # is there and protects nothing.
-plant "$INIT" 'add_list openwrt-mcp.%schange.scopes='"'*'"'\nadd_list openwrt-mcp.%schange.mfa_tools='"'*'"'\n" "$prefix" "$prefix"' \
-	'add_list openwrt-mcp.%schange.scopes='"'*'"'\n" "$prefix"'
+plant "$INIT" '		printf "add_list openwrt-mcp.%s%s.mfa_tools='"'*'"'\n" "$prefix" "$sect"' '		:'
 expect_red "the change policy without mfa_tools" check_change_refused_while_locked
 
 # ---- 8. no factor configured treated as a PIN ----
@@ -161,7 +161,7 @@ ln -s /tmp/owmcp-state "$W/overlay/etc/openwrt-mcp"
 expect_red "the openwrt-mcp state directory in RAM" check_rollback_survives_reboot
 
 # ---- 12. the change policy grants the tool that answers with a private key ----
-plant "$INIT" '	for tool in ubus_call uci_apply uci_confirm; do' '	for tool in ubus_call uci_apply uci_confirm wg_new_client; do'
+plant "$INIT" '	for tool in uci_apply uci_confirm; do' '	for tool in uci_apply uci_confirm wg_new_client; do'
 expect_red "wg_new_client back in the change policy" check_change_policy_hands_out_no_private_key
 
 # ---- the Hermes-side half: the plugin, and the init lines that tell the daemon what to ask ----
@@ -185,7 +185,7 @@ expect_red "the code reversed on its way to the daemon" check_code_alone_unlocks
 
 # ---- 16. pin+totp written as a PIN alone ----
 # Both factors configured, the daemon asked for one: a right PIN and a wrong code open changes.
-plant "$INIT" '"$prefix" "$factor" "$prefix" "$window"' '"$prefix" "${factor%+totp}" "$prefix" "$window"'
+plant "$INIT" '"$prefix" "$sect" "$factor" "$prefix" "$sect" "$window"' '"$prefix" "$sect" "${factor%+totp}" "$prefix" "$sect" "$window"'
 expect_red "pin+totp written as pin" check_pin_and_code_both_required
 
 # ---- 17. a PIN kept in the clear by the tool that sets it ----
@@ -206,7 +206,7 @@ chmod 755 "$W/overlay/usr/sbin/openwrt-mcp"
 expect_red "a PIN stored as typed" check_pin_stored_as_slow_hash
 
 # ---- 18. no limit on wrong tries ----
-plant "$INIT" '"$prefix" "$max_failures" "$prefix" "$lockout"' '"$prefix" "100000" "$prefix" "$lockout"'
+plant "$INIT" '"$prefix" "$sect" "$max_failures" "$prefix" "$sect" "$lockout"' '"$prefix" "$sect" "100000" "$prefix" "$sect" "$lockout"'
 expect_red "a limit of a hundred thousand wrong tries" check_wrong_attempts_lock_out
 
 # ---- 19. the owner is not told a code was used ----
@@ -216,7 +216,7 @@ plant "$PLUGIN" '    if "already used" in low and factor == "totp":' '    if Fal
 expect_red "a used code refused without saying so" check_code_works_once
 
 # ---- 20. a window that does not end ----
-plant "$INIT" '"$prefix" "$window" "$prefix" "$max_failures"' '"$prefix" "24h" "$prefix" "$max_failures"'
+plant "$INIT" '"$prefix" "$sect" "$window" "$prefix" "$sect" "$max_failures"' '"$prefix" "$sect" "24h" "$prefix" "$sect" "$max_failures"'
 expect_red "a window of a day" check_unlock_window_ends
 
 # ---- 21. /lock that asks for nothing ----
@@ -378,6 +378,17 @@ expect_red "a daemon from before the upgrade not asked its version" check_daemon
 plant "$INIT" 'network.device.status iwinfo.devices' 'network.device.status network.wireless.status iwinfo.devices'
 expect_red "network.wireless status among the reads" check_wireless_and_network_reads_are_redacted
 
+# ---- r11: what an open window may change ----
+
+# ---- 48. the window root for its length again ----
+# ubus_call on '*', the shape every release up to r10 had: rpcd's file object runs commands.
+plant "$INIT" "MCP_CHANGE_UBUS='network.reload " "MCP_CHANGE_UBUS='* network.reload "
+expect_red "ubus_call on everything in an open window" check_window_changes_settings_never_runs_commands
+
+# ---- 49. rpcd's file object granted ----
+plant "$INIT" "MCP_CHANGE_UBUS='network.reload " "MCP_CHANGE_UBUS='file.* network.reload "
+expect_red "file.* among the window's calls" check_window_changes_settings_never_runs_commands
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -412,6 +423,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 47 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 47 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 49 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 49 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 47 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 49 faults (shard $SHARD), $N distinct checks, controls green"

@@ -1432,9 +1432,10 @@ procd_close_service
         self.assertEqual(result.stderr.count("does not report that uci_get redacts credentials"), 1, result.stderr)
         lines = show()
         # openwrt-mcp takes the first policy of a client that covers a call, so the reads come
-        # first, one tool each, and the change policy, which wants the factor, last.
+        # first, one tool each, and the two change policies, which want the factor, last.
         self.assertEqual(sections(lines), ["mine", "hermes_unit_read_ubus", "hermes_unit_read_uci",
-                                           "hermes_unit_read_log", "hermes_unit_change"])
+                                           "hermes_unit_read_log", "hermes_unit_change",
+                                           "hermes_unit_change_ubus"])
         self.assertEqual([line for line in lines if line.startswith("openwrt-mcp.mine")], mine)
         for name, tool in (("read_ubus", "ubus_call"), ("read_uci", "uci_get"), ("read_log", "logread")):
             body = section(lines, f"hermes_unit_{name}")
@@ -1451,10 +1452,24 @@ procd_close_service
         self.assertNotIn("network", uci)
         self.assertNotIn("network.*", uci)
         change = section(lines, "hermes_unit_change")
-        self.assertEqual(change["tools"], "'ubus_call' 'uci_apply' 'uci_confirm'")
+        self.assertEqual(change["tools"], "'uci_apply' 'uci_confirm'")
         self.assertEqual((change["scopes"], change["mfa_tools"], change["mfa_factor"]), ("'*'", "'*'", "'pin'"))
         self.assertEqual((change["mfa_window"], change["mfa_max_failures"], change["mfa_lockout"]),
                          ("'20m'", "'3'", "'1h'"))
+        # ubus_call in an open window: named methods for settings, the VPN and services, never
+        # '*' and nothing that runs a command, writes a file, flashes, reboots or goes around
+        # uci_apply's rollback; the same factor and settings, since openwrt-mcp unlocks per client.
+        change_ubus = section(lines, "hermes_unit_change_ubus")
+        self.assertEqual(change_ubus["tools"], "'ubus_call'")
+        scopes = change_ubus["scopes"].replace("'", "").split()
+        self.assertIn("rc.init", scopes)
+        self.assertIn("network.reload", scopes)
+        for scope in scopes:
+            self.assertNotEqual(scope, "*")
+            self.assertFalse(scope.split(".")[0] in ("file", "uci", "service", "rpc-sys", "luci", "system"), scope)
+        self.assertEqual((change_ubus["mfa_tools"], change_ubus["mfa_factor"], change_ubus["mfa_window"],
+                          change_ubus["mfa_max_failures"], change_ubus["mfa_lockout"]),
+                         ("'*'", "'pin'", "'20m'", "'3'", "'1h'"))
         # openwrt-mcp's own parser accepts what was written.
         policies = subprocess.run(["openwrt-mcp", "policies"], check=False, capture_output=True, text=True)
         self.assertEqual(policies.returncode, 0, policies.stderr)
@@ -1486,7 +1501,7 @@ procd_close_service
         self.assertEqual(sections(show()), ["mine", "hermes_unit_read_ubus", "hermes_unit_read_uci",
                                             "hermes_unit_read_log", "hermes_second_read_ubus",
                                             "hermes_second_read_uci", "hermes_second_read_log",
-                                            "hermes_second_change"])
+                                            "hermes_second_change", "hermes_second_change_ubus"])
         self.assertNotEqual(second_token.read_bytes(), token.read_bytes())
         # A name that cannot be part of a section name is refused, writing nothing.
         before = config.read_bytes()

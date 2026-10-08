@@ -70,6 +70,11 @@
 #                        three scenarios after "No tool that answers with a private key" are the
 #                        r11 answer: wireless and the whole of network are read only from a daemon
 #                        that says it redacts, and from nothing else.
+#   @decided 2026-10-08  What an unlock window is for: in it the agent may change settings, the VPN
+#                        and services; it may never run arbitrary commands, install anything from a
+#                        link, or run a sysupgrade. The scenario after "No tool that answers with a
+#                        private key" is that scope; a reboot is left out too, since it cannot be
+#                        rolled back (a conservative reading, not part of the decision).
 #
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
@@ -162,6 +167,14 @@ Feature: The agent changes the router only when its owner unlocks it
     Then that policy does not grant wg_new_client, whose answer is a WireGuard private key
     And a call to it is refused even while the owner has unlocked changes
     # -> check_change_policy_hands_out_no_private_key
+
+  Scenario: An open window changes settings, the VPN and services, and never runs a command
+    Given a factor is configured and the owner has unlocked changes
+    When the agent asks over ubus to run a command or write a file through rpcd, flash or check a firmware,
+      reboot, set a UCI option around uci_apply, define a procd service or touch packages
+    Then each is refused before it reaches ubus
+    And restarting a service, reloading the network and a uci_apply with its rollback still work
+    # -> check_window_changes_settings_never_runs_commands
 
   Scenario: The agent can read the Wi-Fi and the whole network, and never their keys
     Given the router's wireless configuration holds a Wi-Fi key and its network a WireGuard private key

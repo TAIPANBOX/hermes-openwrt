@@ -52,6 +52,21 @@ MCP_READ_UCI='system system.* dhcp dhcp.* firewall firewall.* network.loopback* 
 # is what setting up a guest Wi-Fi needs. ubus's network.wireless status is NOT redacted by the
 # daemon and stays out of MCP_READ_UBUS whatever this says. See mcp_uci_scopes.
 MCP_READ_UCI_WIDE='system system.* dhcp dhcp.* firewall firewall.* network network.* wireless wireless.*'
+# What a ubus_call may change once the owner has unlocked: settings, the VPN and services, never a
+# command, a file, a firmware or a package. Settings themselves go through uci_apply, which arms a
+# rollback; these are the calls that bring a changed setting into effect. netifd: reload and restart
+# the network, bring an interface up, down or renew its lease (the VPN is an interface), by the
+# network.interface object or the interface's own, and
+# reconfigure the Wi-Fi; rpcd's rc.init: start, stop, restart, reload, enable or disable a service
+# that already has an init script. Names only, no glob that ends a whole object: openwrt-mcp
+# matches with path.Match, so `network.interface.*.up` covers `network.interface.wg0.up` and
+# nothing outside network.interface. Deliberately NOT here, in this or any policy the package
+# writes: file.* (rpcd's file object runs commands and writes files), system.sysupgrade and
+# system.validate_firmware_image (a firmware), system.reboot (a reboot cannot be rolled back),
+# system.signal (kills any process), uci.* (a change over ubus would bypass uci_apply's checks and
+# its rollback), service.* (procd's service.set starts any command as a service), rpc-sys.* (its
+# package and upgrade methods), luci.* and luci-rpc.setInitAction. @claude 2026-10-08, 0.21.5-r11.
+MCP_CHANGE_UBUS='network.reload network.restart network.interface.up network.interface.down network.interface.renew network.interface.*.up network.interface.*.down network.interface.*.renew network.wireless.up network.wireless.down network.wireless.reconf rc.init'
 
 # Read a secret from a file into stdout, or nothing if it is missing or empty.
 # Never echoes the path's contents to the log.
@@ -157,9 +172,10 @@ hand_over_data_dir() {
 # The UCI statements for one agent's policies, in the order openwrt-mcp has to see them:
 # it takes the FIRST policy of a client that covers every scope of a call, so the narrow
 # read grants come first, each tool in a policy of its own so that one tool's scope globs
-# cannot widen another's, and the change policy, which asks for the second factor on
-# everything it grants, last. With no factor configured that last one is not written, so a
-# change finds no policy at all ("no policy grants").
+# cannot widen another's, and the two change policies, which ask for the second factor on
+# everything they grant, last: uci_apply and uci_confirm on any setting, each apply rolled back
+# unless confirmed, and ubus_call on MCP_CHANGE_UBUS only. With no factor configured neither is
+# written, so a change finds no policy at all ("no policy grants").
 #   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout> <uci scopes>
 mcp_policy_batch() {
 	local client=$1 prefix=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7 scope
@@ -171,14 +187,23 @@ mcp_policy_batch() {
 	printf 'set openwrt-mcp.%sread_log=policy\nset openwrt-mcp.%sread_log.client=%s\nadd_list openwrt-mcp.%sread_log.tools=logread\n' "$prefix" "$prefix" "$client" "$prefix"
 	set +f
 	[ "$factor" = none ] && return 0
+	local tool sect
 	printf 'set openwrt-mcp.%schange=policy\nset openwrt-mcp.%schange.client=%s\n' "$prefix" "$prefix" "$client"
-	local tool
 	# Not wg_new_client: its answer is a WireGuard peer's private key, and what a tool answers
 	# goes to the model provider. An owner who wants it grants it in a policy of their own.
-	for tool in ubus_call uci_apply uci_confirm; do printf 'add_list openwrt-mcp.%schange.tools=%s\n' "$prefix" "$tool"; done
-	printf "add_list openwrt-mcp.%schange.scopes='*'\nadd_list openwrt-mcp.%schange.mfa_tools='*'\n" "$prefix" "$prefix"
-	printf 'set openwrt-mcp.%schange.mfa_factor=%s\nset openwrt-mcp.%schange.mfa_window=%s\nset openwrt-mcp.%schange.mfa_max_failures=%s\nset openwrt-mcp.%schange.mfa_lockout=%s\n' \
-		"$prefix" "$factor" "$prefix" "$window" "$prefix" "$max_failures" "$prefix" "$lockout"
+	for tool in uci_apply uci_confirm; do printf 'add_list openwrt-mcp.%schange.tools=%s\n' "$prefix" "$tool"; done
+	printf "add_list openwrt-mcp.%schange.scopes='*'\n" "$prefix"
+	printf 'set openwrt-mcp.%schange_ubus=policy\nset openwrt-mcp.%schange_ubus.client=%s\nadd_list openwrt-mcp.%schange_ubus.tools=ubus_call\n' "$prefix" "$prefix" "$client" "$prefix"
+	set -f
+	for scope in $MCP_CHANGE_UBUS; do printf "add_list openwrt-mcp.%schange_ubus.scopes='%s'\n" "$prefix" "$scope"; done
+	set +f
+	# Both ask the factor for all they grant, with the same settings: openwrt-mcp unlocks per
+	# client, and refuses a client whose gating policies disagree.
+	for sect in change change_ubus; do
+		printf "add_list openwrt-mcp.%s%s.mfa_tools='*'\n" "$prefix" "$sect"
+		printf 'set openwrt-mcp.%s%s.mfa_factor=%s\nset openwrt-mcp.%s%s.mfa_window=%s\nset openwrt-mcp.%s%s.mfa_max_failures=%s\nset openwrt-mcp.%s%s.mfa_lockout=%s\n' \
+			"$prefix" "$sect" "$factor" "$prefix" "$sect" "$window" "$prefix" "$sect" "$max_failures" "$prefix" "$sect" "$lockout"
+	done
 }
 
 # Make /etc/config/openwrt-mcp hold exactly the policies this package owns for one agent.

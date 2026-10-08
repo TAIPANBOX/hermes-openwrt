@@ -49,7 +49,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -132,6 +132,8 @@ export PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1
 # ---- what a router has and a container does not ----
 cat > /stubs/ubus <<'EOF'
 #!/bin/sh
+# Every call the daemon let through, for the checks that ask whether a refused one got here.
+echo "$*" >> /tmp/ubus.calls
 case "$*" in
 	"call system board") echo '{"kernel":"6.12","hostname":"gate-router","model":"gate stand-in"}' ;;
 	"call network.interface dump") echo '{"interface":[{"interface":"lan","up":true,"proto":"static"}]}' ;;
@@ -139,6 +141,8 @@ case "$*" in
 	# openwrt-mcp does not redact ubus answers: so nothing may grant it.
 	"call network.wireless status") echo '{"radio0":{"interfaces":[{"section":"main","config":{"ssid":"gate","key":"GATE-WIFI-KEY-CANARY"}}]}}' ;;
 	"call uci reload_config"*) echo '{}' ;;
+	# What an open window may run: a reload of the network, a service restarted.
+	"call network reload"|"call rc init"*) echo '{}' ;;
 	*) echo "Command failed: Not found" >&2; exit 4 ;;
 esac
 EOF
@@ -599,8 +603,8 @@ check_reads_need_no_unlock() {
 	# three checks after check_change_policy_hands_out_no_private_key.
 	# Not vacuous: with a factor configured, the same token is refused a change, so the
 	# reads above were not answered by something that opens everything.
-	if out=$(mcp "$TOKEN" ubus_call '{"object":"system","method":"reboot"}'); then fail "system reboot was allowed with no unlock: $out"; fi
-	echo "$out" | grep -q 'second factor' || fail "system reboot was refused, but not for the second factor: $out"
+	if out=$(mcp "$TOKEN" ubus_call '{"object":"network","method":"reload"}'); then fail "network reload was allowed with no unlock: $out"; fi
+	echo "$out" | grep -q 'second factor' || fail "network reload was refused, but not for the second factor: $out"
 	if out=$(mcp "$TOKEN" exec '{"argv":["id"]}'); then fail "exec was allowed: $out"; fi
 	pass "state, interfaces, system, dhcp, firewall, one network section and the log answered with a PIN configured and no unlock; exec refused"
 }
@@ -632,7 +636,7 @@ check_no_factor_means_no_changes() {
 	uci -q show openwrt-mcp | grep -q 'hermes_main_change' && fail "a change policy was written with no factor configured"
 	if out=$(mcp "$TOKEN" uci_apply "$CHANGE"); then fail "uci_apply was allowed with no factor configured: $out"; fi
 	echo "$out" | grep -q 'no policy grants uci_apply' || fail "uci_apply was refused, but not for want of a policy: $out"
-	if out=$(mcp "$TOKEN" ubus_call '{"object":"system","method":"reboot"}'); then fail "a ubus change was allowed: $out"; fi
+	if out=$(mcp "$TOKEN" ubus_call '{"object":"network","method":"reload"}'); then fail "a ubus change was allowed: $out"; fi
 	[ "$(desc)" = baseline-gate ] || fail "the change was applied anyway"
 	mcp "$TOKEN" ubus_call '{"object":"system","method":"board"}' >/dev/null || fail "reads stopped working with no factor"
 	probe_ids
@@ -747,6 +751,43 @@ check_rollback_survives_reboot() {
 	pass "snapshot and pending record under /etc/openwrt-mcp, none in /tmp; the change undone after a reboot and again after its window"
 }
 
+# What an open unlock window lets the agent do: settings (uci_apply, rolled back unless
+# confirmed), the VPN and services through the named ubus methods, and nothing that runs a
+# command, writes a file, flashes a firmware or reboots. Every call the daemon lets through
+# reaches /stubs/ubus, which writes it to /tmp/ubus.calls, so "denied" is read twice: in the
+# daemon's refusal and in the absence of the call.
+check_window_changes_settings_never_runs_commands() {
+	reset; configure - pin
+	started
+	set_pin hermes-main 4821
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	uci -q show openwrt-mcp | grep -q "hermes_main_change_ubus.scopes=.*'\*'" && fail "the ubus change policy grants '*'"
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	: > /tmp/ubus.calls
+	for call in '{"object":"file","method":"exec","args":{"command":"/bin/id"}}' \
+		'{"object":"file","method":"write","args":{"path":"/etc/rc.local","data":"id"}}' \
+		'{"object":"system","method":"sysupgrade","args":{"path":"/tmp/fw.bin"}}' \
+		'{"object":"system","method":"validate_firmware_image","args":{"path":"/tmp/fw.bin"}}' \
+		'{"object":"system","method":"reboot"}' \
+		'{"object":"uci","method":"set","args":{"config":"system","section":"@system[0]","values":{"description":"via-ubus"}}}' \
+		'{"object":"service","method":"set","args":{"name":"x","instances":{"i":{"command":["/bin/id"]}}}}' \
+		'{"object":"rpc-sys","method":"upgrade_start"}'; do
+		if out=$(mcp "$TOKEN" ubus_call "$call"); then fail "allowed in an open window: $call: $out"; fi
+		echo "$out" | grep -q 'no policy scope covers' || fail "refused, but not for want of a policy scope: $call: $out"
+	done
+	! grep -E '^call (file|system|service|rpc-sys) |^call uci set' /tmp/ubus.calls || fail "a refused call reached ubus"
+	[ "$(desc)" = baseline-gate ] || fail "uci.set over ubus changed the router"
+	out=$(mcp "$TOKEN" ubus_call '{"object":"rc","method":"init","args":{"name":"dnsmasq","action":"restart"}}') || fail "rc.init restart of a service was refused in an open window: $out"
+	out=$(mcp "$TOKEN" ubus_call '{"object":"network","method":"reload"}') || fail "network.reload was refused in an open window: $out"
+	grep -q '^call rc init' /tmp/ubus.calls && grep -q '^call network reload' /tmp/ubus.calls \
+		|| fail "the allowed calls never reached ubus: $(cat /tmp/ubus.calls)"
+	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "uci_apply was refused in an open window: $out"
+	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "uci_apply did not arm its rollback: $out"
+	[ "$(desc)" = changed-by-gate ] || fail "the uci_apply change did not land"
+	pass "in an open window: file.exec, file.write, sysupgrade, firmware validation, reboot, uci.set, service.set and rpc-sys refused before ubus; rc.init restart, network.reload and uci_apply with its rollback allowed"
+}
+
 # ---- wireless and the whole of network: read only from a daemon that redacts their secrets ----
 
 # What the installed openwrt-mcp says of itself: one field of its status, by jsonfilter path.
@@ -784,7 +825,7 @@ check_wireless_and_network_reads_are_redacted() {
 	# answer, so it stays ungranted however wide uci_get is.
 	if out=$(mcp "$TOKEN" ubus_call '{"object":"network.wireless","method":"status"}'); then fail "network.wireless status was answered: $out"; fi
 	echo "$out" | grep -q CANARY && fail "the Wi-Fi key reached a refusal: $out"
-	echo "$out" | grep -q 'no policy grants' || fail "network.wireless status was refused, but not for want of a policy: $out"
+	echo "$out" | grep -qE 'no policy (grants|scope covers)' || fail "network.wireless status was refused, but not for want of a policy: $out"
 	pass "wireless and the whole of network answered, the Wi-Fi key and the WireGuard private key read '<redacted>'; network.wireless status refused"
 }
 
