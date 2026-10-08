@@ -11,3 +11,9 @@ export HERMES_OPTIONAL_SKILLS="${HERMES_OPTIONAL_SKILLS:-$HERMES_SHARE/optional-
 export HERMES_BUNDLED_LOCALES="${HERMES_BUNDLED_LOCALES:-$HERMES_SHARE/locales}"
 export HERMES_OPTIONAL_MCPS="${HERMES_OPTIONAL_MCPS:-$HERMES_SHARE/optional-mcps}"
 unset HERMES_SHARE
+
+# Never pip-install at runtime, from a shell either. The service sets this for the gateway (see the
+# init); unset here, `hermes chat` typed in a shell whose provider answered 401 pip-installed boto3
+# and botocore into the data directory on flash, on a Flint 2 on 2026-10-08. Not an operator's
+# choice to lift: a router has no compiler, little flash, and sometimes no route to PyPI.
+export HERMES_DISABLE_LAZY_INSTALLS=1

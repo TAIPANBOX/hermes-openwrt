@@ -111,7 +111,8 @@ esac
 # agent runs as `hermes` since r3, so every ping it ran answered "permission denied" and a
 # network diagnosis failed at its first command (a clean install on a Flint 2, 2026-10-08).
 # iputils-ping, from OpenWrt's own feed, installs /usr/bin/ping setuid root, which comes before
-# BusyBox's /bin/ping on the service's PATH.
+# BusyBox's /bin/ping on the service's PATH. And `hermes` run from a shell is held to
+# HERMES_DISABLE_LAZY_INSTALLS like the gateway: one `hermes chat` had pip-installed boto3 on flash.
 PKGREL=${PKGREL:-9}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call

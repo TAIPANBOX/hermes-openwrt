@@ -26,6 +26,11 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    `@measured` 2026-10-08 on a Flint 2, clean r8 from the feed, a one-off cron job: ping refused,
    then answered once iputils-ping was added (gate: `scripts/gate-package.sh`
    `check_agent_can_ping`; teeth: `scripts/teeth.sh` fault 9).
+   `@claude` 2026-10-08, 0.21.5-r9: nothing of Hermes pip-installs at runtime, from a shell either.
+   `hermes-env`, which the launcher and hermes-login source, exports HERMES_DISABLE_LAZY_INSTALLS=1
+   as the init does for the gateway. `@measured` 2026-10-08 on a Flint 2 by check 14's own lines
+   against r8: red in both launcher branches (`lazy=` empty); green with the new hermes-env (gate:
+   `scripts/gate-package.sh` `check_shell_never_lazy_installs`; teeth: `scripts/teeth.sh` fault 10).
 2. Telegram is optional, disjoint from the base payload, and refuses unusable setup
    (gate: `scripts/gate-telegram.sh`).
 3. All provider, Telegram and MCP credentials are read, as root, by the exec wrapper on
