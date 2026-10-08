@@ -22,7 +22,7 @@ run() { # fails, message -> prints "rc calls"
 }
 fail() { echo "FAIL $1: $2"; exit 1; }
 [ "$(run 2 'ERROR: libreadline8-8.3-r1: Connection aborted')" = "0 3" ] || fail check_retries_a_cut_off_download "two cut-offs then OK should take three calls and succeed"
-[ "$(run 9 'ERROR: wget: exited with error 4')" = "1 5" ] || fail check_gives_up_after_five "a feed that never answers should be tried five times, then fail"
+[ "$(run 99 'ERROR: wget: exited with error 4')" = "1 8" ] || fail check_gives_up_after_eight "a feed that never answers should be tried eight times, then fail"
 [ "$(run 1 'ERROR: UNTRUSTED signature')" = "1 1" ] || fail check_never_retries_a_real_refusal "an untrusted signature must fail at once, untried again"
 [ "$(run 0 '')" = "0 1" ] || fail check_success_is_one_call "a clean apk must run once"
 # Under set -eu, as every build and gate sources it: a cut-off must still be retried, not end the shell.
@@ -48,4 +48,4 @@ for f in "$ROOT"/scripts/*.sh "$ROOT"/package/*/build-in-container.sh; do
 	fi
 done
 [ "$n" -gt 0 ] || fail check_every_container_script_sources_it "measured nothing: no script runs apk in a container"
-echo "PASS: test-apk-retry (cut-off retried, also under set -e, five tries at most, a refusal never retried, success once; $n container scripts source it)"
+echo "PASS: test-apk-retry (cut-off retried, also under set -e, eight tries at most, a refusal never retried, success once; $n container scripts source it)"

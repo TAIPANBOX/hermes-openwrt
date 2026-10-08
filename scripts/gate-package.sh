@@ -79,7 +79,7 @@ echo "-- container checks: $IMAGE ($PLATFORM) --"
 # -i is load-bearing. Without it docker hands `sh -s` an empty stdin, the script never
 # runs, the container exits 0, and this gate reports every check passed having measured
 # nothing at all.
-docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --rm -i --platform "$PLATFORM" -v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" -v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
 . /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 fail() { echo "FAIL $1: $2"; exit 1; }

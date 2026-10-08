@@ -4,18 +4,23 @@
 # build step died on "libreadline8 ... failed to extract ...: Connection aborted", a gate on 429,
 # and a Flint 2 installing from the README got "2 errors;" with python3-light missing. apk itself
 # never retries. So `apk` here is a function that runs the real one and, only when its output says
-# a download was cut off, runs it again, up to five times, with a pause that grows. Any other
+# a download was cut off, runs it again, up to eight times, with a pause that grows. Any other
 # failure (an untrusted signature, a missing package, a conflict) returns at once with apk's own
 # status and output, so a gate that expects apk to refuse still sees it refuse the first time.
 #
 # The output is apk's, stdout and stderr together, printed after each try.
+#
+# When the container has /apk-cache (a builder mounts one when APK_CACHE is set, as CI does from
+# actions/cache), every package is kept there, so a package OpenWrt's server delivered once is
+# never fetched again: on 2026-10-08 a ~3 MB python3-pip was cut off five tries running.
 apk() {
+	_ar_cache=""; [ -d /apk-cache ] && _ar_cache="--cache-dir /apk-cache"
 	_ar_n=0
 	while :; do
 		# `|| _ar_rc=$?`, not `; _ar_rc=$?`: every build and gate sources this under set -e, and there a
 		# failing command substitution ends the whole shell before the retry, and before apk's own
 		# message is printed (CI's build died that way, silently, on 2026-10-08).
-		_ar_rc=0; _ar_out=$(command apk "$@" 2>&1) || _ar_rc=$?
+		_ar_rc=0; _ar_out=$(command apk $_ar_cache "$@" 2>&1) || _ar_rc=$?
 		[ -n "$_ar_out" ] && printf '%s\n' "$_ar_out"
 		[ "$_ar_rc" -eq 0 ] && return 0
 		case "$_ar_out" in
@@ -25,8 +30,8 @@ apk() {
 			*) return "$_ar_rc" ;;
 		esac
 		_ar_n=$((_ar_n + 1))
-		[ "$_ar_n" -lt 5 ] || return "$_ar_rc"
-		echo "apk-retry: a download from the feed was cut off; try $((_ar_n + 1)) of 5 in $((_ar_n * 10)) s" >&2
+		[ "$_ar_n" -lt 8 ] || return "$_ar_rc"
+		echo "apk-retry: a download from the feed was cut off; try $((_ar_n + 1)) of 8 in $((_ar_n * 10)) s" >&2
 		sleep $((_ar_n * 10))
 	done
 }

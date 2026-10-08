@@ -156,7 +156,7 @@ mkdir -p "$WORK"
 ARCHIVE=$("$ROOT/package/upstream/fetch.sh")
 
 echo "==> assembling the tree inside $IMAGE (hermes-agent $HERMES_VERSION, $HERMES_COMMIT)"
-docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --rm -i --platform "linux/$ARCH" \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "linux/$ARCH" \
 	-v "$SRC:/src:ro" -v "$WORK:/work" \
 	-v "$ROOT/package/upstream:/upstream-src:ro" -v "$ARCHIVE:/upstream/archive.tar.gz:ro" \
 	"$IMAGE" /bin/sh -s <<CONTAINER

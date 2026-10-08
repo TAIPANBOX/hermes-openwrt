@@ -70,7 +70,7 @@ echo "PASS [1/7] check_upstream_pinned"
 
 # -i is load-bearing: without it `sh -s` reads an empty stdin, nothing runs, and the
 # container exits 0 having checked nothing.
-docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --rm -i --platform "$PLATFORM" \
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" \
 	-v "$TREE:/tree:ro" -v "$ARCHIVE:/archive.tar.gz:ro" \
 	-e HERMES_VERSION="$HERMES_VERSION" -e HERMES_EXCLUDE="$HERMES_EXCLUDE" \
 	"$IMAGE" /bin/sh -s <<'CONTAINER'

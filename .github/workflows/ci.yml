@@ -67,6 +67,17 @@ jobs:
       # GL.iNet MediaTek router installs, so that gate-relabel.sh runs where it counts:
       # r4 shipped that label without bash and CI could not see it, because CI had
       # never produced it.
+      # Packages from OpenWrt's feed, kept between runs: the release feed does not change, and its
+      # server cut downloads off all day on 2026-10-08. Every container mounts it (APK_CACHE), and
+      # scripts/apk-retry.sh hands it to apk as --cache-dir.
+      - name: keep OpenWrt's packages between runs
+        uses: actions/cache@v4
+        with:
+          path: ~/apk-cache
+          key: apk-cache-${{ matrix.arch }}-25.12.4-v1
+      - name: the package cache exists and belongs to the runner
+        run: mkdir -p ~/apk-cache && echo "APK_CACHE=$HOME/apk-cache" >> "$GITHUB_ENV"
+
       - name: build the package inside OpenWrt ${{ matrix.arch }}
         run: EXTRA_ARCHES=${{ matrix.arch == 'aarch64_generic' && 'aarch64_cortex-a53' || '' }} ./package/hermes-agent/build-in-container.sh ${{ matrix.arch }}
 
