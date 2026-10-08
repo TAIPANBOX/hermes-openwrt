@@ -61,6 +61,16 @@
 #                        under "The unlock message itself" that end "the agent is told" are
 #                        about that; what the agent is told never includes a PIN or a code.
 #
+#   @claude 2026-10-08   reported by a test run, not measured here: an agent on a Beryl AX could
+#                        not set up a guest Wi-Fi, because the package granted it no read of
+#                        wireless and only named sections of network, which hold the Wi-Fi keys
+#                        and a WireGuard private key that would reach the model provider. From
+#                        openwrt-mcp 0.5.0.2 every uci_get answer has each secret option replaced
+#                        by '<redacted>' and `status` says so (uci_get_redacts_credentials). The
+#                        three scenarios after "No tool that answers with a private key" are the
+#                        r11 answer: wireless and the whole of network are read only from a daemon
+#                        that says it redacts, and from nothing else.
+#
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
 # fix. A scenario whose check is not built yet is listed by the gate as NOT IMPLEMENTED and
@@ -152,6 +162,30 @@ Feature: The agent changes the router only when its owner unlocks it
     Then that policy does not grant wg_new_client, whose answer is a WireGuard private key
     And a call to it is refused even while the owner has unlocked changes
     # -> check_change_policy_hands_out_no_private_key
+
+  Scenario: The agent can read the Wi-Fi and the whole network, and never their keys
+    Given the router's wireless configuration holds a Wi-Fi key and its network a WireGuard private key
+    And the openwrt-mcp installed reports that uci_get redacts credentials
+    When the agent reads wireless, or the whole of network, or the private key alone, with no unlock
+    Then it gets the settings, and every key in them reads '<redacted>', never the key itself
+    And netifd's wireless status, which carries the same key unredacted, is still refused
+    # -> check_wireless_and_network_reads_are_redacted
+
+  Scenario: No wide read from an openwrt-mcp that does not say it redacts
+    Given the openwrt-mcp installed does not report that uci_get redacts credentials, as one before 0.5.0.2
+    When the service starts
+    Then the agent is granted system, dhcp, firewall and the named network sections only, as before
+    And the start says why in one line
+    And a read of wireless or of the whole network is refused
+    # -> check_wide_reads_only_from_a_daemon_that_redacts
+
+  Scenario: A daemon left running from before an upgrade gets no wide read
+    Given openwrt-mcp was upgraded, and the daemon still serving is the older version
+    And restarting it does not change that
+    When the service starts
+    Then the agent is granted the narrow reads only, and the start names the version that is running
+    And with a daemon at the installed version the same start grants wireless and the whole of network
+    # -> check_daemon_from_before_the_upgrade_gets_no_wide_reads
 
   # ---- The factors, each optional ----
 

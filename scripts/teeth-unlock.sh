@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (forty-two in all, over thirty-five checks). Each is a change a
+# or have several ways to go wrong (forty-seven in all, over thirty-eight checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -350,6 +350,34 @@ expect_red "the end of the window ignored" check_agent_not_told_after_window_end
 plant etc/config/hermes 'openwrt-mcp mfa enrol hermes-main --pending --qr' 'openwrt-mcp mfa enrol hermes-main --qr'
 expect_red "the config file's enrol command without --pending" check_cli_enrol_prints_qr
 
+# ---- r11: wireless and the whole of network, only from a daemon that redacts ----
+
+# ---- 43. the capability not asked for ----
+# The init grants the wide reads whatever openwrt-mcp says: an older daemon, which redacts nothing,
+# would hand the Wi-Fi key and the WireGuard private key to the model provider.
+plant "$INIT" '	if [ "$cap" != true ]; then' '	if false; then'
+expect_red "the capability not asked for" check_wide_reads_only_from_a_daemon_that_redacts
+
+# ---- 44. wireless granted unconditionally ----
+# The narrow list itself widened, so even the fallback for a daemon that does not redact reads them.
+plant "$INIT" "MCP_READ_UCI='system system.* " "MCP_READ_UCI='wireless wireless.* network network.* system system.* "
+expect_red "wireless and network in the narrow list" check_wide_reads_only_from_a_daemon_that_redacts
+
+# ---- 45. the wide grant never given ----
+# Fail closed in every case: the agent still cannot read the Wi-Fi to set up a guest network.
+plant "$INIT" '	echo "$MCP_READ_UCI_WIDE"' '	echo "$MCP_READ_UCI"'
+expect_red "the wide reads never granted" check_wireless_and_network_reads_are_redacted
+
+# ---- 46. the daemon that is running not asked ----
+# The installed binary's word taken for the daemon's: after an upgrade the old daemon serves on.
+plant "$INIT" '	if [ "$running" = true ]; then' '	if false; then'
+expect_red "a daemon from before the upgrade not asked its version" check_daemon_from_before_the_upgrade_gets_no_wide_reads
+
+# ---- 47. netifd's wireless status granted ----
+# The one read of the Wi-Fi key openwrt-mcp does not redact.
+plant "$INIT" 'network.device.status iwinfo.devices' 'network.device.status network.wireless.status iwinfo.devices'
+expect_red "network.wireless status among the reads" check_wireless_and_network_reads_are_redacted
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -384,6 +412,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 42 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 42 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 47 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 47 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 42 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 47 faults (shard $SHARD), $N distinct checks, controls green"

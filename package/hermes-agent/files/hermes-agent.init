@@ -39,16 +39,74 @@ MCP_URL_DEFAULT=http://127.0.0.1:8730/mcp
 # (HERMES_OPENWRT_READ_UBUS), where the unlock plugin uses it to tell a read from a change when
 # it refuses a scheduled job's changes: one list, so the two cannot disagree.
 MCP_READ_UBUS='system.board system.info network.interface.dump network.interface.*.status network.device.status iwinfo.devices iwinfo.info iwinfo.assoclist dhcp.ipv6leases luci-rpc.getDHCPLeases luci-rpc.getHostHints luci-rpc.getNetworkDevices'
-# What uci_get may read. Not wireless, whose keys would go to the model provider, and not
-# the whole of network either: a router running WireGuard keeps its private key in a network
-# section. The default interfaces and the globals are named instead. openwrt-mcp matches a
-# scope with path.Match, so `network.lan*` covers the section and its options.
+# What uci_get may read from a daemon that does not say it redacts: not wireless, whose keys
+# would go to the model provider, and not the whole of network either, since a router running
+# WireGuard keeps its private key in a network section. The default interfaces and the globals
+# are named instead. openwrt-mcp matches a scope with path.Match, so `network.lan*` covers the
+# section and its options.
 MCP_READ_UCI='system system.* dhcp dhcp.* firewall firewall.* network.loopback* network.globals* network.lan* network.wan*'
+# What uci_get may read from a daemon that reports uci_get_redacts_credentials (openwrt-mcp
+# 0.5.0.2 and later): every uci_get answer then has each secret option (a Wi-Fi key, a WireGuard
+# private or preshared key, a password, a RADIUS secret...) replaced by '<redacted>', for every
+# client and with no way to turn it off, so wireless and the whole of network can be read, which
+# is what setting up a guest Wi-Fi needs. ubus's network.wireless status is NOT redacted by the
+# daemon and stays out of MCP_READ_UBUS whatever this says. See mcp_uci_scopes.
+MCP_READ_UCI_WIDE='system system.* dhcp dhcp.* firewall firewall.* network network.* wireless wireless.*'
 
 # Read a secret from a file into stdout, or nothing if it is missing or empty.
 # Never echoes the path's contents to the log.
 read_secret() {
 	[ -n "$1" ] && [ -r "$1" ] && head -n1 "$1" | tr -d ' \t\r\n'
+}
+
+# The version the openwrt-mcp answering at <listen> gives for itself on /health, or nothing.
+mcp_live_version() {
+	wget -q -T 3 -O - "http://$1/health" 2>/dev/null | sed -n '1s/^openwrt-mcp \([^ ]*\) ok$/\1/p'
+}
+
+# Which uci_get scopes an agent is granted, printed on stdout: MCP_READ_UCI_WIDE only when the
+# openwrt-mcp that will answer reports uci_get_redacts_credentials, MCP_READ_UCI otherwise, with
+# one line on stderr that says why. Fail closed: a status that does not answer, does not parse or
+# lacks the key (a binary from before 0.5.0.2 has none) is the narrow list.
+#
+# `openwrt-mcp status` is the INSTALLED binary speaking: it reports its own capabilities and
+# whether something at its listen address answers /health as openwrt-mcp. apk replaces the binary
+# on an upgrade without restarting the daemon (openwrt-mcp's package restarts it on an install
+# only), so a daemon from before the upgrade, which redacts nothing, can still be the one serving.
+# So when one is running, the version its /health gives must be the installed binary's; when it is
+# not, the daemon is restarted once, and if it still is not (or cannot be read), the list is the
+# narrow one. A daemon that is not running is started from the installed binary further down.
+mcp_uci_scopes() {
+	local st cap ver running listen live i
+	st=$("$MCP_BIN" status --json --audit 0 2>/dev/null)
+	cap=$(printf '%s' "$st" | jsonfilter -e '@.capabilities.uci_get_redacts_credentials' 2>/dev/null)
+	ver=$(printf '%s' "$st" | jsonfilter -e '@.version' 2>/dev/null)
+	if [ "$cap" != true ]; then
+		echo "$NAME: openwrt-mcp ${ver:-(no status)} does not report that uci_get redacts credentials, so the agent may not read wireless or the whole of network; openwrt-mcp 0.5.0.2 or later does" >&2
+		echo "$MCP_READ_UCI"
+		return 0
+	fi
+	running=$(printf '%s' "$st" | jsonfilter -e '@.running' 2>/dev/null)
+	if [ "$running" = true ]; then
+		listen=$(printf '%s' "$st" | jsonfilter -e '@.listen' 2>/dev/null)
+		listen=${listen:-127.0.0.1:8730}
+		live=$(mcp_live_version "$listen")
+		if [ "$live" != "$ver" ]; then
+			/etc/init.d/openwrt-mcp restart >/dev/null 2>&1
+			i=0
+			while [ "$i" -lt 10 ]; do
+				live=$(mcp_live_version "$listen")
+				[ "$live" != "$ver" ] || break
+				i=$((i + 1)); sleep 1
+			done
+		fi
+		if [ "$live" != "$ver" ]; then
+			echo "$NAME: the openwrt-mcp running is ${live:-of unknown version}, not the installed $ver that redacts credentials, and a restart did not change that; the agent may not read wireless or the whole of network until 'service openwrt-mcp restart' does" >&2
+			echo "$MCP_READ_UCI"
+			return 0
+		fi
+	fi
+	echo "$MCP_READ_UCI_WIDE"
 }
 
 # The agent reaches its data directory through every directory above it, and one that only
@@ -102,14 +160,14 @@ hand_over_data_dir() {
 # cannot widen another's, and the change policy, which asks for the second factor on
 # everything it grants, last. With no factor configured that last one is not written, so a
 # change finds no policy at all ("no policy grants").
-#   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout>
+#   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout> <uci scopes>
 mcp_policy_batch() {
-	local client=$1 prefix=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 scope
+	local client=$1 prefix=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7 scope
 	set -f
 	printf 'set openwrt-mcp.%sread_ubus=policy\nset openwrt-mcp.%sread_ubus.client=%s\nadd_list openwrt-mcp.%sread_ubus.tools=ubus_call\n' "$prefix" "$prefix" "$client" "$prefix"
 	for scope in $MCP_READ_UBUS; do printf "add_list openwrt-mcp.%sread_ubus.scopes='%s'\n" "$prefix" "$scope"; done
 	printf 'set openwrt-mcp.%sread_uci=policy\nset openwrt-mcp.%sread_uci.client=%s\nadd_list openwrt-mcp.%sread_uci.tools=uci_get\n' "$prefix" "$prefix" "$client" "$prefix"
-	for scope in $MCP_READ_UCI; do printf "add_list openwrt-mcp.%sread_uci.scopes='%s'\n" "$prefix" "$scope"; done
+	for scope in $read_uci; do printf "add_list openwrt-mcp.%sread_uci.scopes='%s'\n" "$prefix" "$scope"; done
 	printf 'set openwrt-mcp.%sread_log=policy\nset openwrt-mcp.%sread_log.client=%s\nadd_list openwrt-mcp.%sread_log.tools=logread\n' "$prefix" "$prefix" "$client" "$prefix"
 	set +f
 	[ "$factor" = none ] && return 0
@@ -129,11 +187,11 @@ mcp_policy_batch() {
 # nothing writes nothing to flash. When they differ the package's sections for that agent
 # are deleted and written again, in order, which also puts them after any older ones.
 mcp_policies() {
-	local client=$1 agent=$2 factor=$3 window=$4 max_failures=$5 lockout=$6
+	local client=$1 agent=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7
 	local prefix="hermes_${agent}_" scratch want have sect
 	scratch=$(mktemp -d /tmp/hermes-mcp.XXXXXX) || return 1
 	: > "$scratch/openwrt-mcp"
-	mcp_policy_batch "$client" "$prefix" "$factor" "$window" "$max_failures" "$lockout" > "$scratch/batch"
+	mcp_policy_batch "$client" "$prefix" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" > "$scratch/batch"
 	uci -c "$scratch" -P "$scratch/save" -q batch < "$scratch/batch" && uci -c "$scratch" -P "$scratch/save" -q commit openwrt-mcp || {
 		rm -rf "$scratch"; echo "$NAME: could not build the openwrt-mcp policies for $client" >&2; return 1; }
 	want=$(uci -c "$scratch" -P "$scratch/save" -q show openwrt-mcp | grep "^openwrt-mcp\.$prefix")
@@ -158,7 +216,7 @@ mcp_policies() {
 # hermes-<name> with its own token and its own unlock window.
 hermes_mcp_agent() {
 	local agent=$1 token_file=$2 factor=$3 window=$4 max_failures=$5 lockout=$6
-	local client="hermes-$agent" tmp tok
+	local client="hermes-$agent" tmp tok read_uci
 	case "$agent" in ''|*[!a-z0-9]*) echo "$NAME: agent name '$agent' must be lower-case letters and digits" >&2; return 1 ;; esac
 	[ -x "$MCP_BIN" ] || {
 		echo "$NAME: openwrt-mcp is not installed ($MCP_BIN); apk add openwrt-mcp" >&2; return 1; }
@@ -176,7 +234,9 @@ hermes_mcp_agent() {
 		chmod 0600 "$tmp" && mv "$tmp" "$token_file" || return 1
 		echo "$NAME: paired $client with openwrt-mcp; its token is in $token_file" >&2
 	fi
-	mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout"
+	# Wireless and the whole of network only from a daemon that redacts every secret in them.
+	read_uci=$(mcp_uci_scopes)
+	mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout" "$read_uci"
 }
 
 start_service() {

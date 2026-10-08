@@ -1395,6 +1395,21 @@ procd_close_service
                           "config policy 'mine'\n\toption client 'someone-else'\n\tlist tools 'logread'\n")
         token = self.home / "unit.token"
         token.unlink(missing_ok=True)
+        # openwrt-mcp as one from before 0.5.0.2 answers `status`: with no capabilities key, so the
+        # init keeps the narrow uci_get grants most of this test reads. The real binary's own status,
+        # at the end, widens them to wireless and the whole of network.
+        binary, real = Path("/usr/bin/openwrt-mcp"), Path("/usr/bin/openwrt-mcp.real")
+        binary.rename(real)
+
+        def put_back():
+            if real.exists():
+                real.replace(binary)
+        self.addCleanup(put_back)
+        binary.write_text("#!/bin/sh\nif [ \"$1\" = status ]; then\n"
+                          "\t/usr/bin/openwrt-mcp.real \"$@\" | python3 -c 'import json, sys; "
+                          "d = json.load(sys.stdin); d.pop(\"capabilities\", None); json.dump(d, sys.stdout)'\n"
+                          "\texit\nfi\nexec /usr/bin/openwrt-mcp.real \"$@\"\n")
+        binary.chmod(0o755)
 
         def agent(factor, name="unit", window="20m", token_file=None):
             script = (f". /lib/functions.sh; . {shlex.quote(str(FILES / 'hermes-agent.init'))}; "
@@ -1414,6 +1429,7 @@ procd_close_service
         mine = [line for line in show() if line.startswith("openwrt-mcp.mine")]
         result = agent("pin")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr.count("does not report that uci_get redacts credentials"), 1, result.stderr)
         lines = show()
         # openwrt-mcp takes the first policy of a client that covers a call, so the reads come
         # first, one tool each, and the change policy, which wants the factor, last.
@@ -1476,6 +1492,15 @@ procd_close_service
         before = config.read_bytes()
         self.assertNotEqual(agent("pin", name="Bad-Name").returncode, 0)
         self.assertEqual(config.read_bytes(), before)
+        # An openwrt-mcp that reports uci_get_redacts_credentials (0.5.0.2 on): wireless and the whole
+        # of network as well, and nothing said about it.
+        put_back()
+        result = agent("pin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("redacts credentials", result.stderr)
+        uci = section(show(), "hermes_unit_read_uci")["scopes"].replace("'", "").split()
+        for scope in ("system", "dhcp", "firewall", "network", "network.*", "wireless", "wireless.*"):
+            self.assertIn(scope, uci)
 
     def _start(self, uci, data_dir=None, path=None):
         """The init's own start_service as root, after some UCI lines; the CompletedProcess."""
