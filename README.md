@@ -143,13 +143,15 @@ nothing can change the router through it. Set one in **Services -> Hermes Agent 
 or over SSH, where the QR code is printed in the terminal:
 
 ```sh
-stty -echo; read -r PIN; stty echo; printf '%s\n' "$PIN" | openwrt-mcp pin set hermes-main; unset PIN
+python3 -c 'import getpass; print(getpass.getpass("PIN: "))' | openwrt-mcp pin set hermes-main
 openwrt-mcp mfa enrol hermes-main --pending --qr
 openwrt-mcp mfa activate hermes-main <code from the app>
 uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
+The first line reads the PIN without showing it, through the python3 the package already
+needs (OpenWrt's BusyBox has no `stty`); run it in an SSH session with a terminal (`ssh -t`).
 Then `/unlock` and the PIN in one message, `/unlock 4821`, in the private chat opens a 15-minute
 window (`/unlock 4821 503917` with `pin+totp`; the digits alone work too). `/unlock` on its own
 opens nothing: the bot answers with what to send. On the Security page the PIN and the factor

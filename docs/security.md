@@ -286,12 +286,17 @@ calls, so a stale tab or a hand-made request gets the same answer.
 **Over SSH**, the QR code is printed in the terminal:
 
 ```sh
-stty -echo; read -r PIN; stty echo; printf '%s\n' "$PIN" | openwrt-mcp pin set hermes-main; unset PIN
+python3 -c 'import getpass; print(getpass.getpass("PIN: "))' | openwrt-mcp pin set hermes-main
 openwrt-mcp mfa enrol hermes-main --pending --qr
 openwrt-mcp mfa activate hermes-main <code from the app>
 uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
+
+The first line reads the PIN from the terminal without showing it, through the python3 the
+package already needs, so it needs an SSH session with a terminal (`ssh -t`). OpenWrt's BusyBox
+has no `stty`, and on a Flint 2 on 25.12.5 the `stty -echo` form these pages gave before printed
+the PIN on the screen; the form above set it ("PIN set.").
 
 `--pending` is the point: it keeps the new secret apart until `activate` has seen a current code, so
 a scan that did not work cannot replace the phone in force. Without it `openwrt-mcp mfa enrol` takes
