@@ -50,7 +50,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -144,6 +144,10 @@ case "$*" in
 	"call uci reload_config"*) echo '{}' ;;
 	# What an open window may run: a reload of the network, a service restarted.
 	"call network reload"|"call rc init"*) echo '{}' ;;
+	# rpcd's rc.list is answered by the real rpcd of this rootfs, on the real ubusd, when a check
+	# has started them (check_service_state_is_read_with_rc_list): what the agent reads to know
+	# whether a service runs is then the very answer a router gives.
+	"call rc list"*) exec /bin/ubus "$@" ;;
 	*) echo "Command failed: Not found" >&2; exit 4 ;;
 esac
 EOF
@@ -875,8 +879,9 @@ EOF
 mcp_status() { openwrt-mcp status --json --audit 0 2>/dev/null | jsonfilter -e "@.$1" 2>/dev/null; }
 # The uci_get scopes the package granted the agent, one per line.
 read_uci_scopes() { uci -q get openwrt-mcp.hermes_main_read_uci.scopes | tr ' ' '\n'; }
-# Any scope that reaches wireless or the whole of network, rather than network's named sections.
-wide_scopes() { read_uci_scopes | grep -E '^(wireless|wireless\..*|network|network\.\*)$' || true; }
+# Any scope that reaches wireless or the whole of network, rather than network's named sections:
+# since r14 the wide grant is '*', every config.
+wide_scopes() { read_uci_scopes | grep -E '^(\*|wireless|wireless\..*|network|network\.\*)$' || true; }
 
 # The read a guest Wi-Fi needs (on 2026-10-08 an agent on a Beryl AX could not set one up, refused
 # a read of wireless), from the openwrt-mcp the package depends on, which redacts every secret
@@ -943,7 +948,7 @@ EOF
 	daemon_stop
 	mv -f /usr/bin/openwrt-mcp.real /usr/bin/openwrt-mcp
 	started
-	wide_scopes | grep -qx wireless || fail "the installed openwrt-mcp's own status did not widen the grant either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
+	[ "$(read_uci_scopes)" = '*' ] || fail "the installed openwrt-mcp's own status did not widen the grant to every config either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
 	pass "no capability: system, dhcp, firewall and the named network sections only, said in one line, wireless and network refused; the real status widened it"
 }
 
@@ -991,7 +996,7 @@ check_daemon_from_before_the_upgrade_gets_no_wide_reads() {
 	health_standin "$ver"
 	started
 	standin_stop
-	wide_scopes | grep -qx wireless || fail "a daemon at the installed $ver did not get the wide grant either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
+	[ "$(read_uci_scopes)" = '*' ] || fail "a daemon at the installed $ver did not get the wide grant (every config) either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
 	pass "0.5.0 still serving beside an installed $ver: the narrow grants, and the start says which daemon runs; at $ver the wide grant"
 }
 
@@ -1106,6 +1111,164 @@ check_package_install_needs_the_unlock() {
 	grep -q 'mcp__openwrt__uci_get' /tmp/probe.out || fail "with packages off upstream offers no openwrt tools at all, so the absence below proves nothing"
 	grep -q 'mcp__openwrt__apk_add' /tmp/probe.out && fail "packages off and the model is offered apk_add"
 	pass "opted in with a factor: apk_add refused for the factor while locked; in an open window past the policy to apk_add's own rules (a version, a file, an option, a tag refused, a link refused), nothing installed; offered to the model; off: no policy, refused after an unlock, hidden"
+}
+
+# ---- 0.21.5-r14: a service's state and a package's settings are reads ----
+#
+# Measured 2026-10-09 on a Flint 2 with r13 (the owner profile, through Telegram): the agent installed
+# three packages and started their services, then could not confirm any was running, refused rc.list
+# and service.list, and could not read /etc/config/transmission. Both are reads.
+
+# An init script of a package the agent installed: a procd service, enabled, with what procd's
+# service.list would hand over (a command line, an environment) holding canaries.
+plant_service() {
+	cat > /etc/init.d/gatesvc <<'EOF'
+#!/bin/sh /etc/rc.common
+USE_PROCD=1
+START=60
+STOP=40
+start_service() {
+	procd_open_instance
+	procd_set_param command /bin/sleep 3600 GATE-SERVICE-ARGV-CANARY
+	procd_set_param env GATE_SECRET=GATE-SERVICE-ENV-CANARY
+	procd_close_instance
+}
+EOF
+	chmod 755 /etc/init.d/gatesvc
+	mkdir -p /etc/rc.d
+	ln -sf ../init.d/gatesvc /etc/rc.d/S60gatesvc
+}
+
+# rpcd's rc.list, answered by the real rpcd and ubusd of this rootfs: per init script its start and
+# stop priority, whether it is enabled and, for a procd script, whether it runs. procd's service.list,
+# whose answer is every service's command line and environment, stays refused before ubus, and the
+# read grant reaches no change: rc.init still wants the second factor.
+check_service_state_is_read_with_rc_list() {
+	reset; configure - pin
+	plant_service
+	started
+	rpc_up
+	ubus list rc >/dev/null 2>&1 || fail "measured nothing: this rpcd registers no rc object"
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	: > /tmp/ubus.calls
+	out=$(mcp "$TOKEN" ubus_call '{"object":"rc","method":"list","args":{"name":"gatesvc"}}') || fail "rc.list was refused with no unlock: $out"
+	grep -q '^call rc list' /tmp/ubus.calls || fail "measured nothing: rc.list never reached ubus: $out"
+	printf '%s' "$out" > /tmp/rc.one
+	out=$(mcp "$TOKEN" ubus_call '{"object":"rc","method":"list"}') || fail "rc.list of every service was refused with no unlock: $out"
+	printf '%s' "$out" > /tmp/rc.all
+	# What it answers: an object per init script with these four keys at most, numbers and booleans,
+	# so no command line and no environment can be in it.
+	cat > /tmp/rcshape.py <<'PY'
+import json, sys
+def answer(path):
+    text = open(path).read()
+    return json.JSONDecoder().raw_decode(text[text.index("{"):])[0]
+one, every = answer(sys.argv[1]), answer(sys.argv[2])
+if list(one) != ["gatesvc"]:
+    sys.exit("rc.list named gatesvc answered %r" % sorted(one))
+svc = one["gatesvc"]
+if (svc.get("start"), svc.get("stop"), svc.get("enabled")) != (60, 40, True) or not isinstance(svc.get("running"), bool):
+    sys.exit("gatesvc read as %r, not start 60, stop 40, enabled, with its running state" % svc)
+if "hermes-agent" not in every or len(every) < 3:
+    sys.exit("rc.list of every service answered %r" % sorted(every))
+for name, entry in every.items():
+    extra = set(entry) - {"start", "stop", "enabled", "running"}
+    odd = [k for k, v in entry.items() if not isinstance(v, (bool, int))]
+    if extra or odd:
+        sys.exit("%s answered %r" % (name, entry))
+print("%d services, keys %s" % (len(every), sorted({k for e in every.values() for k in e})))
+PY
+	shape=$(python3 /tmp/rcshape.py /tmp/rc.one /tmp/rc.all 2>&1) || fail "$shape"
+	cat /tmp/rc.one /tmp/rc.all | grep -q CANARY && fail "a service's command line or environment reached rc.list's answer"
+	# procd's service.list: refused for want of a scope, with or without a name, before ubus.
+	for call in '{"object":"service","method":"list"}' '{"object":"service","method":"list","args":{"name":"gatesvc","verbose":true}}'; do
+		if out=$(mcp "$TOKEN" ubus_call "$call"); then fail "service.list was answered: $call: $out"; fi
+		echo "$out" | grep -q 'no policy scope covers' || fail "service.list was refused, but not for want of a policy scope: $out"
+	done
+	grep -q '^call service' /tmp/ubus.calls && fail "a refused service.list reached ubus"
+	# The read is not a change: starting the service still asks for the second factor.
+	if out=$(mcp "$TOKEN" ubus_call '{"object":"rc","method":"init","args":{"name":"gatesvc","action":"start"}}'); then fail "rc.init was allowed with no unlock: $out"; fi
+	echo "$out" | grep -q 'second factor' || fail "rc.init was refused, but not for the second factor: $out"
+	grep -q '^call rc init' /tmp/ubus.calls && fail "a refused rc.init reached ubus"
+	pass "rc.list answered by rpcd with no unlock ($shape), gatesvc start 60 stop 40 enabled; service.list refused before ubus; rc.init still asks for the second factor"
+}
+
+# A package the agent installed keeps its settings in a config the package never names, with a
+# password in it. From an openwrt-mcp that redacts, uci_get reads it with the password '<redacted>'.
+plant_package_configs() {
+	cat > /etc/config/transmission <<'EOF'
+config transmission 'transmission'
+	option enabled '1'
+	option rpc_port '9091'
+	option rpc_username 'gate'
+	option rpc_password 'GATE-TRANSMISSION-PASSWORD-CANARY'
+EOF
+	printf "config adguardhome 'config'\n\toption enabled '1'\n\toption workdir '/var/lib/adguardhome'\n" > /etc/config/adguardhome
+}
+
+check_installed_package_config_is_read_redacted() {
+	reset; configure - pin
+	plant_package_configs
+	[ "$(mcp_status capabilities.uci_get_redacts_credentials)" = true ] \
+		|| fail "the installed openwrt-mcp $(mcp_status version) does not report uci_get_redacts_credentials, so this measured nothing; build it from the commit CI pins"
+	started
+	set_pin hermes-main 4821
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	out=$(mcp "$TOKEN" uci_get '{"config":"transmission"}') || fail "uci_get transmission was refused: $out"
+	echo "$out" | grep -qF "transmission.transmission.rpc_port='9091'" || fail "uci_get transmission gave no settings: $out"
+	echo "$out" | grep -qF "transmission.transmission.rpc_password='<redacted>'" || fail "the password does not read '<redacted>': $out"
+	echo "$out" | grep -q CANARY && fail "the password reached the answer: $out"
+	out=$(mcp "$TOKEN" uci_get '{"config":"transmission","section":"transmission","option":"rpc_password"}') || fail "uci_get of the password itself was refused: $out"
+	echo "$out" | grep -q CANARY && fail "the password reached the answer to a read of that option: $out"
+	out=$(mcp "$TOKEN" uci_get '{"config":"adguardhome"}') || fail "uci_get adguardhome was refused: $out"
+	echo "$out" | grep -qF "adguardhome.config.workdir='/var/lib/adguardhome'" || fail "uci_get adguardhome gave: $out"
+	# The read reaches no change: in an open window uci_apply on the package's config is refused for
+	# want of a scope, and the file is as it was.
+	before=$(md5sum < /etc/config/transmission)
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	if out=$(mcp "$TOKEN" uci_apply '{"changes":[{"config":"transmission","section":"transmission","option":"rpc_port","value":"9092"}]}'); then fail "uci_apply on transmission was allowed in an open window: $out"; fi
+	echo "$out" | grep -q 'no policy scope covers' || fail "uci_apply on transmission was refused, but not for want of a scope: $out"
+	[ "$(md5sum < /etc/config/transmission)" = "$before" ] || fail "/etc/config/transmission changed"
+	pass "transmission and adguardhome read with no unlock, the password '<redacted>' whole and alone; uci_apply on transmission refused in an open window, its file unchanged"
+}
+
+# From an openwrt-mcp that does not say it redacts, exactly the narrow list, as before r14: a
+# package's config would hand its password to the model provider.
+check_package_config_reads_only_from_a_daemon_that_redacts() {
+	reset; configure - pin
+	plant_package_configs
+	mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.real
+	cat > /usr/bin/openwrt-mcp <<'EOF'
+#!/bin/sh
+if [ "$1" = status ]; then
+	/usr/bin/openwrt-mcp.real "$@" | python3 -c 'import json, sys; d = json.load(sys.stdin); d.get("capabilities", {}).pop("uci_get_redacts_credentials", None); json.dump(d, sys.stdout)'
+	exit
+fi
+exec /usr/bin/openwrt-mcp.real "$@"
+EOF
+	chmod 755 /usr/bin/openwrt-mcp
+	[ -z "$(mcp_status capabilities.uci_get_redacts_credentials)" ] || fail "measured nothing: the stand-in still reports uci_get_redacts_credentials"
+	[ "$(mcp_status capabilities.uci_apply_refuses_code_exec)" = true ] || fail "measured nothing: the stand-in lost more than the one capability"
+	started
+	got=$(read_uci_scopes | tr '\n' ' ')
+	[ "$got" = 'system system.* dhcp dhcp.* firewall firewall.* network.loopback* network.globals* network.lan* network.wan* ' ] \
+		|| fail "from an openwrt-mcp that does not redact, uci_get got '$got', not exactly the narrow list"
+	n=$(grep -c 'does not report that uci_get redacts credentials' /tmp/start.log)
+	[ "$n" = 1 ] || { cat /tmp/start.log; fail "the start said why in $n lines, not one"; }
+	daemon_start
+	for q in '{"config":"transmission"}' '{"config":"transmission","section":"transmission","option":"rpc_password"}' '{"config":"adguardhome"}'; do
+		if out=$(mcp "$TOKEN" uci_get "$q"); then fail "uci_get $q was answered: $out"; fi
+		echo "$out" | grep -q 'no policy scope covers' || fail "uci_get $q was refused, but not for want of a scope: $out"
+		echo "$out" | grep -q CANARY && fail "the password reached the refusal of $q"
+	done
+	# Not vacuous: the same router, with the binary's own status, reads every config.
+	daemon_stop
+	mv -f /usr/bin/openwrt-mcp.real /usr/bin/openwrt-mcp
+	started
+	[ "$(read_uci_scopes)" = '*' ] || fail "the installed openwrt-mcp's own status did not grant every config either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
+	pass "no capability: exactly the narrow list, said in one line, transmission and adguardhome refused; the real status granted every config"
 }
 
 # ======================================================= the Hermes side: the real gateway

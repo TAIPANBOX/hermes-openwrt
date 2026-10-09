@@ -319,6 +319,14 @@ Feature: What is set on the router is what the gateway runs with
     And the gateway loads all of it as its system prompt, while assistant and root carry none of it
     # -> check_owner_note_teaches_section_names_port_forwards_and_reading_back
 
+  Scenario: the owner profile tells the agent how to read a service's state and a package's settings
+    Given the owner profile, whatever the second factor
+    Then the agent is told to read a service's state with rc list, giving its name, which answers whether it is enabled and running
+    And to read a package's settings with uci_get on its config
+    And never to tell the owner a service started until rc list says it is running
+    And the gateway loads it as its system prompt, while assistant and root carry none of it
+    # -> check_owner_note_says_how_to_read_a_service_and_its_settings
+
   Scenario: a scheduled job is told what its profile is, and a chat is told it once
     Given the owner profile, with or without a second factor, or the assistant profile
     When a one-off scheduled job runs, such as "why is the internet slow, check on the router"
@@ -497,6 +505,16 @@ Feature: What is set on the router is what the gateway runs with
     And another agent gets its own sections and its own token, and the first is left alone
     And a name that cannot be part of a section is refused
     # -> check_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone
+
+  Scenario: a service's state and a package's settings are reads, and never a change
+    Given the owner profile with a second factor
+    When the service writes the agent's openwrt-mcp policies
+    Then the ubus read policy covers rc.list and no method of procd's service object, service.list included
+    And from an openwrt-mcp that reports it redacts, the uci_get read policy covers every config
+    And from one that does not, it is exactly the narrow list it was before, with one line in the log
+    And both reads stay policies of their own with no second factor, ahead of the change policies
+    And no change policy covers rc.list, service.list or a package's config
+    # -> check_service_state_and_package_settings_are_reads
 
   Scenario: the second factor's settings are checked at the start
     Given the owner profile

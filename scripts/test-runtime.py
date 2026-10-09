@@ -1717,8 +1717,9 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
         self.assertEqual(result.stderr.count("does not report that uci_apply refuses code execution"), 1, result.stderr)
         self.assertNotIn("hermes_unit_change", sections(show()))
         self.assertNotIn("hermes_unit_change_ubus", sections(show()))
-        # An openwrt-mcp that reports uci_get_redacts_credentials (0.5.0.2 on): wireless and the whole
-        # of network as well, and nothing said about it.
+        # An openwrt-mcp that reports uci_get_redacts_credentials (0.5.0.2 on): every config, wireless
+        # and the whole of network among them (r11), and since r14 a package's own, and nothing said
+        # about it.
         put_back()
         result = agent("pin")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1726,8 +1727,135 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
         self.assertNotIn("refuses code execution", result.stderr)
         self.assertIn("hermes_unit_change_ubus", sections(show()))
         uci = section(show(), "hermes_unit_read_uci")["scopes"].replace("'", "").split()
-        for scope in ("system", "dhcp", "firewall", "network", "network.*", "wireless", "wireless.*"):
-            self.assertIn(scope, uci)
+        self.assertEqual(uci, ["*"])
+
+    # The read policies hermes_mcp_agent writes for a client of its own, from the installed
+    # openwrt-mcp whose status has `missing` taken out of its capabilities (None: its own status).
+    # Returns {section: {option: [values]}} for the client's sections, in the file's order.
+    def r14_policies(self, factor, missing=None):
+        config, binary, real = Path("/etc/config/openwrt-mcp"), Path("/usr/bin/openwrt-mcp"), Path("/usr/bin/openwrt-mcp.real")
+        original = config.read_bytes() if config.exists() else None
+
+        def restore():
+            if real.exists():
+                real.replace(binary)
+            if original is None:
+                config.unlink(missing_ok=True)
+            else:
+                config.write_bytes(original)
+        self.addCleanup(restore)
+        self.addCleanup(subprocess.run, ["openwrt-mcp", "unpair", "hermes-rfourteen"], capture_output=True)
+        config.write_text("config server\n\toption listen '127.0.0.1:8730'\n")
+        if missing:
+            binary.rename(real)
+            binary.write_text("#!/bin/sh\nif [ \"$1\" = status ]; then\n"
+                              "\t/usr/bin/openwrt-mcp.real \"$@\" | python3 -c 'import json, sys; "
+                              "d = json.load(sys.stdin); d.get(\"capabilities\", {}).pop(\"%s\", None); "
+                              "json.dump(d, sys.stdout)'\n"
+                              "\texit\nfi\nexec /usr/bin/openwrt-mcp.real \"$@\"\n" % missing)
+            binary.chmod(0o755)
+        token = self.home / "rfourteen.token"
+        script = (f". /lib/functions.sh; . {shlex.quote(str(FILES / 'hermes-agent.init'))}; "
+                  f"hermes_mcp_agent rfourteen {shlex.quote(str(token))} {factor} 15m 5 15m")
+        result = subprocess.run(["sh", "-c", script], check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = subprocess.run(["openwrt-mcp", "policies"], check=False, capture_output=True, text=True)
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+        lines = subprocess.run(["uci", "-q", "show", "openwrt-mcp"], check=True, capture_output=True,
+                               text=True).stdout.splitlines()
+        policies = {}
+        for line in lines:
+            key, value = line.split("=", 1)
+            parts = key.split(".")
+            if not parts[1].startswith("hermes_rfourteen_"):
+                continue
+            name = parts[1][len("hermes_rfourteen_"):]
+            if len(parts) == 2:
+                policies[name] = {}
+            else:
+                policies[name][parts[2]] = shlex.split(value)
+        if missing:
+            restore()
+        return policies, result.stderr
+
+    def test_service_state_and_package_settings_are_reads(self):
+        # Measured 2026-10-09 on a Flint 2 with r13, the owner profile through Telegram: the agent
+        # installed vnstat2, adguardhome and transmission-daemon and started them, and could not
+        # confirm any was running, refused rc.list and service.list ("no policy scope covers
+        # rc.list"), nor read /etc/config/transmission. Both are reads. rc.list, rpcd's per-script
+        # start/stop priority, enabled and running, is granted; procd's service.list, which holds
+        # every service's command line and environment, never; and from an openwrt-mcp that redacts,
+        # uci_get covers every config, a package's own included, while one that does not gets the
+        # narrow list unchanged. Neither grant is a change: the reads stay uci_get and ubus_call
+        # policies of their own, ahead of the change policies, with no second factor, and no change
+        # policy covers what they add.
+        import fnmatch
+
+        def covers(globs, scope):
+            # openwrt-mcp's matchAny: '*' alone is everything, otherwise path.Match, whose '*' stops
+            # only at '/', which no scope here has; fnmatchcase is the same on these strings.
+            return any(g == "*" or fnmatch.fnmatchcase(scope, g) for g in globs)
+        narrow = ["system", "system.*", "dhcp", "dhcp.*", "firewall", "firewall.*", "network.loopback*",
+                  "network.globals*", "network.lan*", "network.wan*"]
+        for missing in (None, "uci_get_redacts_credentials"):
+            with self.subTest(missing=missing):
+                policies, stderr = self.r14_policies("pin", missing)
+                self.assertEqual(list(policies), ["read_ubus", "read_uci", "read_log", "change", "change_ubus"])
+                read_ubus, read_uci = policies["read_ubus"], policies["read_uci"]
+                self.assertEqual(read_ubus["tools"], ["ubus_call"])
+                self.assertEqual(read_uci["tools"], ["uci_get"])
+                for read in (read_ubus, read_uci):
+                    self.assertNotIn("mfa_tools", read)
+                self.assertTrue(covers(read_ubus["scopes"], "rc.list"), read_ubus["scopes"])
+                for refused in ("service.list", "service.set", "service.state", "rc.init"):
+                    self.assertFalse(covers(read_ubus["scopes"], refused), (refused, read_ubus["scopes"]))
+                self.assertFalse([s for s in read_ubus["scopes"] if s.split(".")[0] == "service"], read_ubus["scopes"])
+                if missing:
+                    self.assertEqual(read_uci["scopes"], narrow)
+                    self.assertEqual(stderr.count("does not report that uci_get redacts credentials"), 1, stderr)
+                    for scope in ("transmission", "transmission.settings.rpc_password", "adguardhome",
+                                  "hermes", "openwrt-mcp", "wireless", "network.wg0"):
+                        self.assertFalse(covers(read_uci["scopes"], scope), scope)
+                else:
+                    self.assertEqual(read_uci["scopes"], ["*"])
+                    for scope in ("transmission", "transmission.settings.rpc_password", "adguardhome",
+                                  "vnstat", "tor", "tailscale.settings", "wireless", "network"):
+                        self.assertTrue(covers(read_uci["scopes"], scope), scope)
+                # The change side is what it was: rc.list and a package's config reach no change tool.
+                self.assertEqual(policies["change"]["tools"], ["uci_apply", "uci_confirm"])
+                self.assertEqual(policies["change"]["scopes"],
+                                 ["network", "network.*", "wireless", "wireless.*", "firewall", "firewall.*",
+                                  "dhcp", "dhcp.*", "system", "system.*"])
+                for scope in ("transmission", "transmission.settings", "hermes.main", "openwrt-mcp"):
+                    self.assertFalse(covers(policies["change"]["scopes"], scope), scope)
+                self.assertFalse(covers(policies["change_ubus"]["scopes"], "rc.list"))
+                self.assertFalse(covers(policies["change_ubus"]["scopes"], "service.list"))
+
+    def test_owner_note_says_how_to_read_a_service_and_its_settings(self):
+        # The same run on 2026-10-09: having started three services it could not see, the agent told
+        # the owner it could not confirm any was running. The owner note says where a service's state
+        # and a package's settings are read, and that a start is not confirmed until rc list says
+        # running, whatever the factor, and the gateway loads it.
+        sentences = ("Read a service's state with ubus_call on rc list",
+                     "whether the service is enabled and running",
+                     "a package's settings with uci_get on its config",
+                     "never tell the owner a service started until rc list says it is running")
+        env = {k: v for k, v in self.env.items() if k != "HERMES_EPHEMERAL_SYSTEM_PROMPT"}
+        for factor in ("none", "pin", "totp", "pin+totp"):
+            with self.subTest(factor=factor):
+                (self.home / "config.yaml").unlink(missing_ok=True)
+                self.assertEqual(self.bridge("owner", factor=factor).returncode, 0)
+                prompt = self.config()["agent"]["system_prompt"]
+                loaded = subprocess.run(["python3", "-c", "from gateway.run import GatewayRunner; "
+                                         "print(GatewayRunner._load_ephemeral_system_prompt())"],
+                                        env=env, check=False, capture_output=True, text=True)
+                self.assertEqual(loaded.returncode, 0, loaded.stderr)
+                for sentence in sentences:
+                    self.assertIn(sentence, prompt)
+                    self.assertIn(sentence, loaded.stdout)
+        for other in ("assistant", "root"):
+            self.assertEqual(self.bridge(other).returncode, 0)
+            self.assertNotIn("rc list", self.config().get("agent", {}).get("system_prompt") or "")
 
     def test_package_policy_only_when_every_condition_holds(self):
         # The package policy (apk_add, asking the factor) is written only when the owner opted in

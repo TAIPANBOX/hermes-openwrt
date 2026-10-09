@@ -88,6 +88,23 @@
 #                        runs offline against the real openwrt-mcp 0.5.0.4: apk_add updates its
 #                        index from the feed before any call, so what it proves needs none (the
 #                        policy decides first, then apk_add's own name rules, then apk).
+#   @measured 2026-10-09 on a Flint 2 via Telegram, 0.21.5-r13 in the owner profile: the agent
+#                        installed vnstat2, adguardhome and transmission-daemon with apk_add and
+#                        started them with rc.init, then could not confirm any of them was running,
+#                        because ubus_call of rc.list and of service.list was refused ("no policy
+#                        scope covers rc.list"), and it could not read what it had installed, because
+#                        uci_get of /etc/config/transmission was refused too. Both are reads.
+#   @decided 2026-10-09  Fixed in r14: the agent reads whether a service runs and the settings of a
+#                        package it installed.
+#   @claude 2026-10-09   How (0.21.5-r14): rc.list joins the ubus reads (rpcd's rc object answers,
+#                        per init script, its start and stop priority, enabled and running, and
+#                        nothing else: rpcd rc.c, rc_list_add_table); procd's service.list never
+#                        does, since its answer is every service's command line and environment. And
+#                        from an openwrt-mcp that reports it redacts, uci_get covers every config
+#                        ('*'), so a package's own config is read with its passwords '<redacted>';
+#                        from one that does not, the narrow list exactly as before. The three
+#                        scenarios after "The agent installs from the official feed only when the
+#                        owner opted in and unlocked" are that.
 #
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
@@ -252,6 +269,35 @@ Feature: The agent changes the router only when its owner unlocks it
     When the owner turns package installs off
     Then there is no package policy, an install is refused after an unlock for want of one, and the model is not offered the tool
     # -> check_package_install_needs_the_unlock
+
+  # ---- A service's state and a package's settings are reads ----
+
+  Scenario: The agent can tell whether a service it started is running
+    Given the router has a service of a package the agent installed, enabled, whose command line and environment hold canaries
+    And a second factor is set and nothing is unlocked
+    When the agent reads the router's services through rc.list, for that service and for all of them
+    Then rpcd answers with no unlock: that service's start and stop priority, that it is enabled, and whether it is running
+    And every service in the answer has those four facts at most, so no command line and no environment
+    And procd's service list, which carries every service's command line and environment, is refused before it reaches ubus
+    And starting the service still asks for the second factor
+    # -> check_service_state_is_read_with_rc_list
+
+  Scenario: The agent can read the settings of a package it installed, never its password
+    Given a package the agent installed keeps its settings in its own config, with a password among them
+    And the openwrt-mcp installed reports that uci_get redacts credentials
+    When the agent reads that config, or the password alone, with no unlock
+    Then it gets the settings, and the password reads '<redacted>', never the password itself
+    And a config of another package the package never names is read the same way
+    And even in an open window the agent cannot change that config
+    # -> check_installed_package_config_is_read_redacted
+
+  Scenario: No package's config is read from an openwrt-mcp that does not say it redacts
+    Given the openwrt-mcp installed does not report that uci_get redacts credentials
+    When the service starts
+    Then the agent is granted exactly the narrow reads it had before, and the start says why in one line
+    And a read of a package's config, or of its password, is refused
+    And with the binary's own status the same start grants every config
+    # -> check_package_config_reads_only_from_a_daemon_that_redacts
 
   # ---- The factors, each optional ----
 
