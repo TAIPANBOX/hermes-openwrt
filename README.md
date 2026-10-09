@@ -161,8 +161,9 @@ needs (OpenWrt's BusyBox has no `stty`); run it in an SSH session with a termina
 Then `/unlock` and the PIN in one message, `/unlock 4821`, in the private chat opens a 15-minute
 window (`/unlock 4821 503917` with `pin+totp`; the digits alone work too). `/unlock` on its own
 opens nothing: the bot answers with what to send. On the Security page the PIN and the factor
-have a Save each, and a PIN unlocks nothing until the factor asks for it. The window is root for
-its length: [how it keeps the router yours](#how-it-keeps-the-router-yours).
+have a Save each, and a PIN unlocks nothing until the factor asks for it. The window lets the
+agent change the network, Wi-Fi, firewall, DHCP and system settings (and add official packages if
+you turned that on), not run its own commands as root: [how it keeps the router yours](#how-it-keeps-the-router-yours).
 
 **Upgrading.** `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (and
 `hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`: an upgrade
