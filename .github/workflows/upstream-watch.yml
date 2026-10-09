@@ -1,7 +1,7 @@
 name: upstream-watch
 
-# Upstream Hermes tags a release every few days. This notices one newer than the pinned
-# tag and opens a single issue for it; moving the package stays a reviewed change.
+# Upstream Hermes tags a release every few days. This notices one carrying a newer version
+# than the pinned one and opens a single issue for it; moving the package stays a reviewed change.
 on:
   schedule:
     - cron: '17 6 * * *'
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: the watcher still does what its scenarios say
         run: ./scripts/gate-upstream-watch.sh
-      - name: compare the pinned tag with upstream's latest release
+      - name: compare the pinned version with upstream's latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/upstream-watch.sh

@@ -17,23 +17,53 @@ UPSTREAM=NousResearch/hermes-agent
 . "$ENV"
 [ -n "${HERMES_TAG:-}" ] || { echo "upstream-watch: no HERMES_TAG in $ENV" >&2; exit 1; }
 
-latest=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name) || latest=
+# Upstream's latest release: its tag on the first line, its name on the second.
+rel=$(gh api "repos/$UPSTREAM/releases/latest" --jq '.tag_name, (.name // "")') || rel=
+latest=$(printf '%s\n' "$rel" | sed -n 1p)
+name=$(printf '%s\n' "$rel" | sed -n 2p)
 if [ -z "$latest" ]; then
 	echo "upstream-watch: cannot read upstream's latest release from $UPSTREAM" >&2
 	exit 1
 fi
 
-# Upstream tags are CalVer (v2026.9.24), so version order is the order to compare by. A tag
-# in another form would sort below the pin and silence this check for good, so it fails.
-for t in "$latest" "$HERMES_TAG"; do
-	echo "$t" | grep -Eq '^v[0-9]{4}(\.[0-9]+)+$' || {
-		echo "upstream-watch: cannot compare '$t' with a vYEAR.MONTH.DAY tag; look at it by hand" >&2
-		exit 1
-	}
-done
-newest=$(printf '%s\n%s\n' "$HERMES_TAG" "$latest" | sort -V | tail -n 1)
-if [ "$latest" = "$HERMES_TAG" ] || [ "$newest" = "$HERMES_TAG" ]; then
-	echo "upstream-watch: upstream's latest is $latest; the package pins $HERMES_TAG. Nothing to do."
+# Releases are compared by the Hermes version they carry, not by their tags. Upstream tagged
+# vYEAR.MONTH.DAY up to 0.21.5 (v2026.9.24) and vX.Y.Z from 0.21.6, and by tag order every
+# date sorts above every version, which would silence this check for good. So:
+#   a vX.Y.Z tag (X under four digits, so never a year) is version X.Y.Z;
+#   a vYEAR.MONTH.DAY tag is the version its release name gives, "Hermes Agent v0.21.5
+#   (v2026.9.24)", the form every date-tagged release upstream published carries;
+#   the pin is HERMES_VERSION, which gate-upstream.sh checks against the built
+#   `hermes --version`, so it is the version the package actually carries.
+# Anything it cannot read that way fails: a guess that sorts low goes quiet for good.
+refuse() { echo "upstream-watch: cannot compare $1; look at it by hand" >&2; exit 1; }
+SEMVER_TAG='^v[0-9]{1,3}\.[0-9]+\.[0-9]+$'
+DATE_TAG='^v[0-9]{4}(\.[0-9]+)+$'
+named=$(printf '%s\n' "$name" | sed -nE 's/^Hermes Agent v([0-9]+\.[0-9]+\.[0-9]+)( .*)?$/\1/p')
+if printf '%s\n' "$latest" | grep -Eq "$SEMVER_TAG"; then
+	version=${latest#v}
+	if [ -n "$named" ] && [ "$named" != "$version" ]; then
+		refuse "'$latest': its release is named '$name', another version"
+	fi
+elif printf '%s\n' "$latest" | grep -Eq "$DATE_TAG"; then
+	[ -n "$named" ] || refuse "'$latest': a date tag whose release name '$name' gives no Hermes version"
+	version=$named
+else
+	refuse "'$latest', a tag neither vX.Y.Z nor vYEAR.MONTH.DAY"
+fi
+printf '%s\n' "${HERMES_VERSION:-}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+	|| refuse "the pinned HERMES_VERSION '${HERMES_VERSION:-}', which is not X.Y.Z"
+if printf '%s\n' "$HERMES_TAG" | grep -Eq "$SEMVER_TAG" && [ "$HERMES_TAG" != "v$HERMES_VERSION" ]; then
+	refuse "the pin: tag $HERMES_TAG is not version $HERMES_VERSION"
+fi
+
+# newer A B: version A is later than B, field by field as numbers (0.21.10 after 0.21.6).
+newer() {
+	awk -v a="$1" -v b="$2" 'BEGIN { split(a, x, "."); split(b, y, ".")
+		for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) exit !(x[i] + 0 > y[i] + 0)
+		exit 1 }'
+}
+if ! newer "$version" "$HERMES_VERSION"; then
+	echo "upstream-watch: upstream's latest is $latest (Hermes $version); the package pins $HERMES_TAG (Hermes $HERMES_VERSION). Nothing to do."
 	exit 0
 fi
 
@@ -52,7 +82,7 @@ if printf '%s\n' "$titles" | cut -c1-${#prefix} | grep -F -x -q -- "$prefix"; th
 	exit 0
 fi
 
-body="Upstream tagged [$latest](https://github.com/$UPSTREAM/releases/tag/$latest); this repository packages $HERMES_TAG (Hermes $HERMES_VERSION).
+body="Upstream released [${name:-$latest}](https://github.com/$UPSTREAM/releases/tag/$latest), tag $latest, Hermes $version; this repository packages Hermes $HERMES_VERSION, tag $HERMES_TAG.
 
 Changes between them: https://github.com/$UPSTREAM/compare/$HERMES_TAG...$latest
 
