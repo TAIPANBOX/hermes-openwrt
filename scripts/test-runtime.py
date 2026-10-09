@@ -1864,7 +1864,7 @@ procd_close_service
         self.assertEqual(json.loads(good.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_PACKAGES"], "off")
         for option, value in (("factor", "sms"), ("window", "15"), ("window", "soon"), ("lockout", "-5m"),
                               ("max_failures", "0"), ("max_failures", "five"), ("packages", "yes"),
-                              ("packages", "Official"), ("packages", "all"), ("packages", "official;reboot")):
+                              ("packages", "Official"), ("packages", "all"), ("packages", "none"), ("packages", "official,custom")):
             with self.subTest(option=option, value=value):
                 result = self._start(f"uci set hermes.security=security\nuci set hermes.security.{option}={value}")
                 self.assertNotEqual(result.returncode, 0)
