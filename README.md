@@ -60,7 +60,8 @@ The data on a stick, after [Install](#install):
 
 ```sh
 apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
-block info                            # the stick's partition: /dev/sda1 here
+block info                            # the stick's partition: /dev/sda1 here; it can take a few
+                                      # seconds to appear after the apk add, so run this again
 hermes-usb move /dev/sda1 --format    # erases that partition, makes ext4, moves the data
 hermes-usb status
 ```
