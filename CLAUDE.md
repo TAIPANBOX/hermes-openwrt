@@ -564,13 +564,24 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 
 20. `@claude` 2026-10-04: a newer upstream Hermes is noticed without anyone looking. A daily
     workflow (`.github/workflows/upstream-watch.yml`, job permissions `contents: read` and
-    `issues: write` only) runs `scripts/upstream-watch.sh`, which compares the tag
-    `package/upstream/upstream.env` pins with upstream's latest release by version order and
+    `issues: write` only) runs `scripts/upstream-watch.sh`, which compares the Hermes version
+    `package/upstream/upstream.env` pins with the version upstream's latest release carries and
     opens one issue for a newer one, never a second for the same release, open or closed, matched
     on the release alone since the pin named in an older title may have moved. It fails instead of
-    passing when it cannot read upstream or this repository's issues, or when a tag is not in the
-    vYEAR.MONTH.DAY form it can order. It never moves the pin: a new upstream is built, gated and
-    run on both routers first. Not enforced: GitHub stops a scheduled workflow after 60 days
+    passing when it cannot read upstream or this repository's issues, or when a tag or a version is
+    not in a form it can order. It never moves the pin: a new upstream is built, gated and
+    run on both routers first.
+    `@claude` 2026-10-09: releases are ordered by version, not by tag. Upstream tagged
+    vYEAR.MONTH.DAY up to 0.21.5 (`v2026.9.24`) and `v0.21.6` from 2026-10-08, and by tag order
+    every date sorts above every version, so the watch refused `v0.21.6` and opened nothing. A
+    vX.Y.Z tag (X under four digits, so never a year) is that version; a date tag is the version
+    its release name gives, `Hermes Agent v0.21.5 (v2026.9.24)` (@measured `gh api
+    'repos/NousResearch/hermes-agent/releases?per_page=100'` 2026-10-09: all 37 releases name
+    their version that way); the pin is `HERMES_VERSION`, which `gate-upstream.sh`
+    `check_version_is_upstream` holds to the built `hermes --version`. A vX.Y.Z tag whose release
+    name gives another version, a date tag whose name gives none, a pinned version not X.Y.Z, or
+    a pinned vX.Y.Z tag that is not the pinned version all fail rather than guess. Versions are
+    compared field by field as numbers (0.21.10 is after 0.21.6). Not enforced: GitHub stops a scheduled workflow after 60 days
     without activity in the repository, and it then runs only by hand (gate:
     `scripts/gate-upstream-watch.sh` against a stand-in `gh`, bound to
     `features/upstream-watch.feature`, in CI's `scenarios` job and before each daily run;
