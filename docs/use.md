@@ -87,11 +87,21 @@ router's board, hostname and uptime; its audit log shows those three reads and n
 else. A grant of `ubus_call` on `system.*` would also cover `system.reboot`: grant methods
 by name for anything that should stay read-only.
 
-**It will not install packages.** No policy the package writes lets the agent install one,
-in an unlock window or out of it, so what a change needs from the feed you install yourself. A
-WireGuard VPN needs the kernel module and the tools: `apk add kmod-wireguard wireguard-tools`.
-Without them the agent can write the interface's settings, but the interface stays `NO_DEVICE`;
-on a Flint 2 on 2026-10-08 it did, and the agent said so.
+**It will not install packages unless you opt in.** By default no policy the package writes lets
+the agent install one, in an unlock window or out of it, so what a change needs from the feed you
+install yourself. A WireGuard VPN needs the kernel module and the tools:
+`apk add kmod-wireguard wireguard-tools`. Without them the agent can write the interface's
+settings, but the interface stays `NO_DEVICE`; on a Flint 2 on 2026-10-08 it did, and the agent
+said so.
+
+To let it install them, turn on "Let the agent install packages from the official OpenWrt feed"
+under Services -> Hermes Agent -> Security (a factor has to be in force first), or
+`uci set hermes.security.packages=official && uci commit hermes && /etc/init.d/hermes-agent restart`.
+Then, while you have changes unlocked, the agent can install a package you asked for, from the
+official OpenWrt feed only, never from a link, a file or another feed; it runs a dry run first and
+tells you what would be installed and how much space that takes. It needs openwrt-mcp 0.5.0.4 or
+later, and until then the setting gives the agent nothing and the log says so. What it does and
+does not do: [Package installs, your opt-in](security.md#package-installs-your-opt-in).
 
 **Browser, vision, image generation and the wake-word stack are not packaged.** They pull
 heavy dependencies for capabilities a headless router does not have. `ffmpeg` is included,

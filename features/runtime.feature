@@ -75,6 +75,11 @@
 #                        sentence sending diagnostics to the terminal, one ran the diagnosis in 3
 #                        model calls. gpt-4o-mini named a section hermes-test three times, then
 #                        wrote a firewall rule and called the port forwarded.
+#   @decided 2026-10-08  Installing packages is allowed only from the official OpenWrt feed, and
+#                        only when the owner has opted in (paraphrased; the window's scope).
+#   @claude 2026-10-09   How (0.21.5-r13): the start writes a package policy only under every
+#                        condition and tells the gateway what it wrote; the gateway offers apk_add
+#                        only then. The three scenarios that say "package" are that.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -277,7 +282,7 @@ Feature: What is set on the router is what the gateway runs with
     Given the package writes the router MCP connection in any profile
     Then the entry names the unlock and lock tools as excluded
     And upstream's own filter registers the router tools but neither of those two
-    When the operator pasted in the entry as earlier releases wrote it, with no tools key or with the unlock tools alone
+    When the operator pasted in the entry as earlier releases wrote it, with no tools key, with the unlock tools alone, or without the package install tool
     Then it is adopted and brought up to date, not refused
     # -> check_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape
 
@@ -286,6 +291,14 @@ Feature: What is set on the router is what the gateway runs with
     Then the entry names exec and wg_new_client as excluded, beside the unlock tools
     And upstream's own filter registers neither of them and still registers the read tools
     # -> check_mcp_entry_hides_exec_and_wg_new_client_in_every_profile
+
+  Scenario: the model is offered the package install tool only when the owner's opt-in is in force, and told how to use it
+    Given the owner profile with a factor, the router MCP connection, and the package policy written at the start
+    Then the model is offered apk_add, and the note in the chat's and a scheduled job's prompt says to install only official packages the owner asked for, to run a dry run first and tell the owner what it would install and how much space it takes, and never to suggest another feed
+    When the opt-in is off or unset, no factor is set, the profile is assistant, root or admin, or there is no connection
+    Then apk_add is excluded like exec, upstream's own filter does not register it, and the note says nothing of it
+    And a value the start never passes is refused, leaving the file as it was
+    # -> check_apk_add_offered_only_when_granted_and_the_note_says_how
 
   Scenario: the model sees the router tools by name instead of behind a search tool
     Given the operator has set nothing about upstream's tool search
@@ -492,7 +505,23 @@ Feature: What is set on the router is what the gateway runs with
     And a factor, a window, a limit and a lockout that are valid reach the gateway's environment
     And left alone, the factor is none
     And the assistant profile has no factor to check
+    When package installs are set to anything but off or official
+    Then the service refuses, naming the setting
+    And left alone, or opted in beside an openwrt-mcp that does not say it installs official packages only, the gateway is told packages are off
     # -> check_security_options_refuse_bad_values
+
+  Scenario: the package policy is written only when the owner opted in, a factor is set and openwrt-mcp installs official packages only
+    Given an openwrt-mcp that says its apk_add installs official packages only
+    When the owner opted in and a factor is set
+    Then a policy grants apk_add alone, asking the same factor, window, failures and lockout as the change policies, and no other policy grants it
+    And a second start writes nothing
+    When the opt-in is taken back
+    Then the policy is gone, and nothing is said
+    When no factor is set
+    Then there is no policy, and the start says why in one line
+    When openwrt-mcp does not say its apk_add installs official packages only
+    Then there is no policy, and the start says why in one line, naming the version that does
+    # -> check_package_policy_only_when_every_condition_holds
 
   Scenario: the init checks the configuration as the agent's user too
     Given the init checks the gateway's configuration before it opens an instance

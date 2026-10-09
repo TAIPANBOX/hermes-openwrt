@@ -24,6 +24,12 @@
  * not answering, or before the agent has been started once (which is what pairs it), the
  * page offers no field and no button. The backend refuses the same calls; this is the
  * page saying so before it is asked.
+ *
+ * One more switch, the owner's opt-in to package installs from the official OpenWrt feed. It can
+ * be turned on only with a factor in force, since an install, like any change, waits for an
+ * unlock; and on, it is still the agent's start that decides whether openwrt-mcp is one that
+ * installs official packages only, so the page says what the switch asks for, not what the agent
+ * was given.
  */
 
 var callStatus   = rpc.declare({ object: 'hermes', method: 'security_status' });
@@ -32,6 +38,7 @@ var callClearPin = rpc.declare({ object: 'hermes', method: 'clear_pin' });
 var callEnrol    = rpc.declare({ object: 'hermes', method: 'enrol_start' });
 var callActivate = rpc.declare({ object: 'hermes', method: 'enrol_activate', params: ['code'] });
 var callFactor   = rpc.declare({ object: 'hermes', method: 'set_factor', params: ['factor', 'window', 'max_failures', 'lockout'] });
+var callPackages = rpc.declare({ object: 'hermes', method: 'set_packages', params: ['packages'] });
 
 /* The same shapes the backend and the init accept, so nothing is sent that would be refused. */
 var PIN = /^[0-9]{4,8}$/;
@@ -48,6 +55,12 @@ function factors() {
 }
 
 function needsPin(factor) { return factor === 'pin' || factor === 'pin+totp'; }
+
+/* A factor in force that could unlock an install: the switch below is open only then, as the
+ * backend's set_packages accepts official only then. */
+function hasFactor(st) {
+	return (st.factor === 'pin' || st.factor === 'totp' || st.factor === 'pin+totp') && st.factor_ready !== false;
+}
 
 /* Whether the router could honour a factor: what the page offers and what Save lets through. */
 function allowed(factor, st) {
@@ -144,7 +157,8 @@ return view.extend({
 			[_('Phone'), E('span', {}, phone)],
 			[_('Unlock window'), E('span', {}, st.window)],
 			[_('Wrong tries before a lockout'), E('span', {}, String(st.max_failures))],
-			[_('Lockout'), E('span', {}, st.lockout)]
+			[_('Lockout'), E('span', {}, st.lockout)],
+			[_('Package installs'), E('span', {}, st.packages === 'official' ? _('on: the official OpenWrt feed only') : (st.packages === 'invalid' ? _('not a value the service accepts') : _('off')))]
 		];
 		var table = E('table', { 'class': 'table' }, facts.map(function (r) {
 			return E('tr', { 'class': 'tr' }, [
@@ -344,6 +358,48 @@ return view.extend({
 			E('div', { 'class': 'cbi-page-actions' }, [ save ])
 		]);
 
+		/* ---- package installs, the owner's opt-in ---- */
+		var pkgAttrs = { 'type': 'checkbox', 'id': 'hermes-sec-packages', 'value': 'official' };
+		if (st.packages === 'official') pkgAttrs.checked = 'checked';
+		var pkgOpen = hasFactor(st);
+		/* Turning it off is always open; turning it on needs a factor. */
+		if (!pkgOpen && st.packages !== 'official') pkgAttrs.disabled = 'disabled';
+		var pkgBox = E('input', pkgAttrs);
+		var pkgSave = E('button', { 'class': 'cbi-button cbi-button-save', 'id': 'hermes-sec-packages-save',
+			'click': ui.createHandlerFn(this, function () {
+				var want = pkgBox.checked ? 'official' : 'off';
+				/* A stale tab or a script can tick what is disabled; it goes no further. */
+				if (want === 'official' && !hasFactor(st))
+					return fail(_('Package installs need a second factor in force, since an install waits for an unlock like any change. Choose one under "What unlocking asks for" first.'));
+				return callPackages(want).then(function (r) {
+					if (!r || r.ok === false)
+						return fail((r && r.error) || _('The choice was not saved.'));
+					flash.keep(want === 'official'
+						? _('Saved. After the restart the agent can install packages from the official OpenWrt feed while you have changes unlocked, if openwrt-mcp is one that installs official packages only; the log says so if it is not.')
+						: _('Saved. After the restart the agent cannot install packages.'), 'info');
+					window.location.reload();
+				}, function () { fail(_('The choice was not saved: the router did not answer.')); });
+			}) }, _('Save'));
+		var pkgWhy = '';
+		if (st.packages === 'invalid')
+			pkgWhy = E('div', { 'class': 'alert-message warning' }, _('hermes.security.packages holds a value the service does not accept, so it will not start. Save here to put it back to off or official.'));
+		else if (st.packages === 'official' && !pkgOpen)
+			pkgWhy = E('div', { 'class': 'alert-message warning' }, _('This is on, but no second factor is in force, so the agent is given nothing to install with. Choose a factor above, or turn this off.'));
+		else if (!pkgOpen)
+			pkgWhy = E('p', { 'class': 'cbi-value-description' }, _('Needs a second factor in force first: an install waits for an unlock like any change.'));
+		var packagesSection = E('div', { 'class': 'cbi-section', 'id': 'hermes-sec-packages-section' }, [
+			E('h3', {}, _('Package installs')),
+			E('p', { 'class': 'cbi-section-descr' }, _('Off unless you turn it on. On, the agent may install a package you ask for from the official OpenWrt feed only, never from a link, a file or another feed, and only while you have changes unlocked; it tries the install first without installing and tells you what it would add and how much space that takes. Every install is in the audit log of openwrt-mcp.')),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title', 'for': 'hermes-sec-packages' }, _('Packages')),
+				E('div', { 'class': 'cbi-value-field' }, [
+					E('label', { 'for': 'hermes-sec-packages' }, [ pkgBox, ' ', _('Let the agent install packages from the official OpenWrt feed') ]),
+					pkgWhy
+				])
+			]),
+			E('div', { 'class': 'cbi-page-actions' }, [ pkgSave ])
+		]);
+
 		var note = E('p', { 'class': 'cbi-section-descr' }, _('The unlock window that is open right now cannot be shown here: openwrt-mcp keeps it in memory only. /lock in the Telegram chat closes it at once.'));
 		var plain = window.location.protocol === 'http:'
 			? E('div', { 'class': 'alert-message warning' }, _('This page is not served over HTTPS, so a PIN or a QR code sent from here crosses your network unencrypted. On a network you do not trust, use the SSH way in the README instead.'))
@@ -357,7 +413,8 @@ return view.extend({
 			note,
 			pinSection,
 			phoneSection,
-			factorSection
+			factorSection,
+			packagesSection
 		]);
 	},
 

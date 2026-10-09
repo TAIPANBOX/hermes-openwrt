@@ -117,6 +117,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] An open window changes settings, the VPN and services only: no command over ubus, no file, no firmware, no reboot, and a change policy only from an openwrt-mcp that refuses a setting that runs code (0.21.5-r11)
 - [x] The agent reads the Wi-Fi and the whole network config, every key in them `<redacted>`, only from an openwrt-mcp that reports it redacts; the package needs openwrt-mcp 0.5.0.3 or later (0.21.5-r11)
 - [x] A scheduled job is told what its profile is, as a chat is, and a chat is told it once (0.21.5-r12)
+- [ ] The owner may let the agent install packages from the official OpenWrt feed, an opt-in on the Security page, with a factor in force and an openwrt-mcp whose `apk_add` installs official packages only (0.21.5-r13, LuCI 0.21.5-r3); built and gated, with its end-to-end check waiting for openwrt-mcp 0.5.0.4 to be pinned
 
 ## Prior art, and what is not ours
 

@@ -333,7 +333,7 @@ check('check_profile_field_defaults_to_owner', async () => {
 // outside the owner profile, or with nothing to talk to, the page offers nothing.
 
 const READY = { applies: true, profile: 'owner', mcp_ok: true, paired: true, factor: 'none', factor_ready: true,
-	window: '15m', max_failures: 5, lockout: '15m', pin_set: false, totp_enrolled: false, totp_pending: false };
+	window: '15m', max_failures: 5, lockout: '15m', pin_set: false, totp_enrolled: false, totp_pending: false, packages: 'off' };
 const statusOf = (over) => ({ ...READY, ...over });
 const clickOf = (w, id) => { const n = byId(w.page, id); assert(n, `the page has no #${id}`); return n; };
 const press = (w, id) => clickOf(w, id).attrs.click({ currentTarget: {}, target: {} });
@@ -576,6 +576,76 @@ check('check_security_page_offers_nothing_it_cannot_do', async () => {
 	assert(find(w3.page, n => n.tag === 'input').length >= 4 && find(w3.page, n => n.tag === 'button').length >= 3, 'the owner profile page offers nothing, so the checks above prove nothing');
 	// The page says what it cannot show.
 	assert(/\/lock/.test(textOf(w3.page)) && /window/i.test(textOf(w3.page)), 'the page does not say that the live window cannot be shown here and that /lock closes it');
+});
+
+check('check_security_packages_switch_needs_a_factor', async () => {
+	// The owner's opt-in to package installs from the official OpenWrt feed (0.21.5-r13, LuCI r3).
+	// An install waits for an unlock like any change, so the switch is turned on only with a factor in
+	// force, and it is always open to turn off; what it sends is official or off and nothing else.
+	const LABEL = 'Let the agent install packages from the official OpenWrt feed';
+	const box = (w) => byId(w.page, 'hermes-sec-packages');
+	const sent = (w) => w.calls.filter(c => c.method === 'hermes.set_packages').map(c => c.args[0]);
+
+	// No factor: the switch is there, off and closed, and a tick a script makes anyway sends nothing.
+	let w = world({ 'hermes.security_status': statusOf({ factor: 'none' }), 'hermes.set_packages': { ok: true } });
+	await open(w, 'security');
+	assert(box(w), 'the page has no #hermes-sec-packages switch');
+	assert(textOf(w.page).includes(LABEL), `the switch is not labelled "${LABEL}"`);
+	assert(!box(w).checked, 'the switch is on although packages is off');
+	assert(box(w).disabled, 'with no factor in force the switch can be turned on');
+	box(w).checked = true;
+	await press(w, 'hermes-sec-packages-save');
+	assert(!sent(w).length, `with no factor in force the page sent set_packages ${JSON.stringify(sent(w))}`);
+	assert(w.notes.some(n => n.kind === 'danger' && /factor/i.test(n.text)), 'a refused switch says nothing about the factor it needs');
+
+	// A factor whose prerequisite is gone counts as none.
+	w = world({ 'hermes.security_status': statusOf({ factor: 'pin', factor_ready: false }), 'hermes.set_packages': { ok: true } });
+	await open(w, 'security');
+	assert(box(w).disabled, 'with a factor that cannot be satisfied the switch can be turned on');
+
+	// Each factor: open, and on sends official, then reloads to show what is now set.
+	for (const factor of ['pin', 'totp', 'pin+totp']) {
+		w = world({ 'hermes.security_status': statusOf({ factor, pin_set: true, totp_enrolled: true }), 'hermes.set_packages': { ok: true } });
+		await open(w, 'security');
+		assert(!box(w).disabled, `with the factor ${factor} the switch cannot be turned on`);
+		box(w).checked = true;
+		await press(w, 'hermes-sec-packages-save');
+		assert(JSON.stringify(sent(w)) === '["official"]', `with the factor ${factor} the switch sent ${JSON.stringify(sent(w))}, not official`);
+		assert(w.reloads === 1, 'a saved switch did not reload the page');
+	}
+
+	// On, it shows on, and turning it off sends off.
+	w = world({ 'hermes.security_status': statusOf({ factor: 'pin', pin_set: true, packages: 'official' }), 'hermes.set_packages': { ok: true } });
+	await open(w, 'security');
+	assert(box(w).checked, 'packages official is shown off');
+	box(w).checked = false;
+	await press(w, 'hermes-sec-packages-save');
+	assert(JSON.stringify(sent(w)) === '["off"]', `turning the switch off sent ${JSON.stringify(sent(w))}`);
+
+	// On with no factor (the factor was taken away since): it can be turned off, and the page says
+	// the agent is given nothing to install with; saving it on is refused on the page.
+	w = world({ 'hermes.security_status': statusOf({ factor: 'none', packages: 'official' }), 'hermes.set_packages': { ok: true } });
+	await open(w, 'security');
+	assert(box(w).checked && !box(w).disabled, 'an opt-in left on with no factor cannot be turned off');
+	assert(/no second factor/i.test(textOf(w.page)), 'an opt-in with no factor in force is not said to give nothing');
+	await press(w, 'hermes-sec-packages-save');
+	assert(!sent(w).length, 'an opt-in with no factor in force was saved on again');
+	box(w).checked = false;
+	await press(w, 'hermes-sec-packages-save');
+	assert(JSON.stringify(sent(w)) === '["off"]', `turning it off with no factor sent ${JSON.stringify(sent(w))}`);
+
+	// What the router refuses is shown, and nothing reloads.
+	w = world({ 'hermes.security_status': statusOf({ factor: 'pin', pin_set: true }), 'hermes.set_packages': { ok: false, error: 'the router said no' } });
+	await open(w, 'security');
+	box(w).checked = true;
+	await press(w, 'hermes-sec-packages-save');
+	assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('the router said no')), 'a refused switch was not reported');
+	assert(w.reloads === 0, 'a refused switch reloaded the page');
+
+	// Outside the owner profile there is no switch either.
+	w = world({ 'hermes.security_status': statusOf({ applies: false, profile: 'root' }) });
+	await open(w, 'security');
+	assert(!box(w), 'the root profile page offers the package switch');
 });
 
 for (const [name, fn] of Object.entries(checks)) {

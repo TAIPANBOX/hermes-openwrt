@@ -51,6 +51,13 @@
 #                        change policy not written, in two states: reload_config's md5 file
 #                        without a line for hermes (the Flint, the line deleted by hand) and a
 #                        line for hermes already holding the new content's sum (the Beryl).
+#   @decided 2026-10-08  What an unlock window is for, paraphrased: installing packages is allowed
+#                        only from the official OpenWrt feed, and only when the owner has opted in.
+#   @claude 2026-10-09   How the opt-in is set on the Security page (LuCI r3): a switch, written by
+#                        set_packages (write permission), on only with a factor in force, since an
+#                        install waits for an unlock like any change; security_status reports what
+#                        it is set to. Whether the agent is then given apk_add is the agent's start
+#                        to decide, in features/unlock.feature and features/runtime.feature.
 #
 # Each scenario is bound to a check in scripts/gate-luci.sh, which installs the app into
 # OpenWrt's own rootfs and asks rpcd; scripts/gate-scenarios-bound.sh asserts the binding
@@ -228,7 +235,7 @@ Feature: The web page manages the agent and never hands a key back
   Scenario: the Security page tells what is in force and never a secret
     Given the owner profile, with openwrt-mcp's client for the agent paired
     When the page asks for the security status
-    Then it gets the profile, the factor in force and its window, failure limit and lockout, whether a PIN is set and whether a phone is enrolled or being added
+    Then it gets the profile, the factor in force and its window, failure limit and lockout, whether a PIN is set and whether a phone is enrolled or being added, and whether package installs are switched on
     And no other key, no PIN, no secret, no URI and no QR
     And where openwrt-mcp has no such client, or is not installed, or the factor is not one, it says so instead of guessing
     # -> check_security_status_reports_facts_only
@@ -252,9 +259,31 @@ Feature: The web page manages the agent and never hands a key back
     And an ordinary change, which reload_config itself tells, is not told a second time
     # -> check_security_factor_announced_when_reload_cannot_tell
 
+  Scenario: the owner opts in to package installs from the official feed only with a factor in force
+    Given the owner profile, with no factor in force
+    When the owner asks for package installs from the official OpenWrt feed
+    Then it is refused, naming the factor, and nothing is written and nobody is told
+    And any value but off or official is refused, a command or a flag included
+    Given a factor in force
+    When the owner asks for package installs from the official OpenWrt feed
+    Then it is written without another page's staged changes, and the agent is told its configuration changed, exactly once
+    And turning it off is always allowed, with or without a factor
+    And a value the service would refuse to start on is reported as invalid, never as off or on
+    # -> check_security_packages_written_only_with_a_factor
+
+  Scenario: the package switch on the Security page opens only with a factor in force
+    Given the Security page in the owner profile
+    When no factor is in force, or the one in force cannot be satisfied
+    Then the switch "Let the agent install packages from the official OpenWrt feed" cannot be turned on, and a tick made anyway sends nothing
+    When a factor is in force
+    Then turning it on sends official and turning it off sends off, and the page reloads to show what is set
+    And left on after the factor was taken away, it can be turned off and the page says the agent is given nothing to install with
+    And outside the owner profile there is no switch
+    # -> check_security_packages_switch_needs_a_factor
+
   Scenario: outside the owner profile the Security calls refuse
     Given the profile is root, admin, assistant or nothing the service accepts
-    When a PIN is set or cleared, a phone is added or activated, or a factor is chosen
+    When a PIN is set or cleared, a phone is added or activated, a factor is chosen, or package installs are switched
     Then each is refused, saying the owner profile only, and nothing is written
     # -> check_security_refused_outside_the_owner_profile
 

@@ -1,11 +1,14 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Thirty-six faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
+# Forty-two faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
 # the pages. Faults 19 to 31 are LuCI r13's, for the Security page and the PIN and phone behind it.
 # Faults 32 and 33 are r14's, the factor announced to procd once; 34 and 35 are 0.21.5-r2's, the
 # two states in which reload_config has nothing to tell and set_factor must, and 36 the PIN
-# saved with no word about the factor's own Save.
+# saved with no word about the factor's own Save. Faults 37 to 42 are LuCI r3's (0.21.5), the
+# owner's opt-in to package installs from the official feed: the page's switch open with no
+# factor, the page sending it anyway, the backend taking official with no factor or any value at
+# all, the status not telling what is set, and the call left out of the write permission.
 # The original eighteen: each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
@@ -428,6 +431,44 @@ repack_luci
 expect_red "a saved PIN that does not point at the factor's Save" check_security_pin_saved_points_to_the_factor
 cp "$SRC_SECURITY" "$SECURITY"
 
+# ---- fault 37: the package switch open with no factor in force ----
+plant "$SECURITY" "if (!pkgOpen && st.packages !== 'official') pkgAttrs.disabled = 'disabled';" 'void 0;' "fault 37"
+repack_luci
+expect_red "the package switch open with no factor" check_security_packages_switch_needs_a_factor
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 38: the page sending the opt-in with no factor anyway ----
+plant "$SECURITY" "if (want === 'official' && !hasFactor(st))" 'if (false)' "fault 38"
+repack_luci
+expect_red "the opt-in sent with no factor" check_security_packages_switch_needs_a_factor
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 39: the backend taking official with no factor ----
+# The switch would then promise installs no start honours: with no factor no package policy is written.
+plant "$RPCD" '	if [ "$packages" = official ]; then' '	if false; then' "fault 39"
+repack_luci
+expect_red "official accepted with no factor" check_security_packages_written_only_with_a_factor
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 40: any value taken for packages ----
+# The init refuses to start on a value that is neither off nor official, so this saves a broken router.
+plant "$RPCD" 'case "$packages" in off|official) ;; *) sec_refuse' 'case "$packages" in *) ;; ZZZ) sec_refuse' "fault 40"
+repack_luci
+expect_red "any packages value accepted" check_security_packages_written_only_with_a_factor
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 41: the status saying off whatever is set ----
+plant "$RPCD" 'json_add_string  "packages" "$(sec_packages)"' 'json_add_string  "packages" "off"' "fault 41"
+repack_luci
+expect_red "the status not telling what packages is set to" check_security_packages_written_only_with_a_factor
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 42: set_packages left out of the write permission ----
+plant "$ACL" '"chatgpt_logout", "set_packages",' '"chatgpt_logout",' "fault 42"
+repack_luci
+expect_red "set_packages left out of the write permission" check_security_page_calls_are_granted
+cp "$SRC_ACL" "$ACL"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -435,6 +476,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 36 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 36 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 42 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 42 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 36 faults on 24 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 42 faults on 26 checks (shard $SHARD), green restored"

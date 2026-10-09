@@ -98,12 +98,12 @@ class RuntimeTests(unittest.TestCase):
 
     def test_mcp_identical_manual_entry_is_adopted(self):
         url = "http://127.0.0.1:8730/mcp"
-        # The entry as the package writes it since r10, with the unlock tools, exec and
-        # wg_new_client hidden from the model; the earlier shapes are adopted too (see
-        # test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape).
+        # The entry as the package writes it since r13 with no package policy granted: the unlock
+        # tools, exec, wg_new_client and apk_add hidden from the model; the earlier shapes are adopted
+        # too (see test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape).
         manual = {"mcp_servers": {"openwrt": {"url": url,
                   "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"},
-                  "tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"]}}}}
+                  "tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "apk_add"]}}}}
         (self.home / "config.yaml").write_text(yaml.safe_dump(manual))
         result = self.configure(mcp=url)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1070,10 +1070,12 @@ procd_close_service
 
     # ---- The owner profile: no root, and the router only through openwrt-mcp ----
 
-    def bridge(self, profile, factor=None, mcp="", tools="file,terminal,memory"):
+    def bridge(self, profile, factor=None, mcp="", tools="file,terminal,memory", packages=None):
         env = dict(self.env)
         if factor is not None:
             env["HERMES_OPENWRT_FACTOR"] = factor
+        if packages is not None:
+            env["HERMES_OPENWRT_PACKAGES"] = packages
         args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), tools, mcp,
                 "http://127.0.0.1:9/v1", "runtime-model", profile]
         return subprocess.run(args, env=env, check=False, capture_output=True, text=True)
@@ -1170,10 +1172,12 @@ procd_close_service
         check = subprocess.run(["python3", "-c", code], env=self.env, check=False, capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stderr)
         self.assertEqual(check.stdout.strip().splitlines()[-1], "True True False False")
-        # The entries as releases before the unlock wrote them (no tools key) and as 0.21.5-r3 to
-        # r9 wrote them (the unlock tools only), pasted by hand, are the package's own shapes:
-        # adopted and brought up to date, not refused.
-        for earlier in ({}, {"tools": {"exclude": ["mfa_unlock", "mfa_lock"]}}):
+        # The entries as releases before the unlock wrote them (no tools key), as 0.21.5-r3 to r9
+        # wrote them (the unlock tools only) and as r10 to r12 wrote them (exec and wg_new_client as
+        # well, apk_add not yet), pasted by hand, are the package's own shapes: adopted and brought
+        # up to date, not refused.
+        for earlier in ({}, {"tools": {"exclude": ["mfa_unlock", "mfa_lock"]}},
+                        {"tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"]}}):
             with self.subTest(earlier=earlier):
                 (self.home / "config.yaml").write_text(yaml.safe_dump({"mcp_servers": {"openwrt": dict({
                     "url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}, **earlier)}}))
@@ -1182,8 +1186,86 @@ procd_close_service
                 self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"], {"exclude": self.HIDDEN})
                 self.assertTrue(self.config().get("_openwrt_mcp_managed"))
 
-    # What the package-written openwrt entry keeps from the model, in this order.
-    HIDDEN = ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"]
+    # What the package-written openwrt entry keeps from the model, in this order, when no package
+    # policy is granted (apk_add then hidden too; see test_apk_add_offered_only_when_granted...).
+    HIDDEN = ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "apk_add"]
+
+    def test_apk_add_offered_only_when_granted_and_the_note_says_how(self):
+        # @decided 2026-10-08, paraphrased: packages may be installed from the official OpenWrt feed
+        # only, and only when the owner opted in. The init passes what it wrote to openwrt-mcp as
+        # HERMES_OPENWRT_PACKAGES; granted, in the owner profile with a factor and the connection
+        # there, the model is offered apk_add and told how to use it; anything else hides apk_add
+        # like exec, so the model does not reach for a tool it would only be refused.
+        url = "http://127.0.0.1:8730/mcp"
+        code = ("import yaml; from hermes_cli.config import get_config_path; "
+                "from tools.mcp_tool_registration import _make_tool_filter; "
+                "entry = yaml.safe_load(get_config_path().read_text())['mcp_servers']['openwrt']; "
+                "keep = _make_tool_filter('openwrt', entry); "
+                "print(keep('apk_add'), keep('uci_apply'), keep('exec'), keep('mfa_unlock'))")
+        sentences = ("You may install packages with apk_add, from the official OpenWrt feed only",
+                     "install only packages the owner asked for",
+                     "run apk_add with dry_run first and tell the owner what it would install and how much space",
+                     "never suggest enabling another feed")
+        env = {k: v for k, v in self.env.items() if k != "HERMES_EPHEMERAL_SYSTEM_PROMPT"}
+
+        def offered():
+            check = subprocess.run(["python3", "-c", code], env=self.env, check=False, capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stderr)
+            return check.stdout.strip().splitlines()[-1]
+
+        def prompts():
+            loaded = subprocess.run(["python3", "-c", "from gateway.run import GatewayRunner; "
+                                     "print(GatewayRunner._load_ephemeral_system_prompt())"],
+                                    env=env, check=False, capture_output=True, text=True)
+            self.assertEqual(loaded.returncode, 0, loaded.stderr)
+            config = self.config()
+            cron = (config.get("platform_hints") or {}).get("cron") or {}
+            return [(config.get("agent") or {}).get("system_prompt") or "", loaded.stdout,
+                    cron.get("append", "") if isinstance(cron, dict) else cron]
+
+        # Granted, owner, a factor: offered, and every place the note goes says how.
+        for factor in ("pin", "totp", "pin+totp"):
+            with self.subTest(factor=factor):
+                (self.home / "config.yaml").unlink(missing_ok=True)
+                result = self.bridge("owner", factor=factor, mcp=url, packages="granted")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"]["exclude"],
+                                 ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"])
+                self.assertEqual(offered(), "True True False False")
+                for where in prompts():
+                    for sentence in sentences:
+                        self.assertIn(sentence, where)
+        # A start that changes nothing writes nothing.
+        before = (self.home / "config.yaml").read_bytes()
+        self.assertEqual(self.bridge("owner", factor="pin+totp", mcp=url, packages="granted").returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_bytes(), before)
+        # Off, unset, no factor, another profile, or no connection: hidden, and not a word of it.
+        for case, profile, factor, packages, mcp in (
+                ("off", "owner", "pin", "off", url), ("unset", "owner", "pin", None, url),
+                ("no factor", "owner", "none", "granted", url), ("assistant", "assistant", "pin", "granted", url),
+                ("root", "root", "pin", "granted", url), ("admin", "admin", "pin", "granted", url),
+                ("no connection", "owner", "pin", "granted", "")):
+            with self.subTest(case=case):
+                result = self.bridge(profile, factor=factor, mcp=mcp, packages=packages)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if mcp:
+                    self.assertIn("apk_add", self.config()["mcp_servers"]["openwrt"]["tools"]["exclude"])
+                    self.assertEqual(offered().split()[0], "False")
+                else:
+                    self.assertNotIn("openwrt", self.config().get("mcp_servers") or {})
+                for where in prompts():
+                    self.assertNotIn("apk_add", where)
+                # granted again: offered again, so each of the above was its own condition
+                self.assertEqual(self.bridge("owner", factor="pin", mcp=url, packages="granted").returncode, 0)
+                self.assertEqual(offered().split()[0], "True")
+        # A value the init never passes refuses, and leaves the file as it was.
+        before = (self.home / "config.yaml").read_bytes()
+        for bad in ("official", "yes", "GRANTED", ""):
+            with self.subTest(bad=bad):
+                refused = self.bridge("owner", factor="pin", mcp=url, packages=bad)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("HERMES_OPENWRT_PACKAGES", refused.stderr)
+                self.assertEqual((self.home / "config.yaml").read_bytes(), before)
 
     def test_mcp_entry_hides_exec_and_wg_new_client_in_every_profile(self):
         # The agent's client is never granted exec or wg_new_client (invariant 18). Offered them,
@@ -1647,6 +1729,106 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
         for scope in ("system", "dhcp", "firewall", "network", "network.*", "wireless", "wireless.*"):
             self.assertIn(scope, uci)
 
+    def test_package_policy_only_when_every_condition_holds(self):
+        # The package policy (apk_add, asking the factor) is written only when the owner opted in
+        # (hermes.security.packages=official), a factor is set and openwrt-mcp reports
+        # apk_add_official_feed_only. Each condition is taken away alone; an opt-in that cannot be
+        # honoured says why in one line, and an unmet condition other than the opt-in is never silent.
+        config = Path("/etc/config/openwrt-mcp")
+        original = config.read_bytes() if config.exists() else None
+
+        def restore():
+            if original is None:
+                config.unlink(missing_ok=True)
+            else:
+                config.write_bytes(original)
+        self.addCleanup(restore)
+        self.addCleanup(subprocess.run, ["openwrt-mcp", "unpair", "hermes-unit"], capture_output=True)
+        config.write_text("config server\n\toption listen '127.0.0.1:8730'\n")
+        token = self.home / "unit.token"
+        token.unlink(missing_ok=True)
+        binary, real = Path("/usr/bin/openwrt-mcp"), Path("/usr/bin/openwrt-mcp.real")
+        binary.rename(real)
+
+        def put_back():
+            if real.exists():
+                real.replace(binary)
+        self.addCleanup(put_back)
+
+        def stand_in(apk):
+            # The installed binary's status, with apk_add_official_feed_only as an openwrt-mcp
+            # 0.5.0.4 would give it, or without it as an older one does.
+            fix = ('c["apk_add_official_feed_only"] = True' if apk
+                   else 'c.pop("apk_add_official_feed_only", None)')
+            binary.write_text("#!/bin/sh\nif [ \"$1\" = status ]; then\n"
+                              "\t/usr/bin/openwrt-mcp.real \"$@\" | python3 -c 'import json, sys; "
+                              "d = json.load(sys.stdin); c = d.setdefault(\"capabilities\", {}); %s; "
+                              "json.dump(d, sys.stdout)'\n"
+                              "\texit\nfi\nexec /usr/bin/openwrt-mcp.real \"$@\"\n" % fix)
+            binary.chmod(0o755)
+
+        def agent(factor, packages):
+            script = (f". /lib/functions.sh; . {shlex.quote(str(FILES / 'hermes-agent.init'))}; "
+                      f"hermes_mcp_agent unit {shlex.quote(str(token))} {factor} 20m 3 1h {packages}")
+            return subprocess.run(["sh", "-c", script], check=False, capture_output=True, text=True)
+
+        def show():
+            return subprocess.run(["uci", "-q", "show", "openwrt-mcp"], check=True, capture_output=True,
+                                  text=True).stdout.splitlines()
+
+        def section(name):
+            return {line.split(".", 2)[2].split("=", 1)[0]: line.split("=", 1)[1] for line in show()
+                    if line.startswith(f"openwrt-mcp.{name}.")}
+
+        def has_policy():
+            return "openwrt-mcp.hermes_unit_packages=policy" in show()
+
+        # Every condition: the policy, asking what the change policies ask.
+        stand_in(apk=True)
+        result = agent("pin", "official")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(has_policy(), result.stderr)
+        body = section("hermes_unit_packages")
+        self.assertEqual((body["client"], body["tools"], body["scopes"], body["mfa_tools"]),
+                         ("'hermes-unit'", "'apk_add'", "'*'", "'*'"))
+        change = section("hermes_unit_change")
+        for key in ("mfa_factor", "mfa_window", "mfa_max_failures", "mfa_lockout"):
+            self.assertEqual(body[key], change[key], key)
+        self.assertEqual(body["mfa_factor"], "'pin'")
+        self.assertNotIn("apk_add", result.stderr)
+        # No other policy grants apk_add.
+        granting = [line for line in show() if line.endswith(".tools='apk_add'") or "'apk_add'" in line]
+        self.assertEqual(granting, ["openwrt-mcp.hermes_unit_packages.tools='apk_add'"])
+        # A start that changes nothing writes nothing.
+        before, inode = config.read_bytes(), config.stat().st_ino
+        self.assertEqual(agent("pin", "official").returncode, 0)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertEqual(config.stat().st_ino, inode, "the file was written again though nothing changed")
+        # The owner did not opt in: no policy, and nothing said, since nothing was asked for.
+        result = agent("pin", "off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(has_policy(), "the policy stayed when the opt-in was taken back")
+        self.assertNotIn("packages", result.stderr)
+        # No factor: no policy, one line naming the factor.
+        result = agent("none", "official")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(has_policy())
+        self.assertEqual(result.stderr.count("hermes.security.packages"), 1, result.stderr)
+        self.assertIn("no second factor", result.stderr)
+        # An openwrt-mcp that does not say apk_add installs official packages only: no policy, one
+        # line naming openwrt-mcp and the version that does.
+        stand_in(apk=False)
+        result = agent("pin", "official")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(has_policy())
+        self.assertEqual(result.stderr.count("hermes.security.packages"), 1, result.stderr)
+        self.assertIn("apk_add installs from the official feed only", result.stderr)
+        self.assertIn("0.5.0.4", result.stderr)
+        # Not vacuous: back to every condition, the policy is back.
+        stand_in(apk=True)
+        self.assertEqual(agent("pin", "official").returncode, 0)
+        self.assertTrue(has_policy())
+
     def _start(self, uci, data_dir=None, path=None):
         """The init's own start_service as root, after some UCI lines; the CompletedProcess."""
         script = f'''
@@ -1679,8 +1861,10 @@ procd_close_service
                            "uci set hermes.security.lockout=2d")
         self.assertEqual(good.returncode, 0, good.stderr)
         self.assertEqual(json.loads(good.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_FACTOR"], "pin+totp")
+        self.assertEqual(json.loads(good.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_PACKAGES"], "off")
         for option, value in (("factor", "sms"), ("window", "15"), ("window", "soon"), ("lockout", "-5m"),
-                              ("max_failures", "0"), ("max_failures", "five")):
+                              ("max_failures", "0"), ("max_failures", "five"), ("packages", "yes"),
+                              ("packages", "Official"), ("packages", "all"), ("packages", "official;reboot")):
             with self.subTest(option=option, value=value):
                 result = self._start(f"uci set hermes.security=security\nuci set hermes.security.{option}={value}")
                 self.assertNotEqual(result.returncode, 0)
@@ -1688,9 +1872,21 @@ procd_close_service
         # Left alone, nothing is configured: the factor is none.
         unset = self._start("")
         self.assertEqual(json.loads(unset.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_FACTOR"], "none")
+        self.assertEqual(json.loads(unset.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_PACKAGES"], "off")
+        # Opted in, but the openwrt-mcp installed beside it does not say apk_add installs official
+        # packages only (until it does): the start goes on, and the gateway is told packages are off,
+        # because what it is told is read back from the policies written, never from the opt-in.
+        opted = self._start("uci set hermes.security=security\nuci set hermes.security.factor=pin\n"
+                            "uci set hermes.security.packages=official")
+        self.assertEqual(opted.returncode, 0, opted.stderr)
+        status = subprocess.run(["openwrt-mcp", "status", "--json", "--audit", "0"], check=False,
+                                capture_output=True, text=True)
+        has_apk = (json.loads(status.stdout or "{}").get("capabilities") or {}).get("apk_add_official_feed_only") is True
+        self.assertEqual(json.loads(opted.stdout)["instances"]["instance1"]["env"]["HERMES_OPENWRT_PACKAGES"],
+                         "granted" if has_apk else "off")
         # And only the owner profile has one.
         assistant = self._start("uci set hermes.main.profile=assistant\nuci set hermes.security=security\n"
-                                "uci set hermes.security.factor=sms")
+                                "uci set hermes.security.factor=sms\nuci set hermes.security.packages=yes")
         self.assertEqual(assistant.returncode, 0, assistant.stderr)
 
     def test_init_runs_the_bridge_as_the_agents_user(self):

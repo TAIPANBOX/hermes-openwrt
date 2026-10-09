@@ -319,6 +319,16 @@ sec_factor_ready() { # <factor> (after sec_mcp_facts)
 	esac
 }
 
+# hermes.security.packages as the init reads it: off unless set, official, or a value the init
+# refuses to start on, shown as invalid rather than passed off as either.
+sec_packages() {
+	case "$(sec_conf packages off)" in
+		off)      echo off ;;
+		official) echo official ;;
+		*)        echo invalid ;;
+	esac
+}
+
 sec_refuse() {
 	json_init; json_add_boolean "ok" 0; json_add_string "error" "$1"; json_dump
 }
@@ -361,6 +371,10 @@ method_security_status() {
 	json_add_boolean "pin_set" "$PIN_SET"
 	json_add_boolean "totp_enrolled" "$TOTP_ENROLLED"
 	json_add_boolean "totp_pending" "$TOTP_PENDING"
+	# The owner's opt-in to package installs from the official feed, as set: whether the agent is
+	# actually given apk_add also takes a factor and an openwrt-mcp that installs official packages
+	# only, which the agent's own start decides and says in the log.
+	json_add_string  "packages" "$(sec_packages)"
 	json_dump
 }
 
@@ -470,7 +484,7 @@ method_enrol_activate() {
 # openwrt-mcp's change policy from it. Detached, like the sign-in: rpcd waits for this script's
 # output to end, and the restart is not what the caller is waiting for.
 method_set_factor() {
-	local factor window maxf lockout d ok
+	local factor window maxf lockout
 	read -r MSG
 	factor=$(msg_get factor)
 	window=$(msg_get window)
@@ -493,7 +507,17 @@ method_set_factor() {
 		esac
 		return 0
 	fi
-	d=$(mktemp -d /tmp/hermes-security.XXXXXX) || { sec_refuse "no room to write the configuration"; return 0; }
+	sec_save factor="$factor" window="$window" max_failures="$maxf" lockout="$lockout" || return 0
+	json_init; json_add_boolean "ok" 1; json_add_string "factor" "$factor"; json_dump
+}
+
+# Writes options of hermes.security (each <option>=<value>, values already checked by the caller)
+# so that what is committed is these and nothing a LuCI session has staged in the meantime, then
+# tells procd, once, that hermes changed, so the agent restarts and rewrites its openwrt-mcp
+# policies. Answers the refusal itself and returns 1 when the write fails.
+sec_save() {
+	local d ok kv reload_tells old_sum new_sum
+	d=$(mktemp -d /tmp/hermes-security.XXXXXX) || { sec_refuse "no room to write the configuration"; return 1; }
 	mkdir "$d/c" "$d/s"
 	ok=1
 	# The change is made to a copy under another package name, and the copy put back. Another name,
@@ -503,10 +527,9 @@ method_set_factor() {
 	cp /etc/config/hermes "$d/c/hermes_sec" || ok=0
 	if [ "$ok" = 1 ]; then
 		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security=security             || ok=0
-		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.factor="$factor"     || ok=0
-		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.window="$window"     || ok=0
-		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.max_failures="$maxf" || ok=0
-		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security.lockout="$lockout"   || ok=0
+		for kv in "$@"; do
+			uci -q -c "$d/c" -t "$d/s" set "hermes_sec.security.$kv"            || ok=0
+		done
 		uci -q -c "$d/c" -t "$d/s" commit hermes_sec                            || ok=0
 	fi
 	if [ "$ok" = 1 ]; then
@@ -517,7 +540,7 @@ method_set_factor() {
 	rm -rf "$d"
 	if [ "$ok" != 1 ]; then
 		rm -f /etc/config/.hermes.security
-		sec_refuse "could not write /etc/config/hermes"; return 0
+		sec_refuse "could not write /etc/config/hermes"; return 1
 	fi
 	# reload_config is what LuCI's own apply runs: it compares every config with the copy it kept
 	# last time and tells procd which ones changed, and procd restarts the agent, which rewrites
@@ -539,7 +562,29 @@ method_set_factor() {
 	if [ "$reload_tells" != 1 ] || [ ! -x "$RELOAD" ]; then
 		ubus -t 5 call service event '{"type":"config.change","data":{"package":"hermes"}}' > /dev/null 2>&1
 	fi
-	json_init; json_add_boolean "ok" 1; json_add_string "factor" "$factor"; json_dump
+	return 0
+}
+
+# The owner's opt-in to package installs from the official OpenWrt feed (hermes.security.packages):
+# off or official, nothing else, and official only with a factor in force, since without one the
+# agent's start writes no package policy and the switch would promise what nothing honours. The
+# agent then restarts and decides whether openwrt-mcp is one that installs official packages only.
+method_set_packages() {
+	local packages factor
+	read -r MSG
+	packages=$(msg_get packages)
+	MSG=
+	sec_gate || return 0
+	case "$packages" in off|official) ;; *) sec_refuse "packages is off or official (the official OpenWrt feed only)"; return 0 ;; esac
+	factor=$(sec_conf factor none)
+	if [ "$packages" = official ]; then
+		case "$factor" in
+			pin|totp|pin+totp) ;;
+			*) sec_refuse "no second factor is in force, so an install could never be unlocked: choose one under What unlocking asks for first"; return 0 ;;
+		esac
+	fi
+	sec_save packages="$packages" || return 0
+	json_init; json_add_boolean "ok" 1; json_add_string "packages" "$packages"; json_dump
 }
 
 method_logs() {
@@ -659,6 +704,9 @@ list)
 		json_add_int    "max_failures" 0
 		json_add_string "lockout" ""
 	json_close_object
+	json_add_object "set_packages"
+		json_add_string "packages" ""
+	json_close_object
 	json_dump
 	;;
 call)
@@ -675,6 +723,7 @@ call)
 		enrol_start)          method_enrol_start ;;
 		enrol_activate)       method_enrol_activate ;;
 		set_factor)           method_set_factor ;;
+		set_packages)         method_set_packages ;;
 		*) json_init; json_add_string "error" "unknown method"; json_dump ;;
 	esac
 	;;
