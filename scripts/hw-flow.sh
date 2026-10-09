@@ -235,6 +235,12 @@ step_usb() { # README "Where it installs": the data directory to a USB stick and
 	: "${USB_DEV:?USB_DEV=/dev/sdXN, the partition on the stick, is required}"
 	out=$(on 'apk update >/dev/null 2>&1; apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs 2>&1 | tail -n 1')
 	case "$out" in OK:*) pass usb-packages "$out" ;; *) fail usb-packages "$out"; return ;; esac
+	# A stick shows up a few seconds after kmod-usb-storage is added, not at once: on a freshly
+	# flashed Flint 2 on 2026-10-09 hermes-usb ran first and said the partition was "not a block
+	# device". Wait for it, as a person would by running block info again.
+	if on "i=0; while [ \$i -lt 60 ] && [ ! -b $USB_DEV ]; do sleep 2; i=\$((i + 2)); done; [ -b $USB_DEV ]"; then
+		pass usb-stick-seen "$USB_DEV is a block device"
+	else fail usb-stick-seen "$USB_DEV did not appear within 60 s of adding the USB packages"; return; fi
 	fmt=""; [ "${USB_FORMAT:-0}" = 1 ] && fmt=--format
 	on "hermes-usb move $USB_DEV $fmt" > "$OUT/usb-move.out" 2>&1
 	st=$(on 'hermes-usb status 2>&1')

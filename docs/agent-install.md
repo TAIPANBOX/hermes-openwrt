@@ -185,6 +185,7 @@ Moves the data directory (what is written repeatedly) to a stick; the programs s
 ```sh
 apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
 block info                          # find the stick's partition, e.g. /dev/sda1; confirm with the person
+                                    # (it can appear a few seconds after the apk add: run again until it does)
 grep '^/dev/sda' /proc/mounts       # mounted already (block-mount does that)? umount it first
 hermes-usb move /dev/sda1 --format  # ERASES that partition: only with the person's yes for this device
 hermes-usb status                   # expect: /srv/hermes is on /dev/sda1 (UUID ...), ... KiB free
