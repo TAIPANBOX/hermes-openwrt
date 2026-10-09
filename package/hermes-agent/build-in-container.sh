@@ -156,7 +156,17 @@ esac
 # link, a path, a flag or a package file); one line in the log says why when an opt-in cannot be
 # honoured. The gateway is told what was written (HERMES_OPENWRT_PACKAGES), and the model is offered
 # apk_add, with a sentence in the owner note on how to use it, only then; otherwise it is hidden.
-PKGREL=${PKGREL:-13}
+#
+# 0.21.5-r14: a service's state and a package's settings are reads. On a Flint 2 running r13 the
+# agent installed and started three services and could not confirm any ran (rc.list and service.list
+# refused) nor read what it installed (uci_get of /etc/config/transmission refused). rpcd's rc.list
+# (per init script: start and stop priority, enabled, running) joins the ubus reads; procd's
+# service.list, whose answer is every service's command line and environment, never does. From an
+# openwrt-mcp that reports uci_get_redacts_credentials, uci_get covers every config ('*'), so a
+# package's own config is read with its secrets '<redacted>'; from one that does not, the narrow
+# list as before. The owner note says where each is read, and that a start is not confirmed until
+# rc list says the service runs.
+PKGREL=${PKGREL:-14}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

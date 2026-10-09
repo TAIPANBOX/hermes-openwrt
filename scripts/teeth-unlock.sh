@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (fifty-seven in all, over forty-three checks). Each is a change a
+# or have several ways to go wrong (sixty-two in all, over forty-six checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -430,6 +430,34 @@ expect_red "the package policy without mfa_tools" check_package_install_needs_th
 plant usr/libexec/hermes-set-toolsets 'hidden = MCP_HIDDEN if packages_on else MCP_HIDDEN + PACKAGE_TOOLS' 'hidden = MCP_HIDDEN + PACKAGE_TOOLS'
 expect_red "apk_add hidden though granted" check_package_install_needs_the_unlock
 
+# ---- r14: a service's state and a package's settings are reads ----
+
+# ---- 58. procd's service list among the reads ----
+# Its answer is every service's command line and environment, where other packages keep secrets.
+plant "$INIT" "luci-rpc.getNetworkDevices rc.list'" "luci-rpc.getNetworkDevices rc.list service.list'"
+expect_red "service.list among the reads" check_service_state_is_read_with_rc_list
+
+# ---- 59. rc.list off the reads ----
+# The r13 defect: the agent starts a service and cannot tell whether it runs.
+plant "$INIT" "luci-rpc.getNetworkDevices rc.list'" "luci-rpc.getNetworkDevices'"
+expect_red "rc.list off the reads" check_service_state_is_read_with_rc_list
+
+# ---- 60. every config read from a daemon that does not redact ----
+# The fallback branch given the wide grant: a package's password would go to the model provider.
+plant "$INIT" ' *) read_uci=$MCP_READ_UCI ;; esac' ' *) read_uci=$MCP_READ_UCI_WIDE ;; esac'
+expect_red "every config read from a daemon that does not redact" check_package_config_reads_only_from_a_daemon_that_redacts
+
+# ---- 61. the wide grant without a package's config ----
+# r13's wide list back: wireless and network, and nothing a package the agent installed keeps.
+plant "$INIT" "MCP_READ_UCI_WIDE='*'" "MCP_READ_UCI_WIDE='system system.* dhcp dhcp.* firewall firewall.* network network.* wireless wireless.*'"
+expect_red "a package's config not read from a daemon that redacts" check_installed_package_config_is_read_redacted
+
+# ---- 62. the read grant reaching a change tool ----
+# uci_apply beside uci_get in the read policy, which asks for no factor and covers every config.
+plant "$INIT" "add_list openwrt-mcp.%sread_uci.tools=uci_get\n' \"\$prefix\" \"\$prefix\" \"\$client\" \"\$prefix\"" \
+	"add_list openwrt-mcp.%sread_uci.tools=uci_get\nadd_list openwrt-mcp.%sread_uci.tools=uci_apply\n' \"\$prefix\" \"\$prefix\" \"\$client\" \"\$prefix\" \"\$prefix\""
+expect_red "uci_apply in the read policy" check_installed_package_config_is_read_redacted
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -464,6 +492,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 57 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 57 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 62 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 62 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 57 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 62 faults (shard $SHARD), $N distinct checks, controls green"

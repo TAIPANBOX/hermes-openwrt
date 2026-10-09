@@ -476,6 +476,52 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/teeth-runtime.py`). Red first only by running the init's own functions against
     stand-ins on a workstation: the r10 init gave the narrow list with the capability reported;
     the gate's container runs need a build, which CI makes.
+    `@measured 2026-10-09 on a Flint 2 via Telegram` (0.21.5-r13, owner profile, gpt-6.1-sol): the
+    agent installed vnstat2, adguardhome and transmission-daemon with `apk_add` and started them
+    with `rc.init`, then could not confirm any was running, since `ubus_call` of `rc.list` and of
+    `service.list` were refused ("no policy scope covers rc.list"), nor read what it had installed,
+    since `uci_get` of /etc/config/transmission was refused. Both are reads. `@decided 2026-10-09`:
+    fixed in r14. `@claude` 2026-10-09, how (0.21.5-r14), superseding the r11 line that the wide
+    grant is wireless and network: `rc.list` joins `MCP_READ_UBUS`. rpcd's rc object answers, per
+    init script, its start and stop priority, whether it is enabled and, for a procd script, whether
+    it is running, and nothing else (rpcd `rc.c` `rc_list_add_table`, read at d99f703; the reply's
+    shape unchanged since 2023; the gate asks the rootfs's own rpcd). procd's `service.list`, and
+    `service.*` as a whole, are never a read: the answer is every service's command line and
+    environment, which can hold other packages' secrets and would reach the model provider
+    (invariant 11 keeps it from LuCI for the same reason). `MCP_READ_UCI_WIDE` is `*`, every config,
+    and still only from a daemon whose status reports `uci_get_redacts_credentials` and whose
+    `/health` gives the installed version (`mcp_daemon_caps`, unchanged); otherwise `MCP_READ_UCI`
+    exactly as before. Why `*` and not a list: openwrt-mcp only allow-lists (the first policy of a
+    client that covers every scope of a call wins, `*` alone matches everything and anything else is
+    Go's path.Match; there is no deny and no negation), so the only other choice is a list of
+    packages, which misses the next package installed and is this defect again. What `*` opens
+    beyond a package's own config: `hermes` (key file paths, the profile, the factor, the allowed
+    Telegram ids; the keys are root-only files), `openwrt-mcp` (its address and its policies; tokens,
+    PINs and TOTP secrets are files under /etc/openwrt-mcp), `rpcd` (the login password, redacted
+    by name), `dropbear` and `uhttpd` (key files, redacted by name), `luci`, `fstab`, `ucitrack`. A
+    limit named and not fixed: a secret in an option whose name gives no sign of it (a DDNS
+    `update_url` holding a token, `pppd_options`, a proxy's client id that is itself a credential)
+    is read as it is, in any config; redaction is openwrt-mcp's, by option name. A read is not a
+    change: `uci_apply` stays on `MCP_CHANGE_UCI`, `rc.list` is in the read policy and `rc.init` in
+    the change policy, and the read policies come first with no factor; checked with Go's path.Match
+    against the init's lists: no read glob covers `service.list`, `service.set` or `rc.init`, no
+    change glob covers `rc.list`, `service.list` or a package's config. The owner note says a
+    service's state is read with rc list and a package's settings with uci_get, and that a start is
+    not confirmed until rc list says the service runs (gate: `scripts/gate-unlock.sh`
+    `check_service_state_is_read_with_rc_list` (the rootfs's rpcd and ubusd behind the daemon's ubus
+    stand-in), `check_installed_package_config_is_read_redacted` (a transmission config with a
+    canary password, read and then refused to `uci_apply` in an open window),
+    `check_package_config_reads_only_from_a_daemon_that_redacts` (a status stand-in);
+    `scripts/gate-runtime.sh` `check_service_state_and_package_settings_are_reads`,
+    `check_owner_note_says_how_to_read_a_service_and_its_settings`; teeth: `scripts/teeth-unlock.sh`
+    faults 58 to 62, `scripts/teeth-runtime.py`, six mutants).
+    Red first, the checks committed alone (aae80a8) and run against the r13 package: `@measured`
+    `gh run view 37971085230 --log` 2026-10-09, gate-unlock 41 passed and 5 failed, the three new
+    checks (`no policy scope covers "rc.list"`, `no policy scope covers "transmission"`, the narrow
+    list where every config was expected) and the two r11 checks whose positive control now expects
+    `*`; test-runtime 73 ran with 7 failures, the two new tests and the policy test (rc.list not
+    covered, the note's sentence missing, `['*']` expected). Also red against the r13 init's own
+    functions and the bridge's `_note_for` on a workstation, green against r14's.
     `@decided 2026-10-01` (the owner's, paraphrased): unlocking happens in the same Telegram
     chat as the agent; the message that unlocks is removed from the chat at once and never
     reaches the model; the factor is the owner's choice (PIN, app code, or both); five wrong
