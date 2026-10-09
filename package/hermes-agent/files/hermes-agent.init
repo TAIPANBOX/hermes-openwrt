@@ -38,7 +38,13 @@ MCP_URL_DEFAULT=http://127.0.0.1:8730/mcp
 # status carries the radio configuration, keys included. The same list goes to the gateway
 # (HERMES_OPENWRT_READ_UBUS), where the unlock plugin uses it to tell a read from a change when
 # it refuses a scheduled job's changes: one list, so the two cannot disagree.
-MCP_READ_UBUS='system.board system.info network.interface.dump network.interface.*.status network.device.status iwinfo.devices iwinfo.info iwinfo.assoclist dhcp.ipv6leases luci-rpc.getDHCPLeases luci-rpc.getHostHints luci-rpc.getNetworkDevices'
+# rc.list (0.21.5-r14) is how the agent learns whether a service it started is running: rpcd's rc
+# object answers, per init script, its start and stop priority, whether it is enabled and, for a
+# procd script, whether it is running (rpcd rc.c, rc_list_add_table), and nothing else. Never
+# procd's service.list or anything else of service.*: its answer holds every service's command line
+# and environment, where other packages keep their secrets, and a read goes to the model provider
+# (invariant 11 keeps it out of the LuCI read permission for the same reason).
+MCP_READ_UBUS='system.board system.info network.interface.dump network.interface.*.status network.device.status iwinfo.devices iwinfo.info iwinfo.assoclist dhcp.ipv6leases luci-rpc.getDHCPLeases luci-rpc.getHostHints luci-rpc.getNetworkDevices rc.list'
 # What uci_get may read from a daemon that does not say it redacts: not wireless, whose keys
 # would go to the model provider, and not the whole of network either, since a router running
 # WireGuard keeps its private key in a network section. The default interfaces and the globals
@@ -48,10 +54,17 @@ MCP_READ_UCI='system system.* dhcp dhcp.* firewall firewall.* network.loopback* 
 # What uci_get may read from a daemon that reports uci_get_redacts_credentials (openwrt-mcp
 # 0.5.0.2 and later): every uci_get answer then has each secret option (a Wi-Fi key, a WireGuard
 # private or preshared key, a password, a RADIUS secret...) replaced by '<redacted>', for every
-# client and with no way to turn it off, so wireless and the whole of network can be read, which
-# is what setting up a guest Wi-Fi needs. ubus's network.wireless status is NOT redacted by the
-# daemon and stays out of MCP_READ_UBUS whatever this says. See mcp_daemon_caps.
-MCP_READ_UCI_WIDE='system system.* dhcp dhcp.* firewall firewall.* network network.* wireless wireless.*'
+# client and with no way to turn it off, so every config can be read: wireless and the whole of
+# network, which setting up a guest Wi-Fi needs, and since 0.21.5-r14 the config of any package,
+# so the agent can read what it installed (transmission, adguardhome, vnstat, tor, tailscale...).
+# '*' and not a list, because openwrt-mcp only allow-lists (the first policy that covers every
+# scope of a call wins, there is no deny), and a list would miss the next package installed. What
+# '*' also opens, and why that is accepted, is in CLAUDE.md, invariant 18 (r14): hermes, openwrt-mcp,
+# rpcd, dropbear, uhttpd and the rest, whose secrets are either in files outside UCI or under
+# option names the daemon redacts. It is a uci_get grant only; uci_apply stays on MCP_CHANGE_UCI.
+# ubus's network.wireless status is NOT redacted by the daemon and stays out of MCP_READ_UBUS
+# whatever this says. See mcp_daemon_caps.
+MCP_READ_UCI_WIDE='*'
 # What a ubus_call may change once the owner has unlocked: settings, the VPN and services, never a
 # command, a file, a firmware or a package. Settings themselves go through uci_apply, which arms a
 # rollback; these are the calls that bring a changed setting into effect. netifd: reload and restart
@@ -91,8 +104,8 @@ mcp_live_version() {
 }
 
 # What the openwrt-mcp that will answer this agent guarantees, printed on stdout as words:
-# `redacts` when its status reports uci_get_redacts_credentials (wireless and the whole of network
-# may then be read), `noexec` when it reports uci_apply_refuses_code_exec (a change policy may then
+# `redacts` when its status reports uci_get_redacts_credentials (every config may then be read,
+# wireless and the whole of network included), `noexec` when it reports uci_apply_refuses_code_exec (a change policy may then
 # be written: an apply that would make the router run code as root, a firewall include or a
 # dnsmasq dhcpscript among them, is refused for every client), `apk` when it reports
 # apk_add_official_feed_only (a package policy may then be written: apk_add installs only from the
@@ -132,7 +145,7 @@ mcp_daemon_caps() {
 			done
 		fi
 		if [ "$live" != "$ver" ]; then
-			echo "$NAME: the openwrt-mcp running is ${live:-of unknown version}, not the installed $ver that redacts credentials and refuses code execution, and a restart did not change that; until 'service openwrt-mcp restart' does, the agent may not read wireless or the whole of network, and nothing can change the router through it" >&2
+			echo "$NAME: the openwrt-mcp running is ${live:-of unknown version}, not the installed $ver that redacts credentials and refuses code execution, and a restart did not change that; until 'service openwrt-mcp restart' does, the agent may not read wireless, the whole of network or the config of a package it installed, and nothing can change the router through it" >&2
 			echo stale
 			return 0
 		fi
@@ -140,7 +153,7 @@ mcp_daemon_caps() {
 	if [ "$redacts" = true ]; then
 		caps=redacts
 	else
-		echo "$NAME: openwrt-mcp ${ver:-(no status)} does not report that uci_get redacts credentials, so the agent may not read wireless or the whole of network; openwrt-mcp 0.5.0.2 or later does" >&2
+		echo "$NAME: openwrt-mcp ${ver:-(no status)} does not report that uci_get redacts credentials, so the agent may not read wireless, the whole of network or the config of a package it installed; openwrt-mcp 0.5.0.2 or later does" >&2
 	fi
 	if [ "$noexec" = true ]; then
 		caps="$caps noexec"
@@ -308,7 +321,8 @@ hermes_mcp_agent() {
 		chmod 0600 "$tmp" && mv "$tmp" "$token_file" || return 1
 		echo "$NAME: paired $client with openwrt-mcp; its token is in $token_file" >&2
 	fi
-	# Wireless and the whole of network only from a daemon that redacts every secret in them, and
+	# Every config (wireless, the whole of network, a package's own) only from a daemon that redacts
+	# every secret in a uci_get answer, and
 	# a change policy only from one that refuses an apply that would run code.
 	# A package policy only when the owner opted in and the daemon installs official packages
 	# only; the factor is the batch's to require. An opt-in that cannot be honoured says why, once.

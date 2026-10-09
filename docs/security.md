@@ -154,8 +154,8 @@ one of a client that covers a call:
 
 | policy | grants | unlock |
 |---|---|---|
-| `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices` | none |
-| `hermes_main_read_uci` | `uci_get` on `system`, `dhcp`, `firewall`, `network` and `wireless`, from an openwrt-mcp that redacts (below); otherwise on `system`, `dhcp`, `firewall` and `network`'s loopback, globals, lan and wan sections | none |
+| `hermes_main_read_ubus` | `ubus_call`, by method: `system.board`, `system.info`, `network.interface.dump`, `network.interface.*.status`, `network.device.status`, `iwinfo.devices`, `iwinfo.info`, `iwinfo.assoclist`, `dhcp.ipv6leases`, `luci-rpc.getDHCPLeases`, `luci-rpc.getHostHints`, `luci-rpc.getNetworkDevices`, and since 0.21.5-r14 `rc.list` (per service: enabled, running) | none |
+| `hermes_main_read_uci` | `uci_get` on every config, from an openwrt-mcp that redacts (below); otherwise on `system`, `dhcp`, `firewall` and `network`'s loopback, globals, lan and wan sections | none |
 | `hermes_main_read_log` | `logread` | none |
 | `hermes_main_change` | `uci_apply`, `uci_confirm` on `network` (WireGuard included), `wireless`, `firewall`, `dhcp` and `system`, each apply rolled back unless the agent confirms it | the factor |
 | `hermes_main_change_ubus` | `ubus_call`, by method: `network.reload`, `network.restart`, an interface's `up`, `down` and `renew` (by `network.interface` or the interface's own object), `network.wireless.up`, `.down` and `.reconf`, and `rc.init` (start, stop, restart, reload, enable or disable a service) | the factor |
@@ -221,8 +221,8 @@ settings: the Wi-Fi passphrases, a WireGuard private key, a PPPoE password. From
 0.5.0.2 every `uci_get` answer has each secret option replaced by `'<redacted>'`, for every
 client and with no way to turn it off, `uci_apply` refuses that marker as a value, and
 `openwrt-mcp status --json` says so in `capabilities.uci_get_redacts_credentials`. At every
-start the package reads that and grants `uci_get` on `wireless` and the whole of `network` only
-when it is `true`. When it is missing (an older openwrt-mcp has no such key) or the status
+start the package reads that and grants `uci_get` on `wireless` and the whole of `network` (since
+0.21.5-r14 on every config, below) only when it is `true`. When it is missing (an older openwrt-mcp has no such key) or the status
 cannot be read, the grants stay as they were before 0.21.5-r11, `network`'s named sections
 only, and the start says why in one line. apk replaces openwrt-mcp's program on an upgrade
 without restarting the daemon, so when one is running the package also asks it, through
@@ -233,6 +233,29 @@ so a secret inside an option whose name gives no sign of it (a token pasted into
 address, a password inside `pppd_options`) is not redacted; and `ubus call network.wireless
 status`, which returns each Wi-Fi interface's configuration with its key, is not redacted at
 all, so the package never grants it.
+
+**A service's state and a package's settings.** Since 0.21.5-r14 the agent can tell whether a
+service runs, and read the settings of a package it installed. On a Flint 2 running r13 it
+installed three packages and started their services, then could not confirm that any of them was
+running, nor read what it had installed: both reads were refused. `rc.list` is now among the
+reads. rpcd's `rc` object answers, for each init script, its start and stop priority, whether it
+is enabled and, for a procd script, whether it is running, and nothing else (rpcd's `rc.c`,
+`rc_list_add_table`). procd's `service.list` stays refused: its answer holds every service's
+command line and environment, where other packages keep their own secrets, and whatever a tool
+answers goes to the model provider (the LuCI read permission leaves it out for the same reason).
+From an openwrt-mcp that reports it redacts, `uci_get` covers every config (`*`), so a package's
+own config (transmission, adguardhome, vnstat, tor, tailscale) is read with its passwords and
+keys `'<redacted>'`; from one that does not, the narrow list above, unchanged. A list of packages
+was the other choice and was not taken: openwrt-mcp only grants, with no way to refuse one config
+inside a wider grant, and a list would miss the next package installed. What `*` also opens:
+the configs of `hermes` (key file paths, the profile, the factor, the allowed Telegram ids),
+`openwrt-mcp` (its address and its policies; its tokens, PINs and app secrets are files outside
+UCI), `rpcd` (its login password is redacted), `dropbear` and `uhttpd` (their key files are
+redacted), `luci`, `fstab` and `ucitrack`. The limit is the one above, now over every package: a
+secret under an option whose name gives no sign of it (a token in a DDNS update address, a
+password in `pppd_options`, a client id that is itself a credential) is read as it is. Reading is
+not changing: `uci_apply` stays on the five configs above, and `rc.list` sits in the read policy,
+apart from `rc.init`, which still needs the window.
 
 `hermes.security` sets what unlocking asks for, and the Security page (below) writes it for you:
 
@@ -259,7 +282,9 @@ unless you set it yourself: it hid every MCP tool behind a search the models did
 they never saw openwrt-mcp's tools and tried `uci` in the terminal, which as `hermes` fails.
 The owner note also tells the agent that a UCI section name holds only letters, digits and
 underscores, that a port forward is a firewall `redirect`, not a `rule`, and to read a change
-back with `uci_get` and report only what the router holds.
+back with `uci_get` and report only what the router holds. Since r14 it also says to read a
+service's state with `rc.list` and a package's settings with `uci_get`, and not to say a service
+started until `rc.list` says it runs.
 
 Since 0.21.5-r12 a scheduled job is told all of this too. Upstream builds a job's agent without
 `agent.system_prompt`, where the note lived, so until then a job never saw it: on a Flint 2 on

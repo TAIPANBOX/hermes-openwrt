@@ -430,6 +430,32 @@ mutants = [
      '\t\techo "$NAME: hermes.security.packages is official, but openwrt-mcp',
      '\t\ttrue "$NAME: hermes.security.packages is official, but openwrt-mcp',
      'test_package_policy_only_when_every_condition_holds'),
+    # ---- 0.21.5-r14: a service's state and a package's settings are reads ----
+    ('service.list among the reads', 'hermes-agent.init',
+     "luci-rpc.getNetworkDevices rc.list'", "luci-rpc.getNetworkDevices rc.list service.list'",
+     'test_service_state_and_package_settings_are_reads'),
+    ('rc.list off the reads', 'hermes-agent.init',
+     "luci-rpc.getNetworkDevices rc.list'", "luci-rpc.getNetworkDevices'",
+     'test_service_state_and_package_settings_are_reads'),
+    ('every config read from a daemon that does not redact', 'hermes-agent.init',
+     ' *) read_uci=$MCP_READ_UCI ;; esac', ' *) read_uci=$MCP_READ_UCI_WIDE ;; esac',
+     'test_service_state_and_package_settings_are_reads'),
+    ("a package's config not read from a daemon that redacts", 'hermes-agent.init',
+     "MCP_READ_UCI_WIDE='*'",
+     "MCP_READ_UCI_WIDE='system system.* dhcp dhcp.* firewall firewall.* network network.* wireless wireless.*'",
+     'test_service_state_and_package_settings_are_reads'),
+    ('uci_apply in the read policy', 'hermes-agent.init',
+     "add_list openwrt-mcp.%sread_uci.tools=uci_get\\n' \"$prefix\" \"$prefix\" \"$client\" \"$prefix\"",
+     "add_list openwrt-mcp.%sread_uci.tools=uci_get\\nadd_list openwrt-mcp.%sread_uci.tools=uci_apply\\n' "
+     "\"$prefix\" \"$prefix\" \"$client\" \"$prefix\" \"$prefix\"",
+     'test_service_state_and_package_settings_are_reads'),
+    ('the owner note without how to read a service and its settings', 'set-toolsets.py',
+     '              "Read a service\'s state with ubus_call on rc list, giving its name (it answers "\n'
+     '              "whether the service is enabled and running), and a package\'s settings with uci_get "\n'
+     '              "on its config; never tell the owner a service started until rc list says it is "\n'
+     '              "running. "\n',
+     '',
+     'test_owner_note_says_how_to_read_a_service_and_its_settings'),
     ('the bridge in the init runs as root', 'hermes-agent.init',
      'PYTHONDONTWRITEBYTECODE=1 $DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-set-toolsets',
      'PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 /usr/libexec/hermes-set-toolsets',
