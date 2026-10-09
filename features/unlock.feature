@@ -85,15 +85,14 @@
 #                        and refuses a link, a path, a flag or a package file). The two scenarios
 #                        after "A daemon left running from before an upgrade gets no wide read" are
 #                        that; the conditions one by one are in features/runtime.feature. The second
-#                        needs openwrt-mcp 0.5.0.4, and until CI pins it the gate lists it as NOT
-#                        IMPLEMENTED (awaiting) instead of running it.
+#                        runs offline against the real openwrt-mcp 0.5.0.4: apk_add updates its
+#                        index from the feed before any call, so what it proves needs none (the
+#                        policy decides first, then apk_add's own name rules, then apk).
 #
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
 # fix. A scenario whose check is not built yet is listed by the gate as NOT IMPLEMENTED and
-# fails, so a green run can only mean all of it is proven; none is left. One check is written and
-# waits for the openwrt-mcp it needs (AWAITS_MCP in the gate): it is reported NOT IMPLEMENTED and
-# counted apart until CI pins openwrt-mcp 0.5.0.4, and fails from then on if the tool is missing.
+# fails, so a green run can only mean all of it is proven; none is left.
 
 Feature: The agent changes the router only when its owner unlocks it
 
@@ -247,8 +246,8 @@ Feature: The agent changes the router only when its owner unlocks it
     When the agent asks for a package, even as a dry run, before the owner unlocks
     Then it is refused for the second factor
     When the owner unlocks
-    Then a dry run says what would be installed, and nothing is installed
-    And a link, a path, a flag or a package file is refused even then
+    Then the call gets past the policy to the install tool's own rules, which refuse a version, a package file, an option or a tag, and nothing is installed
+    And a link is refused even then
     And the model is offered the install tool
     When the owner turns package installs off
     Then there is no package policy, an install is refused after an unlock for want of one, and the model is not offered the tool

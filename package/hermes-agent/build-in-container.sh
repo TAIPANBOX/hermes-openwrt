@@ -170,12 +170,12 @@ PKGREL=${PKGREL:-13}
 # carries it beside this package. Its floor, 0.5.0.3 (r11), is the first version whose uci_get
 # redacts every secret option and whose uci_apply refuses every change that runs code, and says
 # both in `status`; the init grants the wide reads and writes a change policy only on those
-# words, and the floor keeps an upgrade from leaving an older one in place. The package policy of
-# r13 waits on 0.5.0.4 the same way (apk_add_official_feed_only); the floor moves to 0.5.0.4 when
-# CI pins that commit, and until then an older openwrt-mcp only means no package policy.
+# words, and the floor keeps an upgrade from leaving an older one in place. Since r13 the floor is
+# 0.5.0.4, the first whose apk_add installs from the official feeds only and says so in `status`
+# (apk_add_official_feed_only), which the init asks for before it writes the package policy.
 #
 # iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above).
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.3 iputils-ping"
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 iputils-ping"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

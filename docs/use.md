@@ -99,9 +99,7 @@ under Services -> Hermes Agent -> Security (a factor has to be in force first), 
 `uci set hermes.security.packages=official && uci commit hermes && /etc/init.d/hermes-agent restart`.
 Then, while you have changes unlocked, the agent can install a package you asked for, from the
 official OpenWrt feed only, never from a link, a file or another feed; it runs a dry run first and
-tells you what would be installed and how much space that takes. It needs openwrt-mcp 0.5.0.4 or
-later, and until then the setting gives the agent nothing and the log says so. What it does and
-does not do: [Package installs, your opt-in](security.md#package-installs-your-opt-in).
+tells you what would be installed and how much space that takes. What it does and does not do: [Package installs, your opt-in](security.md#package-installs-your-opt-in).
 
 **Browser, vision, image generation and the wake-word stack are not packaged.** They pull
 heavy dependencies for capabilities a headless router does not have. `ffmpeg` is included,

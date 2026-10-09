@@ -244,6 +244,7 @@ Lines the service writes to `logread`, what they mean, and what to do.
 | `could not start openwrt-mcp` / `could not pair hermes-main` | openwrt-mcp failed | `logread -e openwrt-mcp`; report it |
 | `openwrt-mcp ... does not report that uci_get redacts credentials` | an openwrt-mcp older than 0.5.0.2; the agent runs, but cannot read wireless or the whole of network | `apk update && apk upgrade openwrt-mcp`, then restart hermes-agent |
 | `openwrt-mcp ... does not report that uci_apply refuses code execution` | an openwrt-mcp older than 0.5.0.3; the agent reads, and nothing can change the router through it | `apk update && apk upgrade openwrt-mcp`, then restart hermes-agent |
+| `hermes.security.packages is official, but ...` | the owner opted in to package installs, and no factor is set or openwrt-mcp is older than 0.5.0.4 | report it to the owner; the factor and the opt-in are theirs |
 | `the openwrt-mcp running is ..., not the installed ...` | the daemon from before an upgrade is still serving and a restart did not replace it | `service openwrt-mcp restart`, then restart hermes-agent; report it if the line comes back |
 | the gateway starts, then stops five times within minutes | procd's bounded respawn gave up after repeated failures | read the first refusal above it |
 

@@ -2,8 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (fifty-seven in all, over forty-three checks; two of them wait,
-# planted and pending, for the openwrt-mcp that the check they belong to needs, see AWAITS_MCP). Each is a change a
+# or have several ways to go wrong (fifty-seven in all, over forty-three checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -83,27 +82,6 @@ expect_red() {
 	fi
 	grep -q "^FAIL .*$check:" "$OUT" || {
 		echo "TEETH FAIL: $name turned the gate red, but not at $check"; grep -E '^(FAIL|overlay)' "$OUT" | head -5; exit 1; }
-	echo "teeth ok: $name -> $check ($(grep "^FAIL .*$check:" "$OUT" | sed 's/^FAIL [^:]*: //' | cut -c1-110))"
-	rm -rf "$W/overlay"
-}
-# The same, for a check in the gate's AWAITS_MCP: until CI pins the openwrt-mcp it needs, the gate
-# reports it NOT IMPLEMENTED (awaiting) and does not run it, so the fault is planted (its "planted
-# nothing" guard stays live) and recorded as pending; once the gate runs the check, it must go red
-# exactly like expect_red's.
-PENDING=0
-expect_red_after_pin() {
-	name=$1; check=$2
-	FAULT_K=$((FAULT_K + 1))
-	if [ $(((FAULT_K - 1) % SHARD_N)) -ne "$SHARD_I" ]; then echo "teeth skip (shard $SHARD): $name"; rm -rf "$W/overlay"; return 0; fi
-	RAN=$((RAN + 1))
-	if ONLY="$check" OVERLAY="$W/overlay" ARCH="$ARCH" "$ROOT/scripts/gate-unlock.sh" >"$OUT" 2>&1 \
-		&& grep -q "^NOT IMPLEMENTED .*$check: awaits openwrt-mcp" "$OUT"; then
-		PENDING=$((PENDING + 1))
-		echo "teeth pending: $name -> $check (the gate does not run it until openwrt-mcp 0.5.0.4 is pinned)"
-		rm -rf "$W/overlay"; return 0
-	fi
-	grep -q "^FAIL .*$check:" "$OUT" || {
-		echo "TEETH FAIL: $name left $check green, or turned the gate red elsewhere"; tail -n 15 "$OUT"; exit 1; }
 	echo "teeth ok: $name -> $check ($(grep "^FAIL .*$check:" "$OUT" | sed 's/^FAIL [^:]*: //' | cut -c1-110))"
 	rm -rf "$W/overlay"
 }
@@ -445,12 +423,12 @@ expect_red "a daemon from before the upgrade not asked before a package policy" 
 # ---- 56. a package policy that asks for no factor ----
 # Present, granting apk_add, and never consulting the factor: installs with no unlock.
 plant "$INIT" "\nadd_list openwrt-mcp.%spackages.mfa_tools='*'\n\" \"\$prefix\" \"\$prefix\"" "\n\" \"\$prefix\""
-expect_red_after_pin "the package policy without mfa_tools" check_package_install_needs_the_unlock
+expect_red "the package policy without mfa_tools" check_package_install_needs_the_unlock
 
 # ---- 57. apk_add kept from the model though granted ----
 # The owner opted in and the agent cannot see the tool, so it tells the owner it cannot install.
 plant usr/libexec/hermes-set-toolsets 'hidden = MCP_HIDDEN if packages_on else MCP_HIDDEN + PACKAGE_TOOLS' 'hidden = MCP_HIDDEN + PACKAGE_TOOLS'
-expect_red_after_pin "apk_add hidden though granted" check_package_install_needs_the_unlock
+expect_red "apk_add hidden though granted" check_package_install_needs_the_unlock
 
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
@@ -488,4 +466,4 @@ echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
 [ "$FAULT_K" = 57 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 57 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 57 faults (shard $SHARD), $PENDING of them pending the openwrt-mcp pin, $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 57 faults (shard $SHARD), $N distinct checks, controls green"

@@ -102,12 +102,14 @@ jobs:
       # every uci_get answer redacts secret options, uci_apply refuses any change that makes the
       # router run code as root, and `status` reports both (uci_get_redacts_credentials,
       # uci_apply_refuses_code_exec), which the init asks for before it grants wireless and the
-      # whole of network, and before it writes any change policy. Before it, baf6669
-      # (v0.5.0-taipanbox.1).
+      # whole of network, and before it writes any change policy. Since 0.21.5-r13 it is 8eff834,
+      # the merge of the fork's PR #6 (version 0.5.0.4): apk_add installs by name from the official
+      # OpenWrt feeds only, and `status` reports apk_add_official_feed_only, which the init asks for
+      # before it writes the package policy. Before them, baf6669 (v0.5.0-taipanbox.1).
       - uses: actions/checkout@v4
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: 85a9dddfcc9175324d6ab32a3ed58b0cd1558290
+          ref: 8eff8349f4dcf34c12b309dc0655300680cb3d19
           path: openwrt-mcp-src
       - uses: actions/setup-go@v5
         with:
@@ -187,7 +189,7 @@ jobs:
         env:
           MATRIX_SUITE: ${{ matrix.suite }}
 
-      # The owner unlock: 43 checks (one waits for openwrt-mcp 0.5.0.4, NOT IMPLEMENTED until pinned) in OpenWrt's own rootfs with all four packages, the real
+      # The owner unlock: 43 checks in OpenWrt's own rootfs with all four packages, the real
       # gateway, the real daemon and the stand-ins for Telegram and the model.
       - name: changes wait for the owner's unlock, and the unlock never reaches the model
         if: matrix.suite == 'unlock'

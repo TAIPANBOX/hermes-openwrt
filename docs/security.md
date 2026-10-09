@@ -135,14 +135,14 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.3 since
-0.21.5-r11 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.4 since
+0.21.5-r13 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
 commit is the one in `.github/workflows/ci.yml`). Upstream has the code factor and its
 enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the
-two-step enrolment, the redaction of every `uci_get` answer and the refusal of every `uci_apply`
-that would run code are the fork's, and its README documents them. `hermes-agent` depends on
-`openwrt-mcp>=0.5.0.3`, the first version that does both, so an upgrade of the agent cannot
-leave an older one beside it.
+two-step enrolment, the redaction of every `uci_get` answer, the refusal of every `uci_apply`
+that would run code and `apk_add` from the official feeds only are the fork's, and its README
+documents them. `hermes-agent` depends on `openwrt-mcp>=0.5.0.4`, the first version that does all
+three, so an upgrade of the agent cannot leave an older one beside it.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -380,10 +380,11 @@ otherwise none, with one line in the log saying which is missing:
   the official feed only (`capabilities.apk_add_official_feed_only`, from 0.5.0.4), and, as for
   the reads above, the daemon running is the installed version, not one left from before an upgrade.
 
-What `apk_add` itself does is openwrt-mcp's: it takes package names, installs only from the
-official OpenWrt feeds listed in `/etc/apk/repositories.d/distfeeds.list`, and refuses a link, a
-path, an option or an `.apk` file, in a window or out of it. It has a dry run, which says what
-would be installed and how much space that takes, and installs nothing.
+What `apk_add` itself does is openwrt-mcp's (0.5.0.4, which `hermes-agent` depends on): it takes
+1 to 20 package names, refuses a link, a path, an option, an `.apk` file, a version or a tag, and
+installs only from the lines of `/etc/apk/repositories.d/distfeeds.list` that are feeds on
+downloads.openwrt.org, never another feed, with signatures checked. It has a dry run, which says
+what would be installed or changed and installs nothing.
 
 The agent sees `apk_add` only when that policy was written. Then its instructions say to install
 only packages you asked for, to run the dry run first and tell you what would be installed and how
@@ -400,8 +401,12 @@ What this does not do, named:
   installed until it is removed (`apk del <name>`, by you).
 - Which feeds count as official is openwrt-mcp's decision, made from `distfeeds.list`; this
   package does not check the feed addresses itself.
-- Until the openwrt-mcp this repository builds is 0.5.0.4 or later, the setting can be turned on
-  and the agent is still given nothing to install with; the log says so at every start.
+- apk pulls in dependencies and may upgrade an installed library a new package needs; the dry run
+  lists every package that would be installed or changed.
+- Only downloads.openwrt.org's feeds are used, so a router whose `distfeeds.list` points at a
+  mirror or at archive.openwrt.org has no feed apk_add will use, and every install is refused.
+- No install and no dry run is run by this repository's checks: `apk_add` updates its index from
+  the feed before every call, and the gates run offline. They prove the policy and the refusals.
 
 ### Unlocking from Telegram
 
