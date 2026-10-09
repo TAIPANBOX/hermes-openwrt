@@ -258,8 +258,20 @@ unless you set it yourself: it hid every MCP tool behind a search the models did
 they never saw openwrt-mcp's tools and tried `uci` in the terminal, which as `hermes` fails.
 The owner note also tells the agent that a UCI section name holds only letters, digits and
 underscores, that a port forward is a firewall `redirect`, not a `rule`, and to read a change
-back with `uci_get` and report only what the router holds. Unlocking is per agent:
-a second agent would be `hermes-<name>`, with its own token, its own policies and its own
+back with `uci_get` and report only what the router holds.
+
+Since 0.21.5-r12 a scheduled job is told all of this too. Upstream builds a job's agent without
+`agent.system_prompt`, where the note lived, so until then a job never saw it: on a Flint 2 on
+2026-10-09 a one-off job asked why the internet was slow used only openwrt-mcp's tools and pinged
+nothing; with the note added to that job's prompt by hand, the same job pinged two addresses,
+checked DNS and timed a download. The note is now also written to `platform_hints.cron` in the
+agent's `config.yaml`, which upstream adds to the system prompt of a job's agent and of no other.
+A chat reads `agent.system_prompt` only, so it gets the note once. SOUL.md is left alone: the
+gateway loads it too, so a note there would reach a chat twice, and a chat that carries on keeps
+the copy it read when it started. Text of your own in `agent.system_prompt` or
+`platform_hints.cron` is kept as you wrote it, and the root profile takes only the note out.
+
+Unlocking is per agent: a second agent would be `hermes-<name>`, with its own token, its own policies and its own
 window.
 
 **Who confirms a change.** Your consent is the `/unlock` itself; you are not asked again for each
