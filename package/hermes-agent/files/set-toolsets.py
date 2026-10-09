@@ -49,6 +49,15 @@ writes tools.tool_search.enabled 'off' where the operator has set nothing, so up
 defer the MCP tools behind its search tool; and the owner note says how UCI names sections, what
 a port forward is, and to read a change back before reporting it.
 
+@decided 2026-10-08 (the window's scope, paraphrased): installing packages is allowed only from the
+official OpenWrt feed, and only when the owner has opted in. How (0.21.5-r13): the init writes the
+package policy (apk_add, asking the factor) only when hermes.security.packages is official, a factor
+is set and the openwrt-mcp serving reports apk_add_official_feed_only, and passes what it wrote as
+HERMES_OPENWRT_PACKAGES (granted or off). Granted, in the owner profile with a factor and the MCP
+connection there, the entry offers the model apk_add and the owner note says how to use it (a dry
+run first, then only official packages the owner asked for, never another feed). Otherwise apk_add
+is excluded like exec, so the model does not reach for a tool it would only be refused.
+
 @decided 2026-10-01 (the unlock plugin): in the owner profile the bridge also enables the
 plugin openwrt-unlock, which ships in the package's own site-packages and takes /unlock and
 /lock in Telegram (its own header says how). It adds the name to plugins.enabled, keeping
@@ -119,6 +128,12 @@ OWNER_NOTE_LOCKED = ("A change is refused until the owner has unlocked it. When 
                      "replaced by a notice that it was removed, the unlock is not something you "
                      "can see or finish. Answer what you were doing, then ask them to send "
                      "/unlock again in the private chat.")
+# Only when the package policy is granted (HERMES_OPENWRT_PACKAGES=granted, see the docstring).
+OWNER_NOTE_PACKAGES = (" You may install packages with apk_add, from the official OpenWrt feed "
+                       "only: install only packages the owner asked for, run apk_add with dry_run "
+                       "first and tell the owner what it would install and how much space that "
+                       "takes, and never suggest enabling another feed or installing from anywhere "
+                       "else.")
 OWNER_NOTE_NO_FACTOR = ("No second factor is set up on this router, so every change is refused. "
                         "When a change is refused, tell the owner that a factor has to be set up "
                         "in LuCI (Services -> Hermes Agent -> Security) first, and do not look for "
@@ -126,14 +141,18 @@ OWNER_NOTE_NO_FACTOR = ("No second factor is set up on this router, so every cha
                         "in a message.")
 
 FACTORS = ("none", "pin", "totp", "pin+totp")
+# What the init passes as HERMES_OPENWRT_PACKAGES: whether it wrote the package policy.
+PACKAGE_GRANTS = ("off", "granted")
 
 
-def _note_for(profile, factor: str):
+def _note_for(profile, factor: str, packages: bool = False):
     """The note a profile puts in agent.system_prompt, or None when it puts none."""
     if profile == "assistant":
         text = ASSISTANT_NOTE
     elif profile == "owner":
         text = OWNER_NOTE + (OWNER_NOTE_NO_FACTOR if factor == "none" else OWNER_NOTE_LOCKED)
+        if packages:
+            text += OWNER_NOTE_PACKAGES
     else:
         return None
     opening, closing = _markers(profile)
@@ -220,6 +239,9 @@ UNLOCK_MARKER = "_openwrt_unlock_managed"
 MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")
 # What 0.21.5-r3 to r9 hid, so an entry those releases wrote, pasted back by hand, is still ours.
 MCP_HIDDEN_R9 = ("mfa_unlock", "mfa_lock")
+# openwrt-mcp's package install, hidden as well unless the package policy is granted (0.21.5-r13).
+# Granted, it is the one tool beyond the read and change tools the model is offered for it.
+PACKAGE_TOOLS = ("apk_add",)
 
 # Upstream's tools/tool_search.py defers every MCP tool behind a search tool by default
 # (tools.tool_search.enabled "auto"), and on routers on 2026-10-08 the models never searched:
@@ -303,6 +325,16 @@ def main() -> int:
         import yaml
         from toolsets import TOOLSETS, validate_toolset
 
+        # apk_add for the model only when the init wrote the package policy, in the owner profile,
+        # with a factor and the MCP connection there; anything else keeps it hidden. A value the
+        # init never passes refuses, like a factor that is none of them.
+        packages = os.environ.get("HERMES_OPENWRT_PACKAGES", "off")
+        if packages not in PACKAGE_GRANTS:
+            raise ValueError("HERMES_OPENWRT_PACKAGES must be off or granted")
+        packages_on = (packages == "granted" and profile == "owner"
+                       and os.environ.get("HERMES_OPENWRT_FACTOR", "none") != "none"
+                       and len(sys.argv) >= 4 and bool(sys.argv[3]))
+
         wanted = list(dict.fromkeys(t.strip() for t in raw.split(",") if t.strip()))
         if any(not validate_toolset(t) and t != "no_mcp" for t in wanted):
             raise ValueError("unknown toolset; check the configured tool names")
@@ -342,15 +374,21 @@ def main() -> int:
                 if not isinstance(servers, dict):
                     raise TypeError("mcp_servers must be a mapping")
                 headers = {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}
-                expected = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN)}}
+                hidden = MCP_HIDDEN if packages_on else MCP_HIDDEN + PACKAGE_TOOLS
+                expected = {"url": url, "headers": headers, "tools": {"exclude": list(hidden)}}
                 # The entry as releases before the unlock wrote it, without the tools key.
                 earlier = {"url": url, "headers": headers}
+                # The entry as r10 to r12 wrote it, and as r13 does with apk_add granted or not:
+                # which of those two is right changes with the owner's setting, and both are ours.
+                current = [{"url": url, "headers": headers, "tools": {"exclude": list(h)}}
+                           for h in (MCP_HIDDEN, MCP_HIDDEN + PACKAGE_TOOLS)]
                 # The entry as 0.21.5-r3 to r9 wrote it, hiding the unlock tools only.
                 earlier_r9 = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN_R9)}}
                 # An operator may already have pasted in exactly this entry by hand,
                 # e.g. from an earlier manual setup. Adopt it rather than refuse: only
                 # a DIFFERENT entry is a real collision. The earlier shapes are ours too.
                 if ("openwrt" in servers and not owned and servers["openwrt"] not in (expected, earlier)
+                        and servers["openwrt"] not in current
                         and servers["openwrt"] != earlier_r9):
                     raise ValueError("mcp_servers.openwrt is operator-owned; rename it before enabling UCI MCP")
                 servers["openwrt"] = expected
@@ -520,7 +558,7 @@ def main() -> int:
             factor = os.environ.get("HERMES_OPENWRT_FACTOR", "none")
             if factor not in FACTORS:
                 raise ValueError("HERMES_OPENWRT_FACTOR must be none, pin, totp or pin+totp")
-            note = _note_for(profile, factor)
+            note = _note_for(profile, factor, packages_on)
             agent_cfg = config.get("agent")
             if agent_cfg is None and note:
                 agent_cfg = config["agent"] = {}

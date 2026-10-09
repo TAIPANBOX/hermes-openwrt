@@ -75,6 +75,19 @@
 #                        link, or run a sysupgrade. The scenario after "No tool that answers with a
 #                        private key" is that scope; a reboot is left out too, since it cannot be
 #                        rolled back (a conservative reading, not part of the decision).
+#   @decided 2026-10-08  The same decision, its other half: installing packages is allowed only from
+#                        the official OpenWrt feed, and only when the owner has opted in.
+#   @claude 2026-10-09   How (0.21.5-r13): the opt-in is hermes.security.packages=official, set on
+#                        the Security page (features/luci.feature). The init writes a package policy
+#                        (apk_add, asking the factor) only when the owner opted in, a factor is set,
+#                        and the openwrt-mcp serving reports apk_add_official_feed_only (0.5.0.4,
+#                        whose apk_add takes package names from the official feeds in distfeeds.list
+#                        and refuses a link, a path, a flag or a package file). The two scenarios
+#                        after "A daemon left running from before an upgrade gets no wide read" are
+#                        that; the conditions one by one are in features/runtime.feature. The second
+#                        runs offline against the real openwrt-mcp 0.5.0.4: apk_add updates its
+#                        index from the feed before any call, so what it proves needs none (the
+#                        policy decides first, then apk_add's own name rules, then apk).
 #
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
@@ -217,6 +230,28 @@ Feature: The agent changes the router only when its owner unlocks it
     Then the agent is granted the narrow reads only, and the start names the version that is running
     And with a daemon at the installed version the same start grants wireless and the whole of network
     # -> check_daemon_from_before_the_upgrade_gets_no_wide_reads
+
+  Scenario: A daemon left running from before an upgrade cannot install packages
+    Given the owner opted in to package installs from the official feed, with a PIN as the factor
+    And the installed openwrt-mcp says its apk_add installs official packages only
+    But the daemon still serving is an older version, and restarting it does not change that
+    When the service starts
+    Then no package policy is written, the agent is told packages are off, and the start names the version that is running
+    And with a daemon at the installed version the same start writes the package policy and tells the agent
+    # -> check_no_package_policy_from_a_daemon_from_before_the_upgrade
+
+  Scenario: The agent installs from the official feed only when the owner opted in and unlocked
+    Given the owner opted in to package installs from the official feed, with a PIN as the factor
+    And openwrt-mcp installs official packages only
+    When the agent asks for a package, even as a dry run, before the owner unlocks
+    Then it is refused for the second factor
+    When the owner unlocks
+    Then the call gets past the policy to the install tool's own rules, which refuse a version, a package file, an option or a tag, and nothing is installed
+    And a link is refused even then
+    And the model is offered the install tool
+    When the owner turns package installs off
+    Then there is no package policy, an install is refused after an unlock for want of one, and the model is not offered the tool
+    # -> check_package_install_needs_the_unlock
 
   # ---- The factors, each optional ----
 

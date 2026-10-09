@@ -43,7 +43,10 @@ set -eu
 # Also: a PIN saved on the Security page while the factor in force is none says, after the reload,
 # to choose PIN under "What unlocking asks for" and press Save there; a person set the PIN and
 # missed the factor's own Save.
-PKGREL=${PKGREL:-2}
+# 0.21.5-r3: the Security page has a switch, "Let the agent install packages from the official
+# OpenWrt feed" (hermes.security.packages), written by set_packages (write permission) and turned
+# on only with a factor in force; security_status reports what it is set to.
+PKGREL=${PKGREL:-3}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

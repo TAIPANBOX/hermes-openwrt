@@ -206,7 +206,10 @@ checks that the router still answers and confirms the change; one it does not co
 lost its connection, or the agent never got that far) is undone by itself after about 90 seconds,
 after a reboot too. In a window the agent can change settings, the VPN and services; it cannot run a command
 over ubus, write a file, flash a firmware or reboot, and openwrt-mcp refuses a setting that would
-run code (a firewall include). The agent reads the Wi-Fi and network settings too,
+run code (a firewall include). It installs no package unless you opt in on the Security page ("Let
+the agent install packages from the official OpenWrt feed", or `hermes.security.packages=official`);
+then only from the official OpenWrt feed, in a window, after a dry run it tells you about, and only
+with openwrt-mcp 0.5.0.4 or later. The agent reads the Wi-Fi and network settings too,
 so it can set up a guest network, but never a key in them: openwrt-mcp answers every Wi-Fi key,
 WireGuard private key and password as `<redacted>`, and the package grants those reads only when
 openwrt-mcp says it does that. Everything, with the limits named:

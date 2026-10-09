@@ -402,19 +402,21 @@ echo "PASS [15/16] check_gateway_keys_hidden_from_its_user (root reads the key, 
 # uci_get_redacts_credentials, and writes a change policy only when it reports
 # uci_apply_refuses_code_exec, which 0.5.0.3 is the first to do. The package depends on that
 # version or later, so an upgrade of hermes-agent cannot leave an older openwrt-mcp beside it.
+# Since r13 the floor is 0.5.0.4, whose status also reports apk_add_official_feed_only, which the
+# init asks for before it writes the owner's package policy.
 # What apk recorded is read two ways (its own listing, and its database), since either may change
 # its layout; python3 among them is what says the list was read at all.
 deps=$( { apk info -R hermes-agent 2>/dev/null; sed -n '/^P:hermes-agent$/,/^$/s/^D://p' /lib/apk/db/installed 2>/dev/null; } | tr ' ' '\n')
 echo "$deps" | grep -qx python3 \
 	|| fail "[16/16] check_needs_an_openwrt_mcp_that_redacts" "measured nothing: hermes-agent's dependencies could not be read"
-echo "$deps" | grep -qx 'openwrt-mcp>=0.5.0.3' \
-	|| fail "[16/16] check_needs_an_openwrt_mcp_that_redacts" "hermes-agent does not require openwrt-mcp 0.5.0.3 or later: $(echo "$deps" | grep openwrt-mcp | sort -u | tr '\n' ' ')"
-for k in uci_get_redacts_credentials uci_apply_refuses_code_exec; do
+echo "$deps" | grep -qx 'openwrt-mcp>=0.5.0.4' \
+	|| fail "[16/16] check_needs_an_openwrt_mcp_that_redacts" "hermes-agent does not require openwrt-mcp 0.5.0.4 or later: $(echo "$deps" | grep openwrt-mcp | sort -u | tr '\n' ' ')"
+for k in uci_get_redacts_credentials uci_apply_refuses_code_exec apk_add_official_feed_only; do
 	cap=$(openwrt-mcp status --json --audit 0 2>/dev/null | jsonfilter -e "@.capabilities.$k" 2>/dev/null || true)
 	[ "$cap" = true ] \
 		|| fail "[16/16] check_needs_an_openwrt_mcp_that_redacts" "the openwrt-mcp installed beside it does not report $k ('$cap')"
 done
-echo "PASS [16/16] check_needs_an_openwrt_mcp_that_redacts (openwrt-mcp>=0.5.0.3; $(apk info -e openwrt-mcp 2>/dev/null || echo openwrt-mcp) reports both capabilities)"
+echo "PASS [16/16] check_needs_an_openwrt_mcp_that_redacts (openwrt-mcp>=0.5.0.4; $(apk info -e openwrt-mcp 2>/dev/null || echo openwrt-mcp) reports all three capabilities)"
 CONTAINER
 
 echo "gate-package: all 16 checks passed"

@@ -46,10 +46,11 @@
 #                                   (teeth-unlock.sh plants its faults this way)
 #   NOT_BUILT="check_x"             names run as "not built yet": NOT IMPLEMENTED, red (teeth-unlock
 #                                   uses this to prove that a scenario with no check cannot pass)
+
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -992,6 +993,119 @@ check_daemon_from_before_the_upgrade_gets_no_wide_reads() {
 	standin_stop
 	wide_scopes | grep -qx wireless || fail "a daemon at the installed $ver did not get the wide grant either, so the refusal above proves nothing: $(read_uci_scopes | tr '\n' ' ')"
 	pass "0.5.0 still serving beside an installed $ver: the narrow grants, and the start says which daemon runs; at $ver the wide grant"
+}
+
+# ---- 0.21.5-r13: package installs from the official feed, the owner's opt-in ----
+
+# openwrt-mcp's status, with the capability the package policy needs added and, optionally, others
+# taken away: a stand-in for an openwrt-mcp that has apk_add, in front of the installed binary (the
+# runner's recorders_off puts the real one back after every check).
+#   apk_standin [capability to drop ...]
+apk_standin() {
+	[ -f /usr/bin/openwrt-mcp.real ] || mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.real
+	cat > /usr/bin/openwrt-mcp <<EOF
+#!/bin/sh
+if [ "\$1" = status ]; then
+	/usr/bin/openwrt-mcp.real "\$@" | python3 -c 'import json, sys; d = json.load(sys.stdin); c = d.setdefault("capabilities", {}); c["apk_add_official_feed_only"] = True; [c.pop(k, None) for k in sys.argv[1:]]; json.dump(d, sys.stdout)' $*
+	exit
+fi
+exec /usr/bin/openwrt-mcp.real "\$@"
+EOF
+	chmod 755 /usr/bin/openwrt-mcp
+}
+
+# apk replaces openwrt-mcp's binary without restarting its daemon, so the one serving can be from
+# before apk_add. Its word that apk_add installs official packages only is not taken from the
+# installed binary while another daemon answers: the same /health discipline as the wide reads,
+# with apk_add the only capability the stand-in reports, so nothing else sends the init to /health.
+check_no_package_policy_from_a_daemon_from_before_the_upgrade() {
+	reset; configure - pin
+	uci set hermes.security.packages=official; uci commit hermes
+	ver=$(mcp_status version)
+	[ -n "$ver" ] && [ "$ver" != 0.5.0 ] || fail "measured nothing: the installed openwrt-mcp is '$ver'"
+	apk_standin uci_get_redacts_credentials uci_apply_refuses_code_exec
+	[ "$(mcp_status capabilities.apk_add_official_feed_only)" = true ] || fail "measured nothing: the stand-in does not report apk_add_official_feed_only"
+	[ -z "$(mcp_status capabilities.uci_apply_refuses_code_exec)$(mcp_status capabilities.uci_get_redacts_credentials)" ] \
+		|| fail "measured nothing: the stand-in still reports another capability, which alone would send the init to /health"
+	health_standin 0.5.0
+	[ "$(mcp_status running)" = true ] || { standin_stop; fail "measured nothing: openwrt-mcp status does not see the stand-in as a running daemon"; }
+	started
+	standin_stop
+	uci -q get openwrt-mcp.hermes_main_packages >/dev/null && fail "a package policy was written while an openwrt-mcp 0.5.0 was the one serving: $(uci -q show openwrt-mcp.hermes_main_packages | tr '\n' ' ')"
+	grep -q '^HERMES_OPENWRT_PACKAGES=off$' /tmp/envv || fail "the gateway is not told packages are off: $(grep PACKAGES /tmp/envv)"
+	grep -q "the openwrt-mcp running is 0.5.0, not the installed $ver" /tmp/start.log || { cat /tmp/start.log; fail "the start did not say which daemon was running"; }
+	n=$(grep -c 'apk_add' /tmp/start.log)
+	[ "$n" = 0 ] || { cat /tmp/start.log; fail "beside the line naming the daemon, the start said $n more about apk_add"; }
+	# Not vacuous: a daemon at the installed version, on the same address, gets the package policy.
+	health_standin "$ver"
+	started
+	standin_stop
+	[ "$(uci -q get openwrt-mcp.hermes_main_packages.tools)" = apk_add ] || { cat /tmp/start.log; fail "a daemon at the installed $ver did not get the package policy either, so the refusal above proves nothing"; }
+	grep -q '^HERMES_OPENWRT_PACKAGES=granted$' /tmp/envv || fail "the policy was written and the gateway not told: $(grep PACKAGES /tmp/envv)"
+	pass "opted in, factor pin, apk_add reported: no package policy while 0.5.0 served, said in one line; at $ver the policy and HERMES_OPENWRT_PACKAGES=granted"
+}
+
+# What the real apk_add does in the owner's opt-in, against the installed openwrt-mcp (0.5.0.4 on).
+#
+# Deterministic in CI, and why it never reaches the feed: apk_add runs `apk update` against the
+# official feeds before every call, a dry run included, and this gate runs with the network down.
+# What is proven needs no download, because openwrt-mcp decides in a fixed order: the policy (is
+# apk_add granted for every package name named, with the window open when the policy asks for
+# one), then apk_add's own name rules, then apk. So a call the policy stops answers "requires a
+# second factor" or "no policy grants apk_add" whatever the name; a call the policy lets through
+# with a name apk_add's rules refuse (a version, a file, an option, a tag, none with a '/' so the
+# '*' scope covers it) answers with apk_add's own "refused: ... Nothing was installed", which is the
+# proof it got past the policy, and nothing runs. A real dry run or install, which needs the feed,
+# is not run here (openwrt-mcp's own tests hold its argv; see the package's docs for what is
+# measured where).
+PKG=wireguard-tools
+DRY="{\"packages\":[\"$PKG\"],\"dry_run\":true}"
+check_package_install_needs_the_unlock() {
+	reset; configure - pin
+	[ "$(mcp_status capabilities.apk_add_official_feed_only)" = true ] \
+		|| fail "the installed openwrt-mcp $(mcp_status version) does not report apk_add_official_feed_only, so this measured nothing; build it from the commit CI pins"
+	uci set hermes.security.packages=official; uci commit hermes
+	started
+	[ "$(uci -q get openwrt-mcp.hermes_main_packages.tools)" = apk_add ] || { cat /tmp/start.log; fail "opted in with a factor and an openwrt-mcp that has apk_add, and no package policy was written"; }
+	grep -q '^HERMES_OPENWRT_PACKAGES=granted$' /tmp/envv || fail "the gateway is not told apk_add is granted"
+	set_pin hermes-main 4821
+	daemon_start
+	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
+	# Locked: refused for the second factor, a dry run included, before apk_add looks at anything.
+	if out=$(mcp "$TOKEN" apk_add "$DRY"); then fail "apk_add answered with no unlock: $out"; fi
+	echo "$out" | grep -q 'second factor' || fail "apk_add was refused, but not for the second factor: $out"
+	if out=$(mcp "$TOKEN" apk_add '{"packages":["wireguard-tools=1.0"],"dry_run":true}'); then fail "apk_add answered with no unlock: $out"; fi
+	echo "$out" | grep -q 'second factor' || fail "with no unlock a malformed name reached apk_add's own rules: $out"
+	# Unlocked: the policy lets apk_add through, and apk_add's own rules refuse what is not a plain
+	# package name, saying nothing was installed.
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	for bad in 'wireguard-tools=1.0' 'x.apk' '--allow-untrusted' 'wireguard-tools@custom'; do
+		if out=$(mcp "$TOKEN" apk_add "{\"packages\":[\"$bad\"],\"dry_run\":true}"); then fail "apk_add took '$bad' in an open window: $out"; fi
+		echo "$out" | grep -q 'Nothing was installed' || fail "in an open window '$bad' was refused, but not by apk_add's own rules (the policy stopped it, or something else did): $out"
+		echo "$out" | grep -qE 'second factor|no policy' && fail "in an open window '$bad' was refused by the policy: $out"
+	done
+	# A link carries a '/', which no package name has and the '*' scope does not cover: refused too.
+	if out=$(mcp "$TOKEN" apk_add '{"packages":["https://example.invalid/x.apk"],"dry_run":true}'); then fail "apk_add took a link in an open window: $out"; fi
+	apk info -e "$PKG" >/dev/null 2>&1 && fail "$PKG is installed after only refusals"
+	# The model is offered apk_add, through upstream's own registry.
+	probe_tools
+	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
+	grep -q 'mcp__openwrt__apk_add' /tmp/probe.out || fail "granted, and the model is not offered apk_add: $(cat /tmp/probe.out)"
+	# Off: no policy, refused after an unlock for want of one, and hidden from the model.
+	daemon_stop
+	uci set hermes.security.packages=off; uci commit hermes
+	started
+	uci -q get openwrt-mcp.hermes_main_packages >/dev/null && fail "packages off and the package policy is still there"
+	grep -q '^HERMES_OPENWRT_PACKAGES=off$' /tmp/envv || fail "packages off and the gateway is not told so"
+	daemon_start
+	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock with packages off"
+	if out=$(mcp "$TOKEN" apk_add "$DRY"); then fail "apk_add answered with packages off: $out"; fi
+	echo "$out" | grep -q 'no policy grants apk_add' || fail "with packages off apk_add was refused, but not for want of a policy: $out"
+	probe_tools
+	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed with packages off"; }
+	grep -q 'mcp__openwrt__uci_get' /tmp/probe.out || fail "with packages off upstream offers no openwrt tools at all, so the absence below proves nothing"
+	grep -q 'mcp__openwrt__apk_add' /tmp/probe.out && fail "packages off and the model is offered apk_add"
+	pass "opted in with a factor: apk_add refused for the factor while locked; in an open window past the policy to apk_add's own rules (a version, a file, an option, a tag refused, a link refused), nothing installed; offered to the model; off: no policy, refused after an unlock, hidden"
 }
 
 # ======================================================= the Hermes side: the real gateway

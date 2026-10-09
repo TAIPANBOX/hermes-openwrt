@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (fifty-four in all, over forty-one checks). Each is a change a
+# or have several ways to go wrong (fifty-seven in all, over forty-three checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -143,7 +143,7 @@ expect_red "no factor written as a PIN" check_no_factor_means_no_changes
 
 # ---- 9. the unlock tools offered to the model ----
 plant usr/libexec/hermes-set-toolsets \
-	'expected = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN)}}' \
+	'expected = {"url": url, "headers": headers, "tools": {"exclude": list(hidden)}}' \
 	'expected = {"url": url, "headers": headers}'
 expect_red "mfa_unlock and mfa_lock not excluded" check_unlock_tools_hidden_from_model
 
@@ -412,6 +412,24 @@ expect_red "hermes among the window's configs" check_window_cannot_reach_the_age
 plant "$INIT" "MCP_CHANGE_UCI='network " "MCP_CHANGE_UCI='openwrt-mcp openwrt-mcp.* network "
 expect_red "openwrt-mcp among the window's configs" check_window_cannot_reach_the_agents_own_config
 
+# ---- r13: package installs from the official feed, the owner's opt-in ----
+
+# ---- 55. the daemon that is running not asked about apk_add ----
+# The installed binary's word taken for the daemon's when apk_add is the only capability it reports:
+# a daemon from before the upgrade, which has no official-feed check, would then serve the policy.
+plant "$INIT" '|| [ "$noexec" = true ] || [ "$apk" = true ]; }; then' '|| [ "$noexec" = true ]; }; then'
+expect_red "a daemon from before the upgrade not asked before a package policy" check_no_package_policy_from_a_daemon_from_before_the_upgrade
+
+# ---- 56. a package policy that asks for no factor ----
+# Present, granting apk_add, and never consulting the factor: installs with no unlock.
+plant "$INIT" "\nadd_list openwrt-mcp.%spackages.mfa_tools='*'\n\" \"\$prefix\" \"\$prefix\"" "\n\" \"\$prefix\""
+expect_red "the package policy without mfa_tools" check_package_install_needs_the_unlock
+
+# ---- 57. apk_add kept from the model though granted ----
+# The owner opted in and the agent cannot see the tool, so it tells the owner it cannot install.
+plant usr/libexec/hermes-set-toolsets 'hidden = MCP_HIDDEN if packages_on else MCP_HIDDEN + PACKAGE_TOOLS' 'hidden = MCP_HIDDEN + PACKAGE_TOOLS'
+expect_red "apk_add hidden though granted" check_package_install_needs_the_unlock
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -446,6 +464,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 54 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 54 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 57 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 57 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 54 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 57 faults (shard $SHARD), $N distinct checks, controls green"

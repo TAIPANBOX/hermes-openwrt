@@ -25,7 +25,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_packages_written_only_with_a_factor check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -481,10 +481,10 @@ want() { # <json> <path> <value>
 st=$(sec_get) || sf "the call failed"
 want "$st" profile owner; want "$st" applies true; want "$st" mcp_ok true; want "$st" paired true
 want "$st" factor none; want "$st" factor_ready true; want "$st" window 15m; want "$st" max_failures 5; want "$st" lockout 15m
-want "$st" pin_set false; want "$st" totp_enrolled false; want "$st" totp_pending false
+want "$st" pin_set false; want "$st" totp_enrolled false; want "$st" totp_pending false; want "$st" packages off
 # Exactly these facts and no other key: a debugging field added later is the way a secret gets in.
 keys_of() { ( set +u; . /usr/share/libubox/jshn.sh; json_load "$1"; json_get_keys k; echo "$k" | tr ' ' '\n' | sort | tr '\n' ' ' ); }
-[ "$(keys_of "$st")" = "applies factor factor_ready lockout max_failures mcp_ok paired pin_set profile totp_enrolled totp_pending window " ] \
+[ "$(keys_of "$st")" = "applies factor factor_ready lockout max_failures mcp_ok packages paired pin_set profile totp_enrolled totp_pending window " ] \
 	|| sf "the reply carries other keys than the facts: $(keys_of "$st")"
 # It follows what openwrt-mcp holds.
 SECRETPIN=73195028
@@ -692,6 +692,57 @@ rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev
 uci set hermes.security.factor=none; uci set hermes.security.window=15m; uci commit hermes
 echo "PASS check_security_factor_announced_when_reload_cannot_tell"
 
+# ---- 18c. the owner's opt-in to package installs: official only with a factor, nothing else ----
+# hermes.security.packages is off unless the owner turns it on, and official (the official OpenWrt
+# feed) is the only other value. An install waits for an unlock like any change, so official is
+# refused while no factor is in force: the agent's start would write no package policy, and the
+# switch would promise what nothing honours. Off is always allowed. It is written the way set_factor
+# writes, without another LuCI session's staged changes, and procd is told once.
+pk() { fail check_security_packages_written_only_with_a_factor "$1"; }
+$MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || pk "could not pair"
+printf '%s\n' 4821 | $MCP pin set hermes-main >/dev/null || pk "could not set a PIN"
+uci set hermes.main.profile=owner; uci set hermes.security.factor=none; uci -q delete hermes.security.packages; uci commit hermes
+service_standin check_security_packages_written_only_with_a_factor
+sp_call() { ubus call hermes set_packages "{\"packages\":\"$1\"}" 2>&1; }
+pkg_state() { ubus call hermes security_status 2>/dev/null | jsonfilter -e '@.packages'; }
+[ "$(pkg_state)" = off ] || pk "with nothing set security_status reads packages '$(pkg_state)', not off"
+before=$(md5sum < /etc/config/hermes)
+out=$(sp_call official); echo "$out" | grep -q '"ok": false' || { echo "$out"; pk "official was accepted with no factor in force"; }
+echo "$out" | grep -qi 'factor' || pk "the refusal of official with no factor does not name the factor: $out"
+for v in yes on all Official '' '$(id)' 'official;reboot' 'official --allow-untrusted'; do
+	out=$(sp_call "$v"); echo "$out" | grep -q '"ok": false' || { echo "$out"; pk "packages '$v' was accepted"; }
+done
+sleep 1
+[ "$(md5sum < /etc/config/hermes)" = "$before" ] || pk "a refused set_packages changed /etc/config/hermes"
+[ "$(hermes_events)" = 0 ] || pk "a refused set_packages told procd the config changed"
+[ -z "$(uci -q get hermes.security.packages)" ] || pk "after only refusals packages is $(uci -q get hermes.security.packages)"
+# With a factor in force: official is written, committed and announced once.
+uci set hermes.security.factor=pin; uci commit hermes
+rm -f /tmp/service-events
+out=$(sp_call official); echo "$out" | grep -q '"ok": true' || { echo "$out"; pk "official was refused with the factor pin in force"; }
+[ "$(uci -q get hermes.security.packages)" = official ] || pk "official was answered ok and not written"
+grep -q "option packages 'official'" /etc/config/hermes || pk "official was not committed to /etc/config/hermes"
+[ "$(uci -q get hermes.security.factor)" = pin ] || pk "writing packages changed the factor to $(uci -q get hermes.security.factor)"
+i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+sleep 1; [ "$(hermes_events)" = 1 ] || pk "one switch told procd $(hermes_events) times that hermes changed, not once"
+[ "$(pkg_state)" = official ] || pk "security_status reads '$(pkg_state)' after official was written"
+# Another page's staged edits are not committed along with this one, and off is always allowed.
+uci set hermes.main.max_turns=33
+out=$(sp_call off); echo "$out" | grep -q '"ok": true' || { echo "$out"; pk "off was refused"; }
+grep -q "max_turns '33'" /etc/config/hermes && pk "set_packages committed another page's staged change (max_turns 33) with its own"
+[ -n "$(uci changes hermes)" ] || pk "set_packages swallowed another page's staged change instead of leaving it staged"
+uci revert hermes
+[ "$(uci -q get hermes.security.packages)" = off ] || pk "off was answered ok and not written"
+uci set hermes.security.factor=none; uci commit hermes
+out=$(sp_call off); echo "$out" | grep -q '"ok": true' || { echo "$out"; pk "off was refused with no factor in force"; }
+# A value the service would refuse to start on is shown as one, never as off or official.
+uci set hermes.security.packages=bogus; uci commit hermes
+[ "$(pkg_state)" = invalid ] || pk "an unknown packages value reads '$(pkg_state)', not invalid"
+service_standin_gone
+rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
+uci -q delete hermes.security.packages; uci set hermes.security.factor=none; uci commit hermes
+echo "PASS check_security_packages_written_only_with_a_factor"
+
 # ---- 19. outside the owner profile the Security calls refuse ----
 # The page says it offers nothing there, and that is the page. The backend is what a script, an
 # old tab or a hand-made request reaches, and in the root and assistant profiles the agent has no
@@ -702,7 +753,7 @@ service_standin check_security_refused_outside_the_owner_profile
 for prof in root admin assistant nonsense; do
 	uci set hermes.main.profile=$prof; uci commit hermes
 	before=$(md5sum /etc/config/hermes | cut -d' ' -f1)
-	for call in 'set_pin {"pin":"4821","again":"4821"}' 'clear_pin' 'enrol_start' 'enrol_activate {"code":"123456"}' 'set_factor {"factor":"none","window":"15m","max_failures":5,"lockout":"15m"}'; do
+	for call in 'set_pin {"pin":"4821","again":"4821"}' 'clear_pin' 'enrol_start' 'enrol_activate {"code":"123456"}' 'set_factor {"factor":"none","window":"15m","max_failures":5,"lockout":"15m"}' 'set_packages {"packages":"off"}'; do
 		m=${call%% *}; a=; [ "$m" = "$call" ] || a=${call#* }
 		if [ -n "$a" ]; then out=$(ubus call hermes "$m" "$a" 2>&1); else out=$(ubus call hermes "$m" 2>&1); fi
 		echo "$out" | grep -q '"ok": false' || { echo "$out" | head -c 300; po "$m was not refused in the $prof profile"; }
@@ -754,7 +805,7 @@ for m in $page_methods; do
 		*) [ "$inw" = 1 ] || ag "$m is not in the write block"; [ "$inr" = 0 ] || ag "$m, which writes a secret or returns enrolment material, is in the read block" ;;
 	esac
 done
-for m in set_pin clear_pin enrol_start enrol_activate set_factor; do
+for m in set_pin clear_pin enrol_start enrol_activate set_factor set_packages; do
 	case " $page_methods " in *" $m "*) ;; *) ag "the page does not call $m" ;; esac
 done
 echo "PASS check_security_page_calls_are_granted ($(echo $page_methods | wc -w | tr -d ' ') calls read off the page)"
@@ -777,7 +828,7 @@ CONTAINER
 # (LuCI then does not reload), and an old message is not shown.
 echo "-- the views, on the installed files --"
 docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
-	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

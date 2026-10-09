@@ -135,14 +135,14 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.3 since
-0.21.5-r11 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.4 since
+0.21.5-r13 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
 commit is the one in `.github/workflows/ci.yml`). Upstream has the code factor and its
 enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the
-two-step enrolment, the redaction of every `uci_get` answer and the refusal of every `uci_apply`
-that would run code are the fork's, and its README documents them. `hermes-agent` depends on
-`openwrt-mcp>=0.5.0.3`, the first version that does both, so an upgrade of the agent cannot
-leave an older one beside it.
+two-step enrolment, the redaction of every `uci_get` answer, the refusal of every `uci_apply`
+that would run code and `apk_add` from the official feeds only are the fork's, and its README
+documents them. `hermes-agent` depends on `openwrt-mcp>=0.5.0.4`, the first version that does all
+three, so an upgrade of the agent cannot leave an older one beside it.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -203,7 +203,8 @@ window the agent can stop or disable the firewall, `dropbear` or openwrt-mcp its
 weakens the router or locks a way in without giving the agent anything new (restarting
 `hermes-agent` is harmless, its configuration being out of reach); and a policy you grant `hermes-main`
 yourself, `exec` included, is your own choice, which the package does not undo. Every call is in
-openwrt-mcp's audit log. Installing packages is not possible from a window at all. What the
+openwrt-mcp's audit log. Installing packages from a window is possible only when you opt in, and
+then only from the official OpenWrt feed ([Package installs, your opt-in](#package-installs-your-opt-in)). What the
 unlock protects against is the time outside the window: an agent misled by a web page, or anyone
 who gets the bot to talk, cannot change the router without you.
 
@@ -307,6 +308,9 @@ added, the window, the failure limit and the lockout) and does three things:
   enrolled phone (one still being added does not count), and both need both. That is what keeps
   you from choosing something no unlock could satisfy. Saving writes `hermes.security` and asks
   procd to reload, which restarts the agent, which writes openwrt-mcp's change policy from it.
+- **Package installs**, a switch, "Let the agent install packages from the official OpenWrt
+  feed", off unless you turn it on. It can be turned on only while a factor is in force, and
+  turned off at any time. What it does is the next section.
 
 The window that is open right now cannot be shown: openwrt-mcp keeps it in memory and a separate
 process cannot see it. `/lock` in the Telegram chat closes it.
@@ -351,6 +355,58 @@ What this does not do, named:
 - A wrong code at activation is not counted or limited. It is six digits, from a session that is
   already signed in to LuCI.
 - The page shows what is in force, and an unlock window is not part of that, as above.
+
+### Package installs, your opt-in
+
+Off unless you turn it on. Turned on, the agent may install a package you ask for, from the
+official OpenWrt feed only, while you have changes unlocked. Turn it on in LuCI (the switch above)
+or over SSH:
+
+```sh
+uci set hermes.security.packages=official    # off (the default) or official
+uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+Any other value stops the agent from starting, and the log says which values it takes.
+
+At every start the package writes a package policy for `hermes-main` into openwrt-mcp's
+configuration (`hermes_main_packages`, the one tool `apk_add`) only when all of these hold, and
+otherwise none, with one line in the log saying which is missing:
+
+- the setting is `official`;
+- a factor is in force: the policy asks for it, with the same window, wrong tries and lockout as
+  the change policies, so an install, a dry run included, waits for your `/unlock`;
+- the openwrt-mcp serving says, in `openwrt-mcp status --json`, that its `apk_add` installs from
+  the official feed only (`capabilities.apk_add_official_feed_only`, from 0.5.0.4), and, as for
+  the reads above, the daemon running is the installed version, not one left from before an upgrade.
+
+What `apk_add` itself does is openwrt-mcp's (0.5.0.4, which `hermes-agent` depends on): it takes
+1 to 20 package names, refuses a link, a path, an option, an `.apk` file, a version or a tag, and
+installs only from the lines of `/etc/apk/repositories.d/distfeeds.list` that are feeds on
+downloads.openwrt.org, never another feed, with signatures checked. It has a dry run, which says
+what would be installed or changed and installs nothing.
+
+The agent sees `apk_add` only when that policy was written. Then its instructions say to install
+only packages you asked for, to run the dry run first and tell you what would be installed and how
+much space it takes, and never to suggest enabling another feed or installing from anywhere else.
+When the policy is not there, the tool is kept from the model like `exec`, so it does not reach
+for something that would only be refused, and it tells you it cannot install packages. A scheduled
+job cannot install anything, a window open or not, as it cannot change anything else.
+
+What this does not do, named:
+
+- It does not check what a package does. A package from the official feed can add a service, open
+  a port or change a setting when it installs; you decide which packages you ask for.
+- An install has no rollback. `uci_apply`'s automatic undo is for settings; a package stays
+  installed until it is removed (`apk del <name>`, by you).
+- Which feeds count as official is openwrt-mcp's decision, made from `distfeeds.list`; this
+  package does not check the feed addresses itself.
+- apk pulls in dependencies and may upgrade an installed library a new package needs; the dry run
+  lists every package that would be installed or changed.
+- Only downloads.openwrt.org's feeds are used, so a router whose `distfeeds.list` points at a
+  mirror or at archive.openwrt.org has no feed apk_add will use, and every install is refused.
+- No install and no dry run is run by this repository's checks: `apk_add` updates its index from
+  the feed before every call, and the gates run offline. They prove the policy and the refusals.
 
 ### Unlocking from Telegram
 

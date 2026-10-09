@@ -147,7 +147,16 @@ esac
 # bridge now also writes the note into platform_hints.cron, upstream's own addition to the system
 # prompt of the agent whose platform is cron, which the gateway never reads, so a chat still gets
 # the note once. The operator's own text there is kept, and root takes the note out again.
-PKGREL=${PKGREL:-12}
+#
+# 0.21.5-r13: the owner may let the agent install packages from the official OpenWrt feed, an opt-in
+# (hermes.security.packages=official, off unless set; any other value refuses the start). The init
+# writes a package policy, apk_add asking the same factor as the change policies, only when the
+# owner opted in, a factor is set, and the openwrt-mcp serving reports apk_add_official_feed_only
+# (0.5.0.4, whose apk_add installs from the official feeds in distfeeds.list only and refuses a
+# link, a path, a flag or a package file); one line in the log says why when an opt-in cannot be
+# honoured. The gateway is told what was written (HERMES_OPENWRT_PACKAGES), and the model is offered
+# apk_add, with a sentence in the owner note on how to use it, only then; otherwise it is hidden.
+PKGREL=${PKGREL:-13}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -161,10 +170,12 @@ PKGREL=${PKGREL:-12}
 # carries it beside this package. Its floor, 0.5.0.3 (r11), is the first version whose uci_get
 # redacts every secret option and whose uci_apply refuses every change that runs code, and says
 # both in `status`; the init grants the wide reads and writes a change policy only on those
-# words, and the floor keeps an upgrade from leaving an older one in place.
+# words, and the floor keeps an upgrade from leaving an older one in place. Since r13 the floor is
+# 0.5.0.4, the first whose apk_add installs from the official feeds only and says so in `status`
+# (apk_add_official_feed_only), which the init asks for before it writes the package policy.
 #
 # iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above).
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.3 iputils-ping"
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 iputils-ping"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

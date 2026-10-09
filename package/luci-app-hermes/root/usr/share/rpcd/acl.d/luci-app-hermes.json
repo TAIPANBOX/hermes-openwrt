@@ -9,9 +9,9 @@
 			"uci": [ "hermes" ]
 		},
 		"write": {
-			"comment": "set_secret writes a key into a root-only file; there is no matching read, by design. set_pin and enrol_start take a PIN and return a phone's secret and QR, once, to the call that asked; they are write-only for the same reason",
+			"comment": "set_secret writes a key into a root-only file; there is no matching read, by design. set_pin and enrol_start take a PIN and return a phone's secret and QR, once, to the call that asked; they are write-only for the same reason. set_packages and set_factor change what the agent may do",
 			"ubus": {
-				"hermes": [ "set_secret", "chatgpt_login", "chatgpt_login_status", "chatgpt_logout",
+				"hermes": [ "set_secret", "chatgpt_login", "chatgpt_login_status", "chatgpt_logout", "set_packages",
 				            "set_pin", "clear_pin", "enrol_start", "enrol_activate", "set_factor" ],
 				"luci": [ "setInitAction" ]
 			},

@@ -124,8 +124,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     facts only (the profile, the factor in force and its window, failure limit and lockout,
     whether a PIN is set, whether a phone is enrolled or being added, and whether openwrt-mcp
     answers and has the agent's client), never a PIN, a phone's secret, an otpauth address or
-    a QR, and exactly those keys; set_pin, clear_pin, enrol_start, enrol_activate and
-    set_factor are write permission alone, since enrol_start returns the QR once to the call
+    a QR, and exactly those keys (`@claude` 2026-10-09, LuCI 0.21.5-r3: and `packages`, the
+    package opt-in as set, `off`, `official` or `invalid`); set_pin, clear_pin, enrol_start,
+    enrol_activate, set_factor and, since LuCI r3, set_packages are write permission alone, since enrol_start returns the QR once to the call
     that asked and set_pin takes a PIN. Nothing the caller sends reaches a shell and no
     secret reaches a program's arguments or environment: the backend reads the message from
     a pipe with jsonfilter and exports nothing, never jshn's json_load (which puts the whole
@@ -138,7 +139,11 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     totp an active phone, pin+totp both; a phone still being added does not count), refuses a
     window or lockout the init would refuse, and commits `hermes.security` without another
     LuCI session's staged changes; clear_pin refuses while the factor in force asks for the
-    PIN. The page offers what the backend would accept and nothing otherwise, never fills a
+    PIN. set_packages takes `off` at any time and `official` only while the factor in force is
+    pin, totp or pin+totp, refuses any other value, and writes and announces the way set_factor
+    does (gate: `scripts/gate-luci.sh` `check_security_packages_written_only_with_a_factor`, and the
+    page's switch `check_security_packages_switch_needs_a_factor` in `scripts/test-luci-views.mjs`;
+    teeth: `scripts/teeth-luci.sh` faults 37 to 42). The page offers what the backend would accept and nothing otherwise, never fills a
     PIN field, and shows a phone's QR and secret once, taking them off the page when the
     phone is activated, when the page is left or on Cancel. `set_secret` writes only its fixed slot under
     `/etc/hermes-agent`, refuses when UCI points the service at another file, and reports
@@ -383,10 +388,51 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     agent may change settings, the VPN and services, each with automatic rollback. It may never
     run arbitrary commands, install anything from a link, or run a sysupgrade. Installing
     packages is allowed only from the official OpenWrt feed, and only when the owner has opted in.
-    `@claude` 2026-10-08: the package-install part is NOT implemented: there is no install
-    policy, no feed check and no opt-in yet, so no package can be installed from a window at all;
-    it is planned work. The rest of the scope holds as the r11 note above says, gated, within the
-    limits it names. Only `uci_apply` has the
+    `@claude` 2026-10-09, 0.21.5-r13 and LuCI 0.21.5-r3, replacing the 2026-10-08 note that the
+    package-install part was not implemented: the opt-in is `hermes.security.packages`, `off`
+    unless set (the shipped config says `off`) or `official`; any other value refuses the start in
+    the owner profile, naming the setting. At every start the init writes `hermes_main_packages`
+    (tools `apk_add`, scope `*`, `mfa_tools '*'` and the same factor, window, failures and lockout
+    as the change policies, since openwrt-mcp refuses gating policies of one client that disagree)
+    only when all three hold, each in one place: the opt-in is `official` (`hermes_mcp_agent`), a
+    factor is set (`mcp_policy_batch`), and the openwrt-mcp serving reports
+    `capabilities.apk_add_official_feed_only` (`mcp_daemon_caps`, with the same `/health`
+    running-version discipline as the redaction below: a daemon from before an upgrade gives no
+    package policy). An opt-in that cannot be honoured says why in one line (no factor, or the
+    capability missing; a stale daemon's own line covers that case). The scope is `*` because what
+    may be installed is the daemon's to decide: openwrt-mcp 0.5.0.4's `apk_add` (the fork's commit
+    8eff834, pinned in CI) scopes a call by each package name, takes names only (a link, a path, an
+    option, an `.apk` file, a version, a tag, `:` or `..` refused, at most 20), and runs apk with
+    `APK_CONFIG=/dev/null`, an empty working directory and `--repositories-file` holding only the
+    https lines of `distfeeds.list` on downloads.openwrt.org, `update` first and `--simulate` for a
+    dry run (that repository's guarantee and tests; here only the refusals are re-proved). The gateway is
+    told what was written, read back from `/etc/config/openwrt-mcp`, as `HERMES_OPENWRT_PACKAGES`
+    (`granted` or `off`) in procd's environment and the init's bridge run; the bridge offers the
+    model `apk_add` only when it is `granted`, the profile is owner, a factor is set and the MCP
+    connection is there, and then adds one sentence to the owner note (install only packages the
+    owner asked for, a dry run first telling the owner what and how much space, never another
+    feed); otherwise `apk_add` is in `tools.exclude` beside `exec`. A scheduled job cannot install,
+    since the unlock plugin refuses every tool that is not a read. Limits named and not fixed: a
+    package from the official feed is not checked for what it does (a service, a port, a setting);
+    an install has no rollback, and apk may upgrade an installed library a new package needs (the
+    dry run shows it); which feeds count as official is openwrt-mcp's reading of `distfeeds.list`,
+    and a router on a mirror or archive.openwrt.org has none; no real install or dry run runs in CI,
+    since apk_add updates its index from the feed first and the gate runs offline. `hermes-agent`
+    depends on `openwrt-mcp>=0.5.0.4` (gate: `scripts/gate-package.sh`
+    `check_needs_an_openwrt_mcp_that_redacts`, which also requires the capability; teeth:
+    `scripts/teeth.sh` fault 12). (gate: `scripts/gate-runtime.sh`
+    `check_package_policy_only_when_every_condition_holds`,
+    `check_apk_add_offered_only_when_granted_and_the_note_says_how`,
+    `check_security_options_refuse_bad_values`; `scripts/gate-unlock.sh`
+    `check_no_package_policy_from_a_daemon_from_before_the_upgrade` (stand-ins for the status and
+    `/health`); `scripts/gate-luci.sh` `check_security_packages_written_only_with_a_factor`,
+    `check_security_packages_switch_needs_a_factor`; teeth: `scripts/teeth-runtime.py` (seventeen
+    mutants), `scripts/teeth-unlock.sh` faults 55 to 57, `scripts/teeth-luci.sh` faults 37 to 42;
+    and `scripts/gate-unlock.sh` `check_package_install_needs_the_unlock`, the real daemon offline:
+    `apk_add` refused for the factor while locked, in an open window let through by the policy to
+    its own name rules (a version, a file, an option, a tag refused, nothing installed), offered to
+    the model, and with the opt-in off refused for want of a policy and hidden.) The rest of the scope holds as the r11 note above says, gated, within
+    the limits it names. Only `uci_apply` has the
     automatic rollback; a `ubus_call` (a service restart, say) has none.
     Unlocking is per agent: `hermes-<name>` has its own token and its own window.
     An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
