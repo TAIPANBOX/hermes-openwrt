@@ -306,6 +306,16 @@ Feature: What is set on the router is what the gateway runs with
     And the gateway loads all of it as its system prompt, while assistant and root carry none of it
     # -> check_owner_note_teaches_section_names_port_forwards_and_reading_back
 
+  Scenario: a scheduled job is told what its profile is, and a chat is told it once
+    Given the owner profile, with or without a second factor, or the assistant profile
+    When a one-off scheduled job runs, such as "why is the internet slow, check on the router"
+    Then the job's agent is given the profile's note, the line sending diagnostics to its own terminal included
+    And a chat's agent is given the same note once, not twice
+    And the operator's own system prompt, their own text for scheduled jobs and their SOUL.md are kept as they wrote them
+    And the root profile leaves no note for either, the operator's text coming back exactly
+    And a note left unterminated, or a setting for scheduled jobs that is not text, refuses the start and leaves the file as it was
+    # -> check_profile_note_reaches_scheduled_jobs_and_a_chat_once
+
   # ---- The model and its endpoint ----
 
   Scenario: the configured endpoint receives a real agent request with the configured model and key

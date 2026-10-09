@@ -139,7 +139,15 @@ esac
 # uci_apply_refuses_code_exec (0.5.0.3), which refuses a firewall include, a dnsmasq dhcpscript
 # and every other setting that runs code. The package depends on openwrt-mcp>=0.5.0.3, the first
 # version with both keys, so an upgrade cannot pair this init with an older daemon.
-PKGREL=${PKGREL:-11}
+#
+# 0.21.5-r12: a scheduled job's agent is told what its profile is, as a chat's always was. Upstream
+# builds a cron agent with no ephemeral system prompt, so the note in agent.system_prompt never
+# reached one: on a Flint 2 running r11 a one-off job asked why the internet was slow never pinged,
+# the line sending diagnostics to the terminal being absent, and the other owner rules with it. The
+# bridge now also writes the note into platform_hints.cron, upstream's own addition to the system
+# prompt of the agent whose platform is cron, which the gateway never reads, so a chat still gets
+# the note once. The operator's own text there is kept, and root takes the note out again.
+PKGREL=${PKGREL:-12}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

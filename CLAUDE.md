@@ -201,6 +201,29 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     explicit choice that prints a warning at every start; `admin` is accepted as another
     name for it. An unrecognised value still refuses to start (gate: `scripts/gate-runtime.sh`,
     `scripts/teeth-runtime.py`, `scripts/gate-unlock.sh` `check_root_profile_is_opt_in_and_warned`).
+    `@claude` 2026-10-09, 0.21.5-r12: a profile's note (owner's and assistant's; root has none)
+    reaches a scheduled job's agent as well as a chat's, and a chat's once. Upstream builds a cron
+    agent (`cron/scheduler.py` `_construct_cron_agent`) with no ephemeral system prompt, so the note
+    in `agent.system_prompt` never reached one. The bridge also writes the same delimited block into
+    `platform_hints.cron`, upstream's per-platform addition to the system prompt
+    (`agent/system_prompt.py` `_resolve_platform_hint`), read only by the agent whose platform is
+    `cron`; a bare string there is upstream's shorthand for `append`, and the note goes after the
+    operator's own append, their `replace` untouched. SOUL.md was the other route and is not used:
+    the gateway passes `load_soul_identity=True` too, so a block there reaches a chat twice beside
+    `agent.system_prompt`, and a continuing chat reuses the prompt it stored at its start, SOUL.md
+    included, so a note changed since (a factor set up) would go stale there; `agent.system_prompt`
+    is added afresh on every turn. An unterminated block or a value that is neither text nor a
+    mapping refuses the start and leaves the file as it was. Limits named and not fixed: a delegated
+    subagent gets neither, before or after (upstream builds its prompt from the goal alone, with
+    `skip_context_files=True`); an operator setting `HERMES_EPHEMERAL_SYSTEM_PROMPT` replaces the
+    chat's note, as it did before. `@measured` 2026-10-09 by
+    `RuntimeTests.test_profile_note_reaches_scheduled_jobs_and_a_chat_once`, run in
+    `openwrt/rootfs:aarch64_generic-25.12.4` against the payload tree built at the pinned upstream
+    commit, upstream constructing both agents: against the r11 bridge, 0 copies of the owner and
+    assistant notes in the cron agent's prompt; with SOUL.md written instead (the teeth mutant), 2
+    copies in a chat's (gate: `scripts/gate-runtime.sh`
+    `check_profile_note_reaches_scheduled_jobs_and_a_chat_once`; teeth: `scripts/teeth-runtime.py`,
+    six mutants).
 13. The service runs at nice 10, so the router's own work keeps the processor: on a
     Brume 2 carrying a WireGuard tunnel on 2026-09-24, a conversation at the default
     priority took a third of the tunnel's throughput while it ran and a quarter at
@@ -346,7 +369,16 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     owner to run `openwrt-mcp allow hermes-main uci_get 'wireless' 60m`;
     in config.yaml and in what the gateway loads; teeth: `scripts/teeth-runtime.py`). The four
     runtime changes were shown red first locally against the earlier bridge, not in the gate's
-    container, which needs a build.
+    container, which needs a build. `@claude` 2026-10-09, 0.21.5-r12: until r12 none of the owner
+    note reached a scheduled job (invariant 12 says why and how it does now). Reported from a run
+    on a Flint 2 with r11 the same day, not run here: a one-off cron job asked why the internet was
+    slow pinged nothing on claude-haiku-5.5 or gpt-6-luna (the first called only openwrt-mcp's tools);
+    with the owner note appended to SOUL.md by hand (then restored), the same job on
+    claude-haiku-5.5 pinged 1.1.1.1 and 8.8.8.8, checked DNS, timed a download and found an IPv6
+    route flapping in the log. Not measured on a router: the r12 placement in `platform_hints.cron`
+    rather than SOUL.md; the container test proves the same sentences reach that agent's prompt
+    through upstream's own code (gate: `scripts/gate-runtime.sh`
+    `check_profile_note_reaches_scheduled_jobs_and_a_chat_once`; teeth: `scripts/teeth-runtime.py`).
     `@decided 2026-10-08` (the owner's, paraphrased): what an unlock window is for. In it the
     agent may change settings, the VPN and services, each with automatic rollback. It may never
     run arbitrary commands, install anything from a link, or run a sysupgrade. Installing

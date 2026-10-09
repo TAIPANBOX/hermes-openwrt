@@ -26,7 +26,8 @@ steps in one turn is capped.
 
 How: the note is a delimited block in agent.system_prompt, which the gateway loads as
 its ephemeral system prompt; the operator's own text around it is kept, and admin
-removes only the block. The cap comes from UCI through HERMES_OPENWRT_MAX_TURNS into
+removes only the block. Since 0.21.5-r12 the same block also goes in platform_hints.cron,
+which is how it reaches a scheduled job's agent (see CRON_HINT). The cap comes from UCI through HERMES_OPENWRT_MAX_TURNS into
 agent.max_turns, which the gateway turns into its per-turn iteration budget.
 
 @decided 2026-10-01, superseding the default above: four profile names. owner is the
@@ -148,7 +149,7 @@ def _has_note(text: str) -> bool:
     return any(_markers(kind)[0] in text for kind in NOTE_KINDS)
 
 
-def _without_note(text: str) -> str:
+def _without_note(text: str, where: str = "agent.system_prompt") -> str:
     """The operator's own text, exactly: everything but the notes and the separator
     put before each. Only called when a note is there."""
     for kind in NOTE_KINDS:
@@ -158,12 +159,41 @@ def _without_note(text: str) -> str:
             continue
         end = text.find(closing, start)
         if end == -1:
-            raise ValueError("agent.system_prompt holds an unterminated profile note")
+            raise ValueError(f"{where} holds an unterminated profile note")
         before, after = text[:start], text[end + len(closing):]
         if before.endswith(NOTE_SEP):
             before = before[:-len(NOTE_SEP)]
         text = before + after
     return text
+
+
+def _noted(current, note, where: str):
+    """current with this profile's note in place of any earlier one, the operator's own text
+    around it kept exactly; None when nothing is left. current unchanged when there is no note
+    to put and none to take out."""
+    if current is not None and not isinstance(current, str):
+        raise ValueError(f"{where} must be text")
+    noted = bool(current) and _has_note(current)
+    own = _without_note(current, where) if noted else (current or "")
+    if note:
+        return (own + NOTE_SEP + note) if own else note
+    if noted:
+        return own or None
+    return current
+
+
+# @claude 2026-10-09, 0.21.5-r12: where the note reaches a scheduled job. Upstream builds a cron
+# agent (cron/scheduler.py _construct_cron_agent) with no ephemeral system prompt, so
+# agent.system_prompt never reached one: on a Flint 2 running r11 a one-off job asked why the
+# internet was slow never pinged, since the line sending diagnostics to the terminal was not there.
+# platform_hints.<platform> is upstream's own per-platform addition to the system prompt
+# (agent/system_prompt.py _resolve_platform_hint), read only by the agent whose platform it names,
+# and a cron agent's platform is "cron"; every fire is a new session, so it is built fresh each
+# time. SOUL.md, which cron also loads, was not used: the gateway loads it too, so the note would
+# reach a chat twice, and a continuing chat reuses the prompt it stored at its start, SOUL.md
+# included, so a note changed since (a factor set up in LuCI) would stay stale there, while
+# agent.system_prompt is added afresh on every turn.
+CRON_HINT = "cron"
 
 
 def _validate_endpoint(value: str, label: str) -> None:
@@ -481,8 +511,11 @@ def main() -> int:
                     config.pop("plugins", None)
             config.pop(UNLOCK_MARKER, None)
 
-        # The profile's note in agent.system_prompt: assistant's and owner's added, root's
-        # (it has none) taking out whichever is there, the operator's own text kept either way.
+        # The profile's note, once for each kind of agent: in agent.system_prompt, which the
+        # gateway (and a shell's `hermes chat`) adds to every turn, and in platform_hints.cron,
+        # which only a scheduled job's agent reads (see CRON_HINT). assistant's and owner's
+        # added, root's (it has none) taking out whichever is there, the operator's own text
+        # kept either way.
         if profile is not None:
             factor = os.environ.get("HERMES_OPENWRT_FACTOR", "none")
             if factor not in FACTORS:
@@ -494,17 +527,43 @@ def main() -> int:
             if agent_cfg is not None:
                 if not isinstance(agent_cfg, dict):
                     raise ValueError("agent must be a mapping")
-                current = agent_cfg.get("system_prompt")
-                if current is not None and not isinstance(current, str):
-                    raise ValueError("agent.system_prompt must be text")
-                noted = bool(current) and _has_note(current)
-                own = _without_note(current) if noted else (current or "")
-                if note:
-                    agent_cfg["system_prompt"] = (own + NOTE_SEP + note) if own else note
-                elif noted and own:
-                    agent_cfg["system_prompt"] = own
-                elif noted:
+                prompt = _noted(agent_cfg.get("system_prompt"), note, "agent.system_prompt")
+                if prompt is None:
                     agent_cfg.pop("system_prompt", None)
+                else:
+                    agent_cfg["system_prompt"] = prompt
+            # Upstream takes platform_hints.<platform> as {append, replace} or a bare string,
+            # which is shorthand for append; the note goes in append, after the operator's own,
+            # and a replace of theirs stays as it is.
+            hints = config.get("platform_hints")
+            if hints is None and note:
+                hints = config["platform_hints"] = {}
+            if hints is not None:
+                if not isinstance(hints, dict):
+                    raise ValueError("platform_hints must be a mapping")
+                had_hints = bool(hints)
+                current = hints.get(CRON_HINT)
+                if isinstance(current, dict):
+                    spec = dict(current)
+                    appended = _noted(spec.get("append"), note, "platform_hints.cron.append")
+                    if appended is None:
+                        spec.pop("append", None)
+                    else:
+                        spec["append"] = appended
+                    if not spec and current:
+                        spec = None
+                elif current is None or isinstance(current, str):
+                    spec = _noted(current, note, "platform_hints.cron")
+                    if spec is not None and current is None:
+                        spec = {"append": spec}
+                else:
+                    raise ValueError("platform_hints.cron must be text or a mapping")
+                if spec is None:
+                    hints.pop(CRON_HINT, None)
+                else:
+                    hints[CRON_HINT] = spec
+                if not hints and had_hints:
+                    config.pop("platform_hints", None)
 
         # Upstream's tool search, off where the operator has set nothing (see TOOL_SEARCH_OFF),
         # in every profile, so the model sees openwrt-mcp's tools by name. Left alone when no

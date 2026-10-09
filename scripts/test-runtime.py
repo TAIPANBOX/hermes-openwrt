@@ -1286,6 +1286,116 @@ procd_close_service
             self.assertEqual(self.bridge(other).returncode, 0)
             self.assertNotIn("port forward", self.config().get("agent", {}).get("system_prompt") or "")
 
+    # What upstream sends as the system prompt for each kind of agent, built by upstream's own code:
+    # a scheduled job's agent as cron/scheduler.py constructs it (_construct_cron_agent, no ephemeral
+    # prompt, SOUL.md loaded), and a chat's agent as gateway/run_turn_runner.py does (the ephemeral
+    # prompt GatewayRunner reads, SOUL.md loaded). What a request carries is the built prompt and
+    # then the ephemeral one, joined as agent/turn_context.py joins them.
+    AGENT_PROMPTS = r'''
+import json
+from run_agent import AIAgent
+from cron.scheduler import _construct_cron_agent, _CronAgentSetup
+from gateway.run import GatewayRunner
+from hermes_cli.config import load_config
+
+def sent(agent):
+    built = agent._build_system_prompt(None)
+    extra = agent.ephemeral_system_prompt
+    return (built + "\n\n" + extra).strip() if extra else built
+
+runtime = {"api_key": "synthetic", "base_url": "http://127.0.0.1:9/v1", "provider": "custom",
+           "api_mode": "chat_completions"}
+setup = _CronAgentSetup(model="runtime-model", runtime=dict(runtime))
+cron = _construct_cron_agent(AIAgent, {"id": "unit"}, load_config(), setup, workdir=None,
+                             session_id="cron_unit_20261009_000000", session_db=None)
+ephemeral = GatewayRunner._load_ephemeral_system_prompt()
+chat = AIAgent(model="runtime-model", quiet_mode=True, ephemeral_system_prompt=ephemeral or None,
+               platform="telegram", skip_context_files=False, load_soul_identity=True,
+               session_id="chat_unit", **runtime)
+print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.platform}))
+'''
+
+    def agent_prompts(self):
+        env = {k: v for k, v in self.env.items() if k != "HERMES_EPHEMERAL_SYSTEM_PROMPT"}
+        built = subprocess.run(["python3", "-c", self.AGENT_PROMPTS], env=env, check=False,
+                               capture_output=True, text=True, cwd=str(self.home))
+        self.assertEqual(built.returncode, 0, built.stdout[-2000:] + built.stderr[-4000:])
+        prompts = json.loads(built.stdout.strip().splitlines()[-1])
+        self.assertEqual(prompts.pop("cron_platform"), "cron")
+        return prompts
+
+    def test_profile_note_reaches_scheduled_jobs_and_a_chat_once(self):
+        # Measured 2026-10-09 on a Flint 2 running r11: upstream builds a scheduled job's agent with
+        # no ephemeral system prompt, so agent.system_prompt, where the note lived, never reached
+        # one. Asked in a one-off job why the internet was slow, two models never pinged: the line
+        # sending diagnostics to the terminal was not there, nor any other line of the note. With
+        # the note in that agent's prompt, the same job pinged. A chat must still get it once.
+        owner = ("[hermes-openwrt: owner profile]", "use your own terminal", "never ask the owner to widen it",
+                 "A UCI section name holds only letters, digits and underscores",
+                 "A port forward is a firewall section of type redirect (DNAT), not a rule",
+                 "read it back with uci_get")
+        notes = {("owner", "none"): owner + ("Services -> Hermes Agent -> Security",),
+                 ("owner", "pin"): owner + ("send /unlock in the private chat",),
+                 ("assistant", "pin"): ("[hermes-openwrt: assistant profile]", "no terminal")}
+        # The operator's own text in all three places upstream reads it from: the chat's prompt,
+        # what they add for scheduled jobs (a bare string is upstream's shorthand for append) and
+        # SOUL.md, whose bytes the bridge never touches.
+        soul = "You are the house router's helper.\n"
+        (self.home / "SOUL.md").write_text(soul)
+        (self.home / "config.yaml").write_text(yaml.safe_dump(
+            {"agent": {"system_prompt": "Be brief."}, "platform_hints": {"cron": "Report in one line."}}))
+        for (profile, factor), sentences in notes.items():
+            with self.subTest(profile=profile, factor=factor):
+                result = self.bridge(profile, factor=factor)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                prompts = self.agent_prompts()
+                for sentence in sentences:
+                    self.assertEqual(prompts["cron"].count(sentence), 1, f"scheduled job: {sentence}")
+                    self.assertEqual(prompts["chat"].count(sentence), 1, f"chat: {sentence}")
+                self.assertIn("Report in one line.", prompts["cron"])
+                self.assertIn("Be brief.", prompts["chat"])
+                for kind in ("cron", "chat"):
+                    self.assertIn("house router's helper", prompts[kind])
+                hint = self.config()["platform_hints"]["cron"]
+                self.assertTrue(hint.startswith("Report in one line.\n\n[hermes-openwrt: "), hint)
+                self.assertEqual((self.home / "SOUL.md").read_text(), soul)
+                before = (self.home / "config.yaml").read_bytes()
+                self.assertEqual(self.bridge(profile, factor=factor).returncode, 0)
+                self.assertEqual((self.home / "config.yaml").read_bytes(), before, "a second start rewrote it")
+        # root has no note: none reaches either agent, and the operator's text comes back exactly.
+        self.assertEqual(self.bridge("root").returncode, 0)
+        prompts = self.agent_prompts()
+        for kind in ("cron", "chat"):
+            self.assertNotIn("[hermes-openwrt:", prompts[kind])
+        self.assertEqual(self.config()["platform_hints"], {"cron": "Report in one line."})
+        self.assertEqual(self.config()["agent"]["system_prompt"], "Be brief.")
+        self.assertEqual((self.home / "SOUL.md").read_text(), soul)
+        # From nothing and back to nothing; the operator's own replace and whitespace kept as written.
+        (self.home / "config.yaml").write_text("{}\n")
+        self.assertEqual(self.bridge("owner", factor="pin").returncode, 0)
+        self.assertIn("use your own terminal", self.config()["platform_hints"]["cron"]["append"])
+        self.assertEqual(self.bridge("root").returncode, 0)
+        self.assertNotIn("platform_hints", self.config())
+        theirs = {"replace": "Scheduled run.", "append": "  Mine.\n"}
+        (self.home / "config.yaml").write_text(yaml.safe_dump({"platform_hints": {"cron": theirs, "slack": "x"}}))
+        self.assertEqual(self.bridge("assistant").returncode, 0)
+        spec = self.config()["platform_hints"]["cron"]
+        self.assertEqual(spec["replace"], "Scheduled run.")
+        self.assertTrue(spec["append"].startswith("  Mine.\n\n\n[hermes-openwrt: assistant profile]"), spec)
+        self.assertEqual(self.bridge("root").returncode, 0)
+        self.assertEqual(self.config()["platform_hints"], {"cron": theirs, "slack": "x"})
+        # A note left unterminated, or a setting that is not text, refuses and leaves the file alone.
+        for content in (yaml.safe_dump({"platform_hints": {"cron": "Mine.\n\n[hermes-openwrt: owner profile]\ncut"}}),
+                        yaml.safe_dump({"platform_hints": {"cron": {"append": "[hermes-openwrt: assistant profile]"}}}),
+                        yaml.safe_dump({"platform_hints": {"cron": 7}}),
+                        yaml.safe_dump({"platform_hints": ["cron"]})):
+            with self.subTest(content=content):
+                (self.home / "config.yaml").write_text(content)
+                refused = self.bridge("owner", factor="pin")
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("platform_hints", refused.stderr)
+                self.assertEqual((self.home / "config.yaml").read_text(), content)
+
     def test_config_written_by_root_takes_the_data_dir_owner(self):
         # A root-owned config.yaml is one the gateway, which is hermes, cannot update.
         self.assertEqual(self.configure().returncode, 0)

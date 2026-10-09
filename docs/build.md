@@ -116,6 +116,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] A PIN saved while the factor is `none` says to choose PIN and press the factor's Save (LuCI 0.21.5-r2)
 - [x] An open window changes settings, the VPN and services only: no command over ubus, no file, no firmware, no reboot, and a change policy only from an openwrt-mcp that refuses a setting that runs code (0.21.5-r11)
 - [x] The agent reads the Wi-Fi and the whole network config, every key in them `<redacted>`, only from an openwrt-mcp that reports it redacts; the package needs openwrt-mcp 0.5.0.3 or later (0.21.5-r11)
+- [x] A scheduled job is told what its profile is, as a chat is, and a chat is told it once (0.21.5-r12)
 
 ## Prior art, and what is not ours
 
