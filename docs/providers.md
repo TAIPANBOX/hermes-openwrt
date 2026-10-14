@@ -125,12 +125,24 @@ entry at every start.
 **What the gateway governs, and what it does not.** It sees every model call: who calls,
 as whom, how much a conversation and the group of routers have spent, what the tool results
 in the conversation carried. It does not see the tools themselves: the terminal, the files
-and openwrt-mcp run on the router, and a change to the router still needs your unlock (see
-[security.md](security.md)). What the tools fetch from the internet does not pass through it
-either. A gateway that judges the tool calls in an answer sees only what it reads whole:
-Hermes streams its answers, and on 2026-10-14 a `write_file` call that TokenFuse's firewall
-refuses in a buffered answer ran on the router. Limits on the router side:
+and openwrt-mcp run on the router, and the agent calls openwrt-mcp there directly, not through
+a gateway's own MCP broker, so a change to the router is governed by openwrt-mcp and your
+unlock (see [security.md](security.md)), not by the gateway. What the tools fetch from the
+internet does not pass through it either. Two things measured on 2026-10-14 with TokenFuse's
+firewall in enforce mode:
 
+- A gateway that judges the tool calls in an answer sees only what it reads whole. Hermes
+  streams its answers, and TokenFuse does not yet judge a streamed answer's tool calls: a
+  `write_file` call its firewall refuses in a buffered answer ran on the router.
+- TokenFuse reads the descriptions of the tools a request declares, and the descriptions of
+  openwrt-mcp's `uci_get` and Hermes's own `web_extract` read to it as a possible injection.
+  Every conversation is therefore marked untrusted from its first call, and a real injection
+  read later adds no new signal.
+
+Limits on the router side:
+
+- With a pass-through gateway the provider key stays on the router (root's alone, as
+  before): the gateway limits what the key spends through it, not what it spends elsewhere.
 - `.env` and `config.yaml` belong to the agent's user, so the agent can read the gateway's
   credential. With it alone nobody can spend your provider key, but they can call the
   gateway as this router.
