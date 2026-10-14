@@ -372,7 +372,7 @@ What each check proves, one by one: [docs/checks.md](docs/checks.md).
 | [docs/measured.md](docs/measured.md) | every hardware figure |
 | [docs/usb.md](docs/usb.md) | `hermes-usb` and extroot |
 | [docs/security.md](docs/security.md) | keys, profiles, the unlock, the controls |
-| [docs/providers.md](docs/providers.md) | several providers and a ChatGPT subscription |
+| [docs/providers.md](docs/providers.md) | several providers, a ChatGPT subscription, a model gateway |
 | [docs/telegram.md](docs/telegram.md) | the phone, the allowlist, a test chat |
 | [docs/build.md](docs/build.md) | how it is built, the feed, status |
 | [docs/checks.md](docs/checks.md) | every gate and its teeth |

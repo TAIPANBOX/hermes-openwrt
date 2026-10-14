@@ -101,6 +101,11 @@ uci set hermes.main.model='<model id>'
 uci commit hermes
 ```
 
+If the person wants the model calls to go through a gateway that meters and caps them, the
+endpoint is the gateway's, and the gateway's own credential and headers go where
+[providers.md](providers.md#through-a-model-gateway) says: the credential on standard input,
+like the key, never on a command line.
+
 **Check:**
 
 ```sh
