@@ -532,8 +532,9 @@ What this does not do, measured and named:
 - A scheduled job that hands its work to a subagent asynchronously is not measured, and no
   gate covers the subagent path. The synchronous path was measured on hardware, as above.
 - In a window, a setting that runs code is refused by openwrt-mcp's list, and an option it does
-  not know is not, as above. The gateway's own environment holds the
-  router token and is readable by any process of the `hermes` user, as invariant 7 says.
+  not know is not, as above. The gateway's environment holds the model key and the openwrt-mcp
+  token, and no process of the `hermes` user can read it: the gateway is non-dumpable, so its
+  `/proc` entries belong to root (invariant 7 in CLAUDE.md).
 
 ### Pairing openwrt-mcp yourself
 
