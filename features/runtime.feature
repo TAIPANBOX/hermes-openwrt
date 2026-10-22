@@ -302,6 +302,7 @@ Feature: What is set on the router is what the gateway runs with
     Given the owner profile with a factor and the router MCP connection
     When someone is chosen to approve held changes
     Then the note says such a call answers HELD, not to retry it, ask for a code or find another way, and to confirm once told it was applied
+    And that the owner approves it from the card or with /approve, never with /unlock
     When nobody is chosen
     Then the note says such changes are refused and that the owner chooses who approves in LuCI
     And with no factor or no connection it says neither, and a value the start never passes is refused
@@ -335,6 +336,13 @@ Feature: What is set on the router is what the gateway runs with
     Then the card can still be approved, and only the outcome edits it
     And the agent is told the outcome once, in the chat the change was proposed from
     # -> check_card_waits_through_an_approval_in_progress
+
+  Scenario: a PIN sent while a change waits for approval does not open the unlock window
+    Given a held change whose card the approver was sent
+    When the approver sends a bare PIN, or a PIN and a code, without pressing Approve first
+    Then the message is deleted, nothing is tried or counted, and the reply names the change and says to press Approve or send /approve with its id
+    And /unlock with the PIN still opens the window, and with nothing waiting a bare PIN opens it as before
+    # -> check_a_bare_pin_while_a_change_waits_is_not_an_unlock
 
   Scenario: the model is offered the package install tool only when the owner's opt-in is in force, and told how to use it
     Given the owner profile with a factor, the router MCP connection, and the package policy written at the start

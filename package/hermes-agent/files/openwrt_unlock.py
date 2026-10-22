@@ -470,6 +470,14 @@ async def process(kind: str, args: str, *, user_id, chat_id, private: bool, fact
         except Exception as exc:  # noqa: BLE001
             log.warning("could not delete an unlock message (%s)", type(exc).__name__)
         note = "" if deleted else (" I could not delete your message from the chat. Delete it yourself.")
+        # A PIN sent while a change waits for this approver was meant for that change, not for the
+        # window: on a Flint 2 the owner opened the window three times trying to approve. It is
+        # answered with what waits and how to approve it; nothing is tried and nothing counted.
+        if kind == "bare":
+            waiting = _waiting_cards(user_id)
+            if waiting:
+                await send(waiting_answer(waiting) + note)
+                return
         if factor not in FACTORS:
             await send("No PIN or app code is set up on this router yet, so nothing can be unlocked. "
                        "Set one up first: Services, Hermes Agent, Security in LuCI, or on the router "
@@ -808,6 +816,22 @@ _prompts = {}
 def _approving(user_id) -> bool:
     p = _prompts.get(str(user_id)) if user_id is not None else None
     return bool(p) and time.time() < p["until"]
+
+
+def _waiting_cards(user_id):
+    """The held changes this approver was sent a card for that still wait, as (id, headline)."""
+    if user_id is None or str(user_id) != _approver() or not _approvals_on():
+        return []
+    return [(aid, (card.get("headline") or "").split("\n")[0])
+            for aid, card in list(_cards.items()) if card.get("shown") == "held"]
+
+
+def waiting_answer(waiting) -> str:
+    """What a PIN sent while a change waits is answered with. Built from the cards, not from it."""
+    return ("That was not used: a change waits for your approval.\n"
+            + "\n".join("%s: %s" % (aid, head) for aid, head in waiting)
+            + "\nPress Approve under its card, or send /approve %s, and then your PIN and a code with a "
+              "space between. To open changes instead, send /unlock and your PIN." % waiting[0][0])
 
 
 def post_tool_call(tool_name=None, args=None, result=None, **_ctx):

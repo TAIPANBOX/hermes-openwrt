@@ -159,7 +159,10 @@ OWNER_NOTE_HELD = (" Some changes wait for the owner's approval of that one chan
                    "bridge named br-<name> with no ports, an interface on it, a Wi-Fi with a password on that "
                    "network and its own zone. Such a call answers HELD with an "
                    "id: nothing was applied, the owner was sent the change to approve in this chat, and you "
-                   "are told their answer. Say that it waits for their approval; do not retry it, do not "
+                   "are told their answer. The owner approves it with the Approve button under the card the "
+                   "bot sent, or with /approve and its id, and then their PIN and a code; "
+                   "/unlock does not approve it, so never tell the owner to send /unlock for it. "
+                   "Say that it waits for their approval; do not retry it, do not "
                    "ask for a PIN or a code, and do not try another way to make the change. When you are "
                    "told it was applied, check the router, then confirm it with uci_confirm.")
 OWNER_NOTE_HELD_OFF = (" Some changes need the owner's approval of that one change: opening a port to the "

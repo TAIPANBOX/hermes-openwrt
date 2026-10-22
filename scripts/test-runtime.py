@@ -1358,7 +1358,8 @@ procd_close_service
         # With nobody, that such a change is refused and where the owner chooses who approves.
         url = "http://127.0.0.1:8730/mcp"
         held = ("Such a call answers HELD with an id", "do not retry it", "do not try another way",
-                "confirm it with uci_confirm", "bridge named br-<name> with no ports")
+                "confirm it with uci_confirm", "bridge named br-<name> with no ports",
+                "/unlock does not approve it, so never tell the owner to send /unlock for it")
         off = ("Nobody is chosen to approve them on this router", "Services -> Hermes Agent -> Security")
 
         def note(approvals, factor="pin", mcp=url):
@@ -1612,6 +1613,47 @@ print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told, "kept": sorted
         self.assertEqual(got["kept"], [])
         self.assertEqual(got["told"], [["chat-session", "[The owner approved KQWPT and it was app"],
                                        ["third-session", "[The owner rejected LATER; it was not ap"]])
+
+    def test_a_bare_pin_while_a_change_waits_is_not_an_unlock(self):
+        # On a Flint 2 on 2026-10-22 the owner, meaning to approve a held change, sent the PIN with no
+        # approval asked for, and it opened the unlock window instead, three times. While a change
+        # waits for the approver, a bare PIN, or a PIN and a code, is deleted and answered with what
+        # waits and how to approve it: nothing is tried and nothing counted. /unlock with the PIN still
+        # unlocks, and with nothing waiting a bare PIN unlocks as before.
+        probe = r"""
+import asyncio, json, openwrt_unlock as u
+calls, sent = [], []
+u.call_tool = lambda tool, args, token=None: (calls.append(tool) or (True, "Unlocked until 2026-10-22T22:00:00Z", False))
+u._approvals_on, u._approver = (lambda: True), (lambda: "1")
+u._cards["KQWPT"] = {"hash": "a" * 64, "headline": "OPENS THE ROUTER TO THE INTERNET: tcp 2222", "shown": "held",
+                     "chat": 1, "message": 7, "card": "CARD"}
+async def delete():
+    return True
+async def send(text):
+    sent.append(text)
+async def run():
+    for text in ("1234", "1234 567890", "/unlock 1234"):
+        await u.dispatch(u.classify(text, "pin", u._approving(1)), user_id=1, chat_id=1, private=True,
+                         delete=delete, send=send)
+    u._cards.clear()
+    await u.dispatch(u.classify("1234", "pin", u._approving(1)), user_id=1, chat_id=1, private=True,
+                     delete=delete, send=send)
+asyncio.run(run())
+print(json.dumps({"calls": calls, "sent": sent}))
+"""
+        result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True,
+                                env=dict(self.env, TELEGRAM_ALLOWED_USERS="1", HERMES_OPENWRT_FACTOR="pin"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        got = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(got["calls"], ["mfa_unlock", "mfa_unlock"])
+        for answer in got["sent"][:2]:
+            self.assertIn("KQWPT", answer)
+            self.assertIn("OPENS THE ROUTER TO THE INTERNET: tcp 2222", answer)
+            self.assertIn("/approve KQWPT", answer)
+            self.assertIn("/unlock", answer)
+            self.assertNotIn("Changes are open", answer)
+        self.assertTrue(got["sent"][2].startswith("Changes are open"), got["sent"][2])
+        self.assertTrue(got["sent"][3].startswith("Changes are open"), got["sent"][3])
 
     def test_tool_search_is_off_unless_the_operator_set_it(self):
         # Upstream defers every MCP tool behind tool_search by default, and on routers on
