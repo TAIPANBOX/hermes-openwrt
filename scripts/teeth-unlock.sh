@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (sixty-nine in all, over forty-nine checks). Each is a change a
+# or have several ways to go wrong (seventy-three in all, over fifty checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -82,6 +82,9 @@ expect_red() {
 	fi
 	grep -q "^FAIL .*$check:" "$OUT" || {
 		echo "TEETH FAIL: $name turned the gate red, but not at $check"; grep -E '^(FAIL|overlay)' "$OUT" | head -5; exit 1; }
+	# Red because the check could not plant or read its subject is not the fault being caught.
+	grep "^FAIL .*$check:" "$OUT" | grep -q 'measured nothing' && {
+		echo "TEETH FAIL: $name turned $check red only as \"measured nothing\""; grep "^FAIL .*$check:" "$OUT" | cut -c1-200; exit 1; }
 	echo "teeth ok: $name -> $check ($(grep "^FAIL .*$check:" "$OUT" | sed 's/^FAIL [^:]*: //' | cut -c1-110))"
 	rm -rf "$W/overlay"
 }
@@ -468,17 +471,17 @@ expect_red "the gateway started without the sandbox" check_agent_tools_cannot_re
 
 # ---- 64. the sandbox given the whole of /etc ----
 # The convenient fix for a program that misses a file there: /etc/config comes with it.
-plant "$JAIL" 'READ_ONLY = ("/bin", "/sbin", "/lib", "/usr",' 'READ_ONLY = ("/bin", "/sbin", "/lib", "/usr", "/etc",'
+plant "$JAIL" 'DIRS = ("/bin", "/sbin", "/lib", "/usr")' 'DIRS = ("/bin", "/sbin", "/lib", "/usr", "/etc")'
 expect_red "the sandbox given /etc" check_agent_tools_cannot_read_router_secrets
 
 # ---- 65. the sandbox given /var ----
 # hostapd's runtime file, with the Wi-Fi passphrase in it, is under /var/run.
-plant "$JAIL" 'READ_ONLY = ("/bin", "/sbin", "/lib", "/usr",' 'READ_ONLY = ("/bin", "/sbin", "/lib", "/usr", "/var",'
+plant "$JAIL" 'DIRS = ("/bin", "/sbin", "/lib", "/usr")' 'DIRS = ("/bin", "/sbin", "/lib", "/usr", "/var")'
 expect_red "the sandbox given /var" check_agent_tools_cannot_read_router_secrets
 
 # ---- 66. the sandbox given /overlay ----
 # The overlay's upper layer keeps a copy of every configuration file the owner changed.
-plant "$JAIL" 'READ_ONLY = ("/bin", "/sbin", "/lib", "/usr",' 'READ_ONLY = ("/bin", "/sbin", "/lib", "/usr", "/overlay",'
+plant "$JAIL" 'DIRS = ("/bin", "/sbin", "/lib", "/usr")' 'DIRS = ("/bin", "/sbin", "/lib", "/usr", "/overlay")'
 expect_red "the sandbox given /overlay" check_agent_tools_cannot_read_router_secrets
 
 # ---- 67. the model's side of the same fault ----
@@ -488,12 +491,38 @@ expect_red "the gateway started without the sandbox, seen by the model" check_ro
 
 # ---- 68. the sandbox sets no_new_privs ----
 # ujail's -c: one flag, and the setuid ping the agent diagnoses with stops working.
-plant "$JAIL" 'argv = [UJAIL, "-n", NAME, "-E", "-p", "-s"]' 'argv = [UJAIL, "-n", NAME, "-E", "-p", "-s", "-c"]'
+plant "$JAIL" 'argv = [UJAIL, "-n", NAME, "-E", "-p", "-s", "-t", str(UJAIL_TERM)]' 'argv = [UJAIL, "-n", NAME, "-E", "-p", "-s", "-t", str(UJAIL_TERM), "-c"]'
 expect_red "the sandbox with no_new_privs" check_agent_diagnostics_still_work
 
-# ---- 69. the sandbox without its own /tmp, or without /sys ----
+# ---- 69. the sandbox without its own /tmp ----
 plant "$JAIL" '    argv += ["-w", data_dir, "-w", f"{TMP}:/tmp"]' '    argv += ["-w", data_dir]'
 expect_red "the sandbox without a /tmp" check_agent_diagnostics_still_work
+
+# ---- 70. the sandbox's first process not dying with ujail ----
+# The parent-death signal armed after the drop is the one in force (a change of credentials clears
+# the first): without it, procd's SIGKILL to ujail leaves the gateway running unsupervised.
+plant "$JAIL" 'prctl(PR_SET_PDEATHSIG, int(signal.SIGKILL), "dying with ujail, after the drop")' \
+	'prctl(PR_SET_PDEATHSIG, 0, "dying with ujail, after the drop")'
+expect_red "the sandbox not dying with its supervisor" check_stop_leaves_nothing_running
+
+# ---- 71. no grace: a gateway that ignores SIGTERM is never killed from inside ----
+plant "$JAIL" 'GRACE = 5      #' 'GRACE = 60     #'
+expect_red "a stop that waits a minute for the gateway" check_stop_leaves_nothing_running
+
+# ---- 72. the sandbox's first process keeping root ----
+# The launcher would still drop the gateway itself to hermes, the data directory being hermes's;
+# the first process, the gateway's parent and holder of the keys, would stay root.
+plant "$JAIL" '    hermes_drop.become(user)
+' '    pass
+'
+expect_red "the sandbox's first process left root" check_gateway_runs_as_hermes_user
+
+# ---- 73. the bounding set left whole ----
+# A setuid program in the sandbox could then give back every capability root has.
+plant "$JAIL" '    narrow_bounding_set()
+' '    pass
+'
+expect_red "the bounding set left whole" check_agent_tools_cannot_read_router_secrets
 
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
@@ -529,6 +558,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 69 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 69 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 73 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 73 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 69 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 73 faults (shard $SHARD), $N distinct checks, controls green"

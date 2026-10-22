@@ -226,9 +226,9 @@ expect_red "openwrt-mcp with no version floor" check_needs_an_openwrt_mcp_that_r
 JAILF="$W/tree/usr/libexec/hermes-jail"
 [ -f "$JAILF" ] || { echo "teeth: fault 13 planted nothing; no hermes-jail in the tree" >&2; exit 1; }
 cp "$JAILF" /tmp/jail.bak
-sed -i.tmp -e 's/prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0/prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0/' \
-	-e 's/prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != 0:/prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != 1:/' "$JAILF" && rm -f "$JAILF.tmp"
-grep -q 'prctl(PR_SET_DUMPABLE, 1, 0, 0, 0)' "$JAILF" && grep -q '!= 1:' "$JAILF" \
+sed -i.tmp -e 's/prctl(PR_SET_DUMPABLE, 0, "making/prctl(PR_SET_DUMPABLE, 1, "making/' \
+	-e 's/"reading back that it is non-dumpable") != 0:/"reading back that it is non-dumpable") != 1:/' "$JAILF" && rm -f "$JAILF.tmp"
+grep -q 'prctl(PR_SET_DUMPABLE, 1, "making' "$JAILF" && grep -q 'non-dumpable") != 1:' "$JAILF" \
 	|| { echo "teeth: fault 13 planted nothing; hermes-jail no longer makes itself non-dumpable that way" >&2; exit 1; }
 repack "$DEPS_OK"
 expect_red "the sandbox's first process left dumpable" check_gateway_keys_hidden_from_its_user

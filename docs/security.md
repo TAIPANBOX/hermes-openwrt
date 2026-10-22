@@ -118,10 +118,10 @@ which OpenWrt itself runs hostapd in). The wrapper starts it last, through
 | in the sandbox | not there |
 |---|---|
 | `/bin`, `/sbin`, `/lib`, `/usr`, read-only | `/etc/config` and the rest of `/etc` |
-| from `/etc`: passwd, group, hosts, ssl, the time zone, the release | `/overlay`, `/rom`, `/root` |
-| the data directory, writable | `/var` and the router's `/tmp` |
-| a `/tmp` of its own, emptied at every start | ubus |
-| its own `/proc` and `/sys`, the router's `resolv.conf` | the router's own processes |
+| from `/etc`: passwd, group, hosts, the CA certificates, the time zone, the release, each only if root owns it | the rest of `/etc/ssl`, where acme keeps its keys |
+| the data directory, writable | `/overlay`, `/rom`, `/root` |
+| a `/tmp` of its own, emptied at every start | `/var` and the router's `/tmp` |
+| its own `/proc`, the router's `/sys` read-only, the router's `resolv.conf` | ubus and the router's own processes |
 
 The network is the router's, so ping (setuid, which the sandbox keeps), DNS, routes and the
 connections to the model and to Telegram work as before, and the hourly watch in
@@ -129,22 +129,38 @@ connections to the model and to Telegram work as before, and the hourly watch in
 for free flash, since the sandbox has no `/` of the router's. The agent reads the router's
 settings, log and services through openwrt-mcp, as before; the owner note tells it its terminal
 has none of them. A sandbox that cannot be built stops the start rather than run the agent
-without one. Inside it, the first process gives up root for good through the same code as
-`hermes-drop`, makes itself non-dumpable (it holds the keys too) and checks that it is, then
+without one, and so does a data directory that would bring `/etc`, `/overlay`, `/var` or the
+router's runtime files in with it.
+
+Inside, the first process takes the stop signals before anything else, dies with ujail if ujail
+dies, narrows what any setuid program could gain to `CAP_NET_RAW` (all ping needs), gives up root
+for good through the same code as `hermes-drop`, makes itself non-dumpable (it holds the keys too)
+and checks that it is, checks the data directory, `/tmp` and the CA certificates are there, then
 starts the gateway, passes the stop signals on and collects whatever ends. ujail itself stays
 root, outside the sandbox, as its supervisor, the way procd does; it runs none of this package's
 code. The keys go into the sandbox by name, never on a command line.
 
-The root profile runs without the sandbox: it asks for the whole router.
+A stop is timed so nothing outlives it: 5 s after the stop the gateway is killed from inside (the
+5 s procd gave it before the sandbox), at 8 s ujail ends the sandbox, and at 10 s procd's SIGKILL
+to ujail takes whatever is left with it.
+
+The root profile runs without the sandbox: it asks for the whole router. So does `hermes` run by
+hand from a root shell (`hermes chat`, `hermes cron run`), which runs as `hermes` but as the
+owner's own session, not the service.
 
 The limits, named. The router's memory, load and network state stay readable, which the
 diagnostics need. A secret another package keeps under `/usr`, or in one of the few `/etc` files
-listed, is not hidden. The checks: `check_agent_tools_cannot_read_router_secrets` plants
-a Wi-Fi key and a WireGuard private key in UCI, hostapd's passphrase and the overlay's copy, all
-0644, and requires upstream's terminal, read_file and search_files to return none of them;
+listed, is not hidden. `resolv.conf` and the time zone are the files present at the start; a change
+to them reaches the sandbox at the next start. The checks: `check_agent_tools_cannot_read_router_secrets`
+plants a Wi-Fi key and a WireGuard private key in UCI, hostapd's passphrase and the overlay's copy,
+all 0644 and each with a marker line no redaction touches, and requires upstream's terminal,
+read_file and search_files to return none of them while a control in the data directory is found;
 `check_router_secret_never_reaches_model` asks for them through the real gateway and requires no
 request to the model to hold one; `check_agent_diagnostics_still_work` runs the watch script and
-the rest; seven planted faults in `teeth-unlock.sh` and one in `teeth.sh` turn them red.
+the rest with unprivileged ICMP closed as on a router; `check_stop_leaves_nothing_running` stops a
+gateway that ignores SIGTERM. Eleven planted faults in `teeth-unlock.sh` turn those red, and
+`teeth.sh` fault 13 turns `check_gateway_keys_hidden_from_its_user` red with the sandbox's first
+process left dumpable.
 
 ### Profiles
 

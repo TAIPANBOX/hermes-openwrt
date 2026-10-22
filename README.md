@@ -229,9 +229,9 @@ code, such as a firewall include. It installs packages only if you opt in on the
 and only in a window, and the agent is told to do a dry run first and tell you what it would
 install; this needs openwrt-mcp 0.5.0.4 or later.
 
-The agent's own terminal, file and search tools run in a sandbox, OpenWrt's ujail: the router's
-configuration files, the overlay and other services' runtime files are simply not there, so no
-tool can read a Wi-Fi password or a VPN key from a file. Ping, DNS, routes and the agent's own
+The service's terminal, file and search tools run in a sandbox, OpenWrt's ujail: the router's
+configuration files, the overlay and other services' runtime files are simply not there, so none
+of them can read a Wi-Fi password or a VPN key from a file. Ping, DNS, routes and the agent's own
 data work as before. The agent reads every UCI config through openwrt-mcp instead, Wi-Fi and
 network included, so it can set up a guest network or check a package it installed, and it can
 see which services are running. openwrt-mcp answers Wi-Fi keys, WireGuard private keys and

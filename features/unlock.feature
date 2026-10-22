@@ -126,8 +126,13 @@
 #   @claude 2026-10-22   How (0.21.5-r15): the wrapper's last line starts the gateway inside ujail,
 #                        OpenWrt's own sandbox (procd-ujail, in the stock image; hostapd runs in it),
 #                        with only /bin, /sbin, /lib and /usr read-only, a few files of /etc, the data
-#                        directory and a /tmp of its own. The three scenarios under "The agent's own
+#                        directory and a /tmp of its own. The four scenarios under "The agent's own
 #                        tools see no router secrets" are that.
+#   @claude 2026-10-22   Found in review of the r15 branch, read and not run: procd stops an
+#                        instance with SIGTERM and SIGKILLs it 5 s later (instance.c, term_timeout
+#                        5), ujail kills its sandbox 5 s after a SIGTERM (jail.c), and nothing in
+#                        the sandbox died with ujail, so a ujail killed first left the gateway
+#                        running unsupervised. The fourth scenario is that.
 #
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
@@ -205,6 +210,13 @@ Feature: The agent changes the router only when its owner unlocks it
     When the agent's terminal runs it, a ping, a temporary file, a write in its data directory and a read of sysfs
     Then the watch reports loss, DNS, memory, free flash and uptime, and every one of the others works
     # -> check_agent_diagnostics_still_work
+
+  Scenario: Stopping the service leaves nothing of it running
+    Given the service started, with a gateway that ignores SIGTERM
+    When procd stops it with SIGTERM
+    Then nothing of the service runs by procd's term_timeout, with no SIGKILL needed
+    And when procd's SIGKILL reaches the process it started, or a stop lands as the service starts, nothing is left running either
+    # -> check_stop_leaves_nothing_running
 
   # ---- What needs an unlock ----
 

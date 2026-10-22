@@ -50,7 +50,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -467,9 +467,9 @@ except OSError:
 	ids_bad=""; seen=0
 	for p in $(service_tree "$SVC"); do
 		[ "$p" = "$SVC" ] && is_ujail "$p" && continue
-		seen=$((seen + 1))
 		ids=$(grep -E '^(Uid|Gid|Groups):' "/proc/$p/status" 2>/dev/null | tr -s '\t ' ' ')
 		[ -n "$ids" ] || continue
+		seen=$((seen + 1))
 		echo "$ids" | grep -qx "Uid: $HU $HU $HU $HU" || ids_bad="$ids_bad [$p $(cmd_of "$p" | cut -c1-60): $ids]"
 		echo "$ids" | grep -qx "Gid: $HG $HG $HG $HG" || ids_bad="$ids_bad [$p gid: $ids]"
 		echo "$ids" | grep -q '^Groups: *$' || ids_bad="$ids_bad [$p keeps supplementary groups: $ids]"
@@ -652,14 +652,23 @@ check_unreachable_parent_is_named() {
 # keeps the same files, each in the open mode a router can have them in.
 SECRETS="GATE-WIFI-KEY-CANARY GATE-WIREGUARD-PRIVATE-KEY-CANARY GATE-HOSTAPD-PASSPHRASE-CANARY GATE-OVERLAY-WIFI-KEY-CANARY"
 SECRET_FILES="/etc/config/wireless /etc/config/network /var/run/hostapd-phy0.conf /overlay/upper/etc/config/wireless"
+# Each file also carries a line that looks like no secret, so upstream's redaction of tool output,
+# which masks what looks like a key, cannot make a file that was read look like one that was not.
+MARKERS="GATE-VISIBLE-wireless GATE-VISIBLE-network GATE-VISIBLE-hostapd GATE-VISIBLE-overlay"
 plant_runtime_secrets() {
 	mkdir -p /var/run /overlay/upper/etc/config
 	printf 'interface=wlan0\nwpa_passphrase=GATE-HOSTAPD-PASSPHRASE-CANARY\n' > /var/run/hostapd-phy0.conf
 	printf "config wifi-iface 'main'\n\toption key 'GATE-OVERLAY-WIFI-KEY-CANARY'\n" > /overlay/upper/etc/config/wireless
+	printf '# GATE-VISIBLE-wireless\n' >> /etc/config/wireless
+	printf '# GATE-VISIBLE-network\n' >> /etc/config/network
+	printf '# GATE-VISIBLE-hostapd\n' >> /var/run/hostapd-phy0.conf
+	printf '# GATE-VISIBLE-overlay\n' >> /overlay/upper/etc/config/wireless
 	chmod 644 $SECRET_FILES
-	for s in $SECRETS; do
-		cat $SECRET_FILES | grep -q "$s" || fail "measured nothing: canary $s is in no planted file"
+	for s in $SECRETS $MARKERS; do
+		cat $SECRET_FILES | grep -q "$s" || fail "measured nothing: $s is in no planted file"
 	done
+	# and one the search must find where the agent may look, so a search that finds nothing ran
+	mkdir -p /srv/hermes && printf 'GATE-VISIBLE-datadir\n' > /srv/hermes/search-control.txt && chown -R hermes:hermes /srv/hermes
 }
 # The agent's terminal, read_file and search_files, upstream's own code, run where the gateway
 # runs (the wrapper's last line), each pointed at every planted file. The marker the terminal
@@ -674,12 +683,13 @@ import json
 from tools.terminal_tool import terminal_tool
 from tools.file_tools import read_file_tool, _handle_search_files
 files = "/etc/config/wireless /etc/config/network /var/run/hostapd-phy0.conf /overlay/upper/etc/config/wireless".split()
-r = json.loads(terminal_tool(command="cat %s 2>&1; grep -rs CANARY /etc /var/run /overlay 2>&1 | head -n 20; echo TERMINAL-RAN" % " ".join(files), timeout=60))
+r = json.loads(terminal_tool(command="cat %s 2>&1; grep -rs -e CANARY -e GATE-VISIBLE /etc /var/run /overlay 2>&1 | head -n 20; grep -E '^(CapBnd|NoNewPrivs):' /proc/self/status; echo TERMINAL-RAN" % " ".join(files), timeout=60))
 print("TERMINAL:", r.get("output", ""))
 for f in files + ["/etc/hosts"]:
     print("READ", f, ":", read_file_tool(path=f))
 for d in ("/etc", "/var/run", "/overlay"):
-    print("SEARCH", d, ":", _handle_search_files({"pattern": "CANARY", "target": "content", "path": d}))
+    print("SEARCH", d, ":", _handle_search_files({"pattern": "CANARY|GATE-VISIBLE", "target": "content", "path": d}))
+print("SEARCH-CONTROL :", _handle_search_files({"pattern": "GATE-VISIBLE-datadir", "target": "content", "path": "/srv/hermes"}))
 PY
 EOF
 	chmod 755 /usr/bin/hermes
@@ -695,11 +705,13 @@ check_agent_tools_cannot_read_router_secrets() {
 	[ -s "$out" ] || { tail -n 5 /tmp/svc.log; fail "measured nothing: the probe wrote nothing"; }
 	grep -q 'TERMINAL-RAN' "$out" || { head -c 600 "$out"; fail "measured nothing: the terminal tool did not run"; }
 	grep '^READ /etc/hosts :' "$out" | grep -q localhost || { grep '^READ /etc/hosts' "$out" | cut -c1-200; fail "measured nothing: read_file could not read /etc/hosts either"; }
-	grep -q '^SEARCH /etc :' "$out" || { tail -n 5 "$out"; fail "measured nothing: search_files did not run"; }
+	grep '^SEARCH-CONTROL :' "$out" | grep -q 'search-control.txt' || { grep '^SEARCH' "$out" | cut -c1-200; fail "measured nothing: search_files did not find the control file in the data directory"; }
 	leaked=""
-	for s in $SECRETS; do grep -q "$s" "$out" && leaked="$leaked $s"; done
-	[ -z "$leaked" ] || { grep -m 3 -E "$(echo $SECRETS | tr ' ' '|')" "$out" | cut -c1-160; fail "the agent's own tools read:$leaked"; }
-	pass "terminal, read_file and search_files ran; none of the $(echo $SECRETS | wc -w) planted secrets was readable, /etc/hosts was"
+	for s in $SECRETS $MARKERS; do grep -q "$s" "$out" && leaked="$leaked $s"; done
+	[ -z "$leaked" ] || { grep -m 3 -E "$(echo $SECRETS $MARKERS | tr ' ' '|')" "$out" | cut -c1-160; fail "the agent's own tools read:$leaked"; }
+	# what a setuid program in there could gain: ping's CAP_NET_RAW and nothing else
+	grep -q 'CapBnd:[[:space:]]*0000000000002000' "$out" || { grep -E 'CapBnd|NoNewPrivs' "$out"; fail "the sandbox's bounding set is not CAP_NET_RAW alone"; }
+	pass "terminal, read_file and search_files ran; none of the $(echo $SECRETS | wc -w) planted secrets or their markers was readable, /etc/hosts and the data directory were; bounding set CAP_NET_RAW"
 }
 
 # What the agent needs its terminal for still works where it runs: the hourly watch script from
@@ -716,7 +728,9 @@ cmd = ("TARGETS=127.0.0.1 sh /srv/hermes/scripts/router_check.sh; "
        "ping -c 1 -W 2 127.0.0.1 >/dev/null 2>&1 && echo PING-OK; "
        "echo probe > /tmp/hermes-probe && cat /tmp/hermes-probe >/dev/null && echo TMP-OK; "
        "echo probe > /srv/hermes/probe.write && echo DATA-OK; "
-       "echo lo-state: $(cat /sys/class/net/lo/operstate 2>/dev/null)")
+       "echo lo-state: $(cat /sys/class/net/lo/operstate 2>/dev/null); "
+       "grep -q '^nameserver' /etc/resolv.conf && echo RESOLVER-OK; "
+       "grep '^NoNewPrivs:' /proc/self/status")
 print(json.loads(terminal_tool(command=cmd, timeout=90)).get("output", ""))
 PY
 EOF
@@ -738,11 +752,75 @@ check_agent_diagnostics_still_work() {
 	[ -s "$out" ] || { tail -n 5 /tmp/svc.log; fail "measured nothing: the probe wrote nothing"; }
 	missing=""
 	for want in 'ping 127.0.0.1: loss 0%' 'dns: openwrt.org' 'memory: [0-9][0-9]* MB available of [1-9][0-9]* MB' \
-		'flash: [0-9][0-9]* MB free of [1-9][0-9]* MB' 'uptime: ' 'PING-OK' 'TMP-OK' 'DATA-OK' 'lo-state: [a-z]'; do
+		'flash: [0-9][0-9]* MB free of [1-9][0-9]* MB' 'uptime: .*load average' 'PING-OK' 'TMP-OK' 'DATA-OK' 'lo-state: [a-z]' \
+		'RESOLVER-OK' 'NoNewPrivs:[[:space:]]*0'; do
 		grep -q "$want" "$out" || missing="$missing [$want]"
 	done
 	[ -z "$missing" ] || { cut -c1-160 "$out" | head -n 20; fail "the agent's terminal lost:$missing"; }
 	pass "the hourly watch, ping, a temporary file, the data directory and sysfs all work for the agent"
+}
+
+# ---- stopping leaves nothing running ----
+# procd stops an instance with SIGTERM and, term_timeout later, SIGKILL to the process it started.
+# Since r15 that process is ujail and the gateway is inside it, so a stop has to reach the gateway
+# through two processes, and a ujail killed first must not leave the gateway running beside the
+# next start's. A stand-in gateway that ignores SIGTERM, as a busy one may:
+probe_stubborn() {
+	cat > /usr/bin/hermes <<'EOF'
+#!/bin/sh
+trap '' TERM INT QUIT
+echo started > "$PROBE_OUT"
+while :; do sleep 1; done
+EOF
+	chmod 755 /usr/bin/hermes
+}
+# Whatever of the service still runs, found by command line: a process left behind is no longer a
+# descendant of the one procd started.
+leftovers() {
+	for d in /proc/[0-9]*; do
+		grep -q '^State:[[:space:]]*Z' "$d/status" 2>/dev/null && continue
+		case "$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)" in
+			*"hermes-jail --init"*|*"/usr/bin/hermes gateway run"*) echo "${d#/proc/}" ;;
+		esac
+	done
+}
+gone_within() {
+	i=0
+	while [ -n "$(leftovers)" ]; do i=$((i + 1)); [ "$i" -le "$1" ] || return 1; sleep 1; done
+}
+svc_spawn() {
+	rm -f /srv/hermes/probe.out
+	sh -c 'exec env $(cat /tmp/envv) PROBE_OUT=/srv/hermes/probe.out "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
+	SVC=$!
+}
+svc_start() {
+	svc_spawn
+	i=0
+	until [ -s /srv/hermes/probe.out ]; do
+		i=$((i + 1)); [ "$i" -lt 120 ] || { tail -n 5 /tmp/svc.log; fail "measured nothing: the stand-in gateway did not start"; }
+		sleep 1
+	done
+	[ -n "$(leftovers)" ] || fail "measured nothing: no process of the service was found running"
+}
+
+check_stop_leaves_nothing_running() {
+	reset; configure - -
+	started
+	probe_stubborn
+	# 1. procd's SIGTERM alone: all of it gone before procd's term_timeout (10 s) would kill
+	svc_start
+	kill -TERM "$SVC"
+	gone_within 10 || fail "10 s after SIGTERM, procd's term_timeout, a gateway that ignores it still ran: $(leftovers | tr '\n' ' ')"
+	# 2. procd's SIGKILL to the process it started: the sandbox goes with it
+	svc_start
+	kill -KILL "$SVC"
+	gone_within 3 || fail "with the process procd started killed, the gateway ran on unsupervised: $(leftovers | tr '\n' ' ')"
+	# 3. a stop the moment after the start, which may land before anything in there can take it,
+	# then procd's SIGKILL at term_timeout
+	svc_spawn
+	kill -TERM "$SVC" 2>/dev/null
+	gone_within 10 || { kill -KILL "$SVC" 2>/dev/null; gone_within 3 || fail "a stop right after the start, then SIGKILL at term_timeout, left the gateway running: $(leftovers | tr '\n' ' ')"; }
+	pass "a gateway that ignores SIGTERM gone within 10 s of a stop; nothing left after SIGKILL to the supervisor, or after a stop at the start"
 }
 
 check_reads_need_no_unlock() {
@@ -1501,7 +1579,7 @@ unlock_down() {
 		[ "$p" != "$$" ] || continue
 		cmd=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null) || continue
 		case "$cmd" in
-			*"hermes_cli/main.py gateway run"*|*"hermes-jail --init"*|"/sbin/ujail "*|*"/harness.py fakes"*|*"run-cron-job"*|*"rpcd"*|*"ubusd"*) kill -9 "$p" 2>/dev/null || true ;;
+			*"hermes_cli/main.py gateway run"*|*"/usr/bin/hermes gateway run"*|*"hermes-jail --init"*|"/sbin/ujail "*|*"/harness.py fakes"*|*"run-cron-job"*|*"rpcd"*|*"ubusd"*) kill -9 "$p" 2>/dev/null || true ;;
 		esac
 	done
 	rm -f /tmp/svc.pid /tmp/fakes.pid

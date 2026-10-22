@@ -1012,9 +1012,20 @@ def check_router_secret_never_reaches_model():
         f.write("interface=wlan0\nwpa_passphrase=GATE-HOSTAPD-PASSPHRASE-CANARY\n")
     with open("/overlay/upper/etc/config/wireless", "w") as f:
         f.write("config wifi-iface 'main'\n\toption key 'GATE-OVERLAY-WIFI-KEY-CANARY'\n")
+    # A line in each that looks like no secret, so upstream's redaction of tool output cannot pass a
+    # file that was read off as one that was not; and a control the search must find in the data
+    # directory, where the agent may look.
+    markers = []
     for path, canary in SECRET_CANARIES.items():
+        marker = "GATE-VISIBLE-" + path.strip("/").replace("/", "-")
+        with open(path, "a") as f:
+            f.write("# %s\n" % marker)
+        markers.append(marker)
         os.chmod(path, 0o644)
-        need(canary in open(path).read(), "measured nothing: %s does not hold %s" % (path, canary))
+        need(canary in open(path).read() and marker in open(path).read(), "measured nothing: %s does not hold %s" % (path, canary))
+    with open(os.path.join(DATA, "search-control.txt"), "w") as f:
+        f.write("GATE-VISIBLE-datadir\n")
+    run(["chown", "hermes:hermes", os.path.join(DATA, "search-control.txt")])
     files = list(SECRET_CANARIES)
     # The model asks for every file with each tool that reads, the way a model told to find the
     # Wi-Fi password would; then a control read that must work, so the tools are known to have run.
@@ -1023,6 +1034,7 @@ def check_router_secret_never_reaches_model():
     calls += [{"tool_call": {"name": "search_files", "arguments": {"pattern": "CANARY", "path": d}}}
               for d in ("/etc", "/var/run", "/overlay")]
     calls += [{"tool_call": {"name": "read_file", "arguments": {"path": "/etc/hosts"}}}]
+    calls += [{"tool_call": {"name": "search_files", "arguments": {"pattern": "GATE-VISIBLE-datadir", "path": DATA}}}]
     ctl("/set", {"model_script": calls + [{"text": "READ-TURN-OVER"}]})
     before = len(chat_requests())
     say("what is the wifi password on this router?")
@@ -1038,7 +1050,7 @@ def check_router_secret_never_reaches_model():
         timed_out = str(exc)
     settle(1.5)
     # The point first, so a turn that stalls after a secret went out still says that it went out.
-    leaked = model_text_with(list(SECRET_CANARIES.values()))
+    leaked = model_text_with(list(SECRET_CANARIES.values()) + markers)
     need(not leaked, "a router secret was sent to the model: %s" % sorted({n for _, n in leaked}))
     results = [text_of(m) for req in chat_requests() for m in req["body"].get("messages", []) if m.get("role") == "tool"]
     need(not timed_out, "%s: %d of %d requests to the model; last tool results: %s" % (
@@ -1046,6 +1058,7 @@ def check_router_secret_never_reaches_model():
     need(any("TERMINAL-RAN" in t for t in results),
          "measured nothing: the terminal tool never ran; tool results: " + " | ".join(t[:100] for t in results[:4]))
     need(any("localhost" in t for t in results), "measured nothing: read_file could not read /etc/hosts either")
+    need(any("search-control.txt" in t for t in results), "measured nothing: search_files did not find the control file in the data directory")
     return "terminal, read_file and search_files asked %d times for %d planted secrets; none reached the model" % (
         len(calls) - 1, len(files))
 
