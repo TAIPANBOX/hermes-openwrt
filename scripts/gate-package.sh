@@ -212,6 +212,15 @@ svc_fail() {
 	sed 's/\x1b\[[0-9;]*m//g' /tmp/svc.log | tail -8
 	fail "[6/16] check_service_command_runs" "$1"
 }
+# ujail connects to ubus before anything else; a router always has ubusd, this container has it
+# once it is started here.
+mkdir -p /var/run/ubus
+ubusd >/tmp/ubusd.log 2>&1 &
+i=0
+until ubus list >/dev/null 2>&1; do
+	i=$((i + 1)); [ "$i" -lt 20 ] || { cat /tmp/ubusd.log; fail "[6/16] check_service_command_runs" "ubusd did not start, so the sandbox cannot either"; }
+	sleep 1
+done
 # Since 0.21.5-r15 the process procd started is ujail, OpenWrt's sandbox, and the gateway is a
 # descendant of it, so the gateway is found among the service's processes by upstream's own entry
 # point, not taken to be the process procd started.

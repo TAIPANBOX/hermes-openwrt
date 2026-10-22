@@ -1024,15 +1024,28 @@ def check_router_secret_never_reaches_model():
               for d in ("/etc", "/var/run", "/overlay")]
     calls += [{"tool_call": {"name": "read_file", "arguments": {"path": "/etc/hosts"}}}]
     ctl("/set", {"model_script": calls + [{"text": "READ-TURN-OVER"}]})
+    before = len(chat_requests())
     say("what is the wifi password on this router?")
-    wait_for(answered("READ-TURN-OVER"), "the agent to finish its reads", timeout=240)
+    # Done when the model has been asked once per scripted reply and nothing is in flight: each tool
+    # result comes back to it in the next request. Not the bot's last message, which Telegram may
+    # carry as an edit of an earlier one.
+    want = before + len(calls) + 1
+    try:
+        wait_for(lambda: len(chat_requests()) >= want and state()["model_inflight"] == 0,
+                 "the agent to finish its reads", timeout=300)
+        timed_out = ""
+    except Fail as exc:
+        timed_out = str(exc)
     settle(1.5)
+    # The point first, so a turn that stalls after a secret went out still says that it went out.
+    leaked = model_text_with(list(SECRET_CANARIES.values()))
+    need(not leaked, "a router secret was sent to the model: %s" % sorted({n for _, n in leaked}))
     results = [text_of(m) for req in chat_requests() for m in req["body"].get("messages", []) if m.get("role") == "tool"]
+    need(not timed_out, "%s: %d of %d requests to the model; last tool results: %s" % (
+        timed_out, len(chat_requests()) - before, want - before, " | ".join(t[:90] for t in results[-3:])))
     need(any("TERMINAL-RAN" in t for t in results),
          "measured nothing: the terminal tool never ran; tool results: " + " | ".join(t[:100] for t in results[:4]))
     need(any("localhost" in t for t in results), "measured nothing: read_file could not read /etc/hosts either")
-    leaked = model_text_with(list(SECRET_CANARIES.values()))
-    need(not leaked, "a router secret was sent to the model: %s" % sorted({n for _, n in leaked}))
     return "terminal, read_file and search_files asked %d times for %d planted secrets; none reached the model" % (
         len(calls) - 1, len(files))
 

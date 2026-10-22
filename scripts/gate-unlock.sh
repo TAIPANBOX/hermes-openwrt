@@ -288,7 +288,21 @@ configure() {
 # The init's own start_service, under the same stubbed procd functions gate-package.sh
 # uses. What procd would have been handed lands in /tmp/argv and /tmp/envv, what the init
 # said in /tmp/start.log, and the status is the init's.
+# ujail, which the gateway has started in since 0.21.5-r15, connects to ubus before anything else,
+# as a router's programs may: a router always has ubusd, this container has it once it is started.
+# unlock_down stops it with the rest after every check, so each check starts its own.
+ubus_up() {
+	ubus list >/dev/null 2>&1 && return 0
+	mkdir -p /var/run/ubus
+	ubusd >/tmp/ubusd.log 2>&1 &
+	i=0
+	until ubus list >/dev/null 2>&1; do
+		i=$((i + 1)); [ "$i" -lt 20 ] || { cat /tmp/ubusd.log; fail "ubusd did not start, so the sandbox cannot either"; }
+		sleep 1
+	done
+}
 start_instance() {
+	ubus_up
 	rm -f /tmp/argv /tmp/envv
 	cat > /tmp/fakeprocd.sh <<'STUB'
 . /lib/functions.sh

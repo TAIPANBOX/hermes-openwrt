@@ -354,7 +354,9 @@ class RuntimeTests(unittest.TestCase):
             oom_before = 0
         command = 'echo $$ > ' + str(group / "cgroup.procs") + '; exec ' + shlex.join(wrapper)
         child = subprocess.run(["sh", "-c", command], env=env, check=False, capture_output=True, text=True, timeout=30)
-        self.assertEqual(child.returncode, -9, child.stdout + child.stderr)
+        # Killed by SIGKILL: the wrapper's own process, or, since r15, inside the sandbox, whose first
+        # process reports a gateway killed by a signal as 128 plus the signal, which ujail passes on.
+        self.assertIn(child.returncode, (-9, 128 + 9), child.stdout + child.stderr)
         self.assertEqual((group / "memory.max").read_text().strip(), "67108864")
         self.assertEqual((group / "memory.swap.max").read_text().strip(), "0")
         events = dict(line.split() for line in (group / "memory.events").read_text().splitlines())
