@@ -154,12 +154,16 @@ jobs:
       # whole of network, and before it writes any change policy. Since 0.21.5-r13 it is 8eff834,
       # the merge of the fork's PR #6 (version 0.5.0.4): apk_add installs by name from the official
       # OpenWrt feeds only, and `status` reports apk_add_official_feed_only, which the init asks for
-      # before it writes the package policy. Before them, baf6669 (v0.5.0-taipanbox.1).
+      # before it writes the package policy. Since 0.21.5-r16 it is 6e7ee27, the merge of the fork's
+      # PR #9 (version 0.5.0.5): high-impact changes of a client with an approval section are held
+      # for the owner's approval of that one change, and `status` reports actions_held_for_approval,
+      # which the init asks for before it writes any change policy. Before them, baf6669
+      # (v0.5.0-taipanbox.1).
       - uses: actions/checkout@v4
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: 8eff8349f4dcf34c12b309dc0655300680cb3d19
+          ref: 6e7ee27d78c5afd1c37488b1a42fcd0b968fa383
           path: openwrt-mcp-src
       - uses: actions/setup-go@v5
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)

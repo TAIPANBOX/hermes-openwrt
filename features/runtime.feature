@@ -292,6 +292,41 @@ Feature: What is set on the router is what the gateway runs with
     And upstream's own filter registers neither of them and still registers the read tools
     # -> check_mcp_entry_hides_exec_and_wg_new_client_in_every_profile
 
+  Scenario: the model is never offered the owner's approval tools, and the plugin may tell the agent the owner's answer
+    Given the package writes the router MCP connection in any profile
+    Then the entry excludes action_list, action_approve and action_reject, and upstream's own filter keeps action_status and action_withdraw
+    And in the owner profile the unlock plugin is allowed to start a turn for the agent, the operator's own settings for it kept, and another profile takes that back
+    # -> check_mcp_entry_hides_the_approvers_tools_and_lets_the_plugin_tell_the_agent
+
+  Scenario: the agent is told what a held change means, or that nobody approves one
+    Given the owner profile with a factor and the router MCP connection
+    When someone is chosen to approve held changes
+    Then the note says such a call answers HELD, not to retry it, ask for a code or find another way, and to confirm once told it was applied
+    When nobody is chosen
+    Then the note says such changes are refused and that the owner chooses who approves in LuCI
+    And with no factor or no connection it says neither, and a value the start never passes is refused
+    # -> check_owner_note_says_what_a_held_change_means
+
+  Scenario: the owner's client is paired beside the agent's and the policies name its approval
+    When the init sets up the agent's way to the router
+    Then hermes-<agent>-owner is paired into a root-only token file of its own, and openwrt-mcp's approval section names it as the approver, with the PIN and a code
+    And both change policies name that section, a reboot is granted only to wait for approval and only when someone can approve, and openwrt-mcp's own parser loads it all
+    And a start that changes nothing writes nothing and keeps both tokens
+    # -> check_owner_client_is_paired_and_the_policies_name_its_approval
+
+  Scenario: the owner's token goes to the gateway alone
+    When the wrapper starts the gateway with the owner's token file named
+    Then the gateway is handed the owner's token and the agent's, and neither helper run before it is handed the owner's, nor the gateway its path
+    And a missing owner's token leaves the gateway starting, with one line, and without it
+    # -> check_wrapper_hands_the_owner_token_to_the_gateway_alone
+
+  Scenario: the plugin takes the owner's token out of the environment and speaks from the daemon's words
+    When the unlock plugin registers
+    Then the owner's token is no longer in the environment, and a process started afterwards does not have it
+    And the plugin asks openwrt-mcp with the owner's token, never the agent's
+    And /approve, /reject and an approval's PIN and code are told apart from an unlock, and what the owner and the agent are told comes from the daemon's answer, the confirm token included
+    # -> check_plugin_takes_the_owner_token_and_answers_from_the_daemons_words
+
   Scenario: the model is offered the package install tool only when the owner's opt-in is in force, and told how to use it
     Given the owner profile with a factor, the router MCP connection, and the package policy written at the start
     Then the model is offered apk_add, and the note in the chat's and a scheduled job's prompt says to install only official packages the owner asked for, to run a dry run first and tell the owner what it would install and how much space it takes, and never to suggest another feed

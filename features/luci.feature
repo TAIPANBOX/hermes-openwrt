@@ -281,6 +281,20 @@ Feature: The web page manages the agent and never hands a key back
     And outside the owner profile there is no switch
     # -> check_security_packages_switch_needs_a_factor
 
+  Scenario: the approver of high-impact changes is one of the Telegram users allowed to talk to the agent
+    Given the owner profile, with Telegram on and two ids allowed
+    When the owner chooses who approves from the Security page
+    Then only one of the allowed ids, or none, is written, procd is told once, and anything else is refused with the file unchanged
+    And the status says who approves and whether an approval could work, which needs a PIN and a phone
+    And none means nobody with two ids allowed, and the one id when only one is allowed, and with Telegram off there is no choice
+    # -> check_security_approver_chosen_only_from_the_allowed_ids
+
+  Scenario: the page offers only the allowed Telegram ids as approvers and says when approving cannot work
+    When the Security page shows who approves high-impact changes
+    Then it offers none and the allowed ids, sends only one of those, and says so when the router refuses
+    And it says that approving needs a PIN and a phone when one is missing, and that Telegram is needed when no id is allowed
+    # -> check_security_approver_offered_only_from_the_allowed_ids
+
   Scenario: outside the owner profile the Security calls refuse
     Given the profile is root, admin, assistant or nothing the service accepts
     When a PIN is set or cleared, a phone is added or activated, a factor is chosen, or package installs are switched

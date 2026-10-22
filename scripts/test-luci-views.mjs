@@ -333,7 +333,8 @@ check('check_profile_field_defaults_to_owner', async () => {
 // outside the owner profile, or with nothing to talk to, the page offers nothing.
 
 const READY = { applies: true, profile: 'owner', mcp_ok: true, paired: true, factor: 'none', factor_ready: true,
-	window: '15m', max_failures: 5, lockout: '15m', pin_set: false, totp_enrolled: false, totp_pending: false, packages: 'off' };
+	window: '15m', max_failures: 5, lockout: '15m', pin_set: false, totp_enrolled: false, totp_pending: false, packages: 'off',
+	approver_id: '', approver_choices: [], approver: '', approvals_ready: false };
 const statusOf = (over) => ({ ...READY, ...over });
 const clickOf = (w, id) => { const n = byId(w.page, id); assert(n, `the page has no #${id}`); return n; };
 const press = (w, id) => clickOf(w, id).attrs.click({ currentTarget: {}, target: {} });
@@ -646,6 +647,57 @@ check('check_security_packages_switch_needs_a_factor', async () => {
 	w = world({ 'hermes.security_status': statusOf({ applies: false, profile: 'root' }) });
 	await open(w, 'security');
 	assert(!box(w), 'the root profile page offers the package switch');
+});
+
+check('check_security_approver_offered_only_from_the_allowed_ids', async () => {
+	// Who approves a high-impact change (0.21.5-r16): one of the Telegram ids allowed to talk to the
+	// agent, or none, which leaves it to the one allowed id when there is exactly one. The page offers
+	// those and nothing else, sends only one of them, and says when an approval could not work.
+	const sel = (w) => byId(w.page, 'hermes-sec-approver');
+	const sent = (w) => w.calls.filter(c => c.method === 'hermes.set_approver').map(c => c.args[0]);
+	const two = { approver_choices: ['111', '222'], approver_id: '', approver: '' };
+
+	let w = world({ 'hermes.security_status': statusOf(two), 'hermes.set_approver': { ok: true } });
+	await open(w, 'security');
+	assert(sel(w), 'the page has no #hermes-sec-approver');
+	const offered = sel(w).children.map(o => o.attrs.value);
+	assert(JSON.stringify(offered) === '["","111","222"]', `the page offers ${JSON.stringify(offered)}, not none and the two allowed ids`);
+	assert(/refused/i.test(textOf(sel(w).children[0])), 'with two ids allowed, choosing none is not said to refuse high-impact changes');
+	// A value a script puts in the select goes nowhere.
+	sel(w).value = '333';
+	await press(w, 'hermes-sec-approver-save');
+	assert(!sent(w).length, `an id that is not allowed was sent: ${JSON.stringify(sent(w))}`);
+	assert(w.notes.some(n => n.kind === 'danger'), 'an id that is not allowed was refused without a word');
+	sel(w).value = '222';
+	await press(w, 'hermes-sec-approver-save');
+	assert(JSON.stringify(sent(w)) === '["222"]', `choosing 222 sent ${JSON.stringify(sent(w))}`);
+	assert(w.reloads === 1, 'a saved choice did not reload the page');
+
+	// One id allowed: none means that one, and the page says so.
+	w = world({ 'hermes.security_status': statusOf({ approver_choices: ['111'], approver: '111' }) });
+	await open(w, 'security');
+	assert(/111/.test(textOf(sel(w).children[0])) && /automatically/.test(textOf(sel(w).children[0])),
+		'with one id allowed, none is not said to mean that one');
+	// An approver that cannot approve yet: the page says what is missing.
+	assert(/PIN/.test(textOf(byId(w.page, 'hermes-sec-approver-section'))) && /phone/.test(textOf(byId(w.page, 'hermes-sec-approver-section'))),
+		'an approver without a PIN and a phone is not told that approving needs both');
+	w = world({ 'hermes.security_status': statusOf({ approver_choices: ['111'], approver: '111', approvals_ready: true, pin_set: true, totp_enrolled: true }) });
+	await open(w, 'security');
+	assert(!/is not set up yet/.test(textOf(byId(w.page, 'hermes-sec-approver-section'))), 'a ready approver is told something is missing');
+
+	// No Telegram, no ids: nothing to choose, and why.
+	w = world({ 'hermes.security_status': statusOf(), 'hermes.set_approver': { ok: true } });
+	await open(w, 'security');
+	assert(sel(w).disabled && byId(w.page, 'hermes-sec-approver-save').disabled, 'with no allowed id the approver can still be saved');
+	assert(/Telegram/.test(textOf(byId(w.page, 'hermes-sec-approver-section'))), 'with no allowed id the page does not say Telegram is needed');
+
+	// What the router refuses is shown, and nothing reloads.
+	w = world({ 'hermes.security_status': statusOf(two), 'hermes.set_approver': { ok: false, error: 'the router said no' } });
+	await open(w, 'security');
+	sel(w).value = '111';
+	await press(w, 'hermes-sec-approver-save');
+	assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('the router said no')), 'a refused choice was not reported');
+	assert(w.reloads === 0, 'a refused choice reloaded the page');
 });
 
 for (const [name, fn] of Object.entries(checks)) {

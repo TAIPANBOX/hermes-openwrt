@@ -64,6 +64,7 @@ cp /usr/libexec/hermes-runtime-check /tmp/product/runtime-check.py
 cp /usr/libexec/hermes-drop /tmp/product/hermes-drop
 cp /usr/bin/hermes /tmp/product/hermes-launcher
 cp /usr/lib/hermes-agent/hermes-profile /tmp/product/hermes-profile
+cp /usr/lib/hermes-agent/site-packages/openwrt_unlock.py /tmp/product/openwrt_unlock.py
 # Only from r9 on; a missing helper fails its own test rather than the whole gate.
 [ -e /usr/sbin/hermes-login ] && cp /usr/sbin/hermes-login /tmp/product/hermes-login || true
 export PRODUCT_FILES=/tmp/product
