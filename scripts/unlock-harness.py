@@ -23,6 +23,7 @@ and openwrt-mcp wrote, with the gateway's logging at DEBUG.
   unlock-harness.py fakes                 serve the two stand-ins and a control port (foreground)
   unlock-harness.py ready                 wait until the gateway is polling the stand-in Telegram
   unlock-harness.py factor <factor>       set the owner's PIN and/or enrol the phone for it
+  unlock-harness.py code                  the code the enrolled phone shows now
   unlock-harness.py check_<name>          run one scenario; the last line is PASS or FAIL
 """
 import base64, calendar, hashlib, hmac, http.server, json, os, re, socketserver, struct, subprocess, sys, threading, time
@@ -35,6 +36,8 @@ OWNER, STRANGER = 4242, 9999
 # by chance; the code is whatever the phone would say now.
 PIN, WRONG_PIN = "73918260", "11223344"
 TOKEN_FILE = "/etc/hermes-agent/router-mcp.token"
+# The owner's client (0.21.5-r16): the only one that opens hermes-main's window or approves.
+OWNER_TOKEN_FILE = "/etc/hermes-agent/router-mcp-owner.token"
 DATA = "/srv/hermes"
 CHANGE = {"changes": [{"config": "system", "section": "@system[0]", "option": "description", "value": "changed-by-gate"}]}
 # Where a PIN or a code could be written down: the agent's own directory (its logs, its
@@ -121,12 +124,14 @@ class FakeTelegram(Base):
             return self.send_json({"ok": True, "result": pending})
         if method == "deleteMessage" and S.delete_delay:
             time.sleep(S.delete_delay)
-        if method != "setMyCommands":
-            record("tg_calls.jsonl", {"t": started, "t_done": time.time(), "method": method, "params": params})
+        mid = None
         if method in ("sendMessage", "sendPhoto", "sendDocument", "sendVoice", "sendAudio", "editMessageText"):
             with S.cond:
                 S.next_message_id += 1
                 mid = S.next_message_id
+        if method != "setMyCommands":
+            record("tg_calls.jsonl", {"t": started, "t_done": time.time(), "method": method, "params": params, "mid": mid})
+        if mid is not None:
             chat = params.get("chat_id")
             try:
                 chat = int(chat)
@@ -234,6 +239,21 @@ class Control(Base):
                     S.updates.append({"update_id": uid, "message": msg})
                 S.cond.notify_all()
             return self.send_json({"update_id": uid, "message_id": mid, "chat_id": chat})
+        if path == "/press":
+            # A press of an inline button under a message the bot sent: a callback_query update.
+            with S.cond:
+                S.next_update_id += 1
+                uid = S.next_update_id
+                user = int(args.get("user_id", OWNER))
+                chat = int(args.get("chat_id", user))
+                S.updates.append({"update_id": uid, "callback_query": {
+                    "id": "cbq%d" % uid, "chat_instance": "gate", "data": args["data"],
+                    "from": {"id": user, "is_bot": False, "first_name": "someone"},
+                    "message": {"message_id": int(args["message_id"]), "date": int(time.time()),
+                                "chat": {"id": chat, "type": args.get("chat_type", "private")},
+                                "from": S.bot, "text": args.get("text", "")}}})
+                S.cond.notify_all()
+            return self.send_json({"update_id": uid})
         if path == "/set":
             for key in ("model_delay", "delete_delay"):
                 if key in args:
@@ -336,9 +356,9 @@ def answered(fragment, after=0):
     return look
 
 
-def mcp(tool, args=None):
-    """(allowed, text), as the model's own token would be answered."""
-    token = open(TOKEN_FILE).read().strip()
+def mcp(tool, args=None, token_file=TOKEN_FILE):
+    """(allowed, text), as the model's own token would be answered, or another client's."""
+    token = open(token_file).read().strip()
     r = subprocess.run(["python3", "/tmp/mcpcall.py", token, tool, json.dumps(args or {})], capture_output=True, text=True, timeout=60)
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
@@ -593,7 +613,10 @@ def check_wrong_attempts_lock_out():
     say("/unlock %s %s" % (PIN, totp(secret)))
     reply = wait_for(answered("Unlocking is closed until", n), "the lockout to be reported in the chat", timeout=20)
     need(locked(), "the right PIN and code opened changes after five wrong tries")
-    ok, text = mcp("mfa_unlock", {"pin": PIN, "code": totp(secret)})
+    if os.path.exists(OWNER_TOKEN_FILE):
+        ok, text = mcp("mfa_unlock", {"client": "hermes-main", "pin": PIN, "code": totp(secret)}, OWNER_TOKEN_FILE)
+    else:  # a package from before r16, which pairs no owner's client
+        ok, text = mcp("mfa_unlock", {"pin": PIN, "code": totp(secret)})
     m = re.search(r"locked out until (\S+)", text)
     need(not ok and m, "the daemon did not say it is locked out: " + text[:160])
     import datetime
@@ -990,6 +1013,163 @@ def check_agent_not_told_after_window_ends():
     return "inside a twenty second window the agent was told it was open; once the window ran out, with nobody sending /lock, it was not"
 
 
+# ============================================================== held changes, approved in the chat
+
+PORTFWD = {"changes": [
+    {"config": "firewall", "section": "gatefwd", "type": "redirect"},
+    {"config": "firewall", "section": "gatefwd", "option": "src", "value": "wan"},
+    {"config": "firewall", "section": "gatefwd", "option": "src_dport", "value": "2222"},
+    {"config": "firewall", "section": "gatefwd", "option": "proto", "value": "tcp"},
+    {"config": "firewall", "section": "gatefwd", "option": "dest", "value": "lan"},
+    {"config": "firewall", "section": "gatefwd", "option": "dest_ip", "value": "192.168.77.20"},
+    {"config": "firewall", "section": "gatefwd", "option": "dest_port", "value": "22"}]}
+HEADLINE = "OPENS THE ROUTER TO THE INTERNET: tcp 2222 from any address to 192.168.77.20:22"
+REAL_FIREWALL = """config defaults
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+
+config zone
+	option name 'lan'
+	list network 'lan'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'
+
+config zone
+	option name 'wan'
+	list network 'wan'
+	list network 'wan6'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	option masq '1'
+"""
+
+
+def cards():
+    """The cards the bot sent the owner: (message id, text, the buttons' callback data)."""
+    out = []
+    for c in jsonl("tg_calls.jsonl"):
+        p = c["params"]
+        if c["method"] != "sendMessage" or not str(p.get("text", "")).startswith("Router change waiting"):
+            continue
+        markup = p.get("reply_markup")
+        if isinstance(markup, str):
+            try:
+                markup = json.loads(markup)
+            except Exception:
+                markup = {}
+        data = [b.get("callback_data") for row in (markup or {}).get("inline_keyboard", []) for b in row]
+        out.append((c.get("mid"), p["text"], data, str(p.get("chat_id"))))
+    return out
+
+
+def edits():
+    return [(str(c["params"].get("message_id")), c["params"].get("text", "")) for c in jsonl("tg_calls.jsonl")
+            if c["method"] == "editMessageText"]
+
+
+def propose_port_forward():
+    """The agent proposes the port forward in the owner's chat; the card the owner gets."""
+    with open("/etc/config/firewall", "w") as f:
+        f.write(REAL_FIREWALL)
+    ctl("/set", {"model_script": [{"tool_call": {"name": "mcp__openwrt__uci_apply", "arguments": PORTFWD}},
+                                  {"text": "That waits for your approval."}]})
+    say("please forward port 2222 from the internet to my NAS's ssh")
+    card = wait_for(lambda: cards(), "the card of the held change to reach the owner", timeout=90)[0]
+    need(card[3] == str(OWNER), "the card went to %s, not to the owner %s" % (card[3], OWNER))
+    need(HEADLINE in card[1], "the card does not say what the change opens: " + card[1][:300])
+    need(len(card[2]) == 2 and card[2][0].startswith("owa:") and card[2][1].startswith("owr:"),
+         "the card has no Approve and Reject buttons: %s" % card[2])
+    need(subprocess.run(["uci", "-q", "get", "firewall.gatefwd"], capture_output=True).returncode != 0,
+         "the held port forward is on the router before any approval")
+    tools = [m.get("content", "") for req in chat_requests() for m in req["body"].get("messages", []) if m.get("role") == "tool"]
+    need(any(re.search(r"\bHELD [A-Z]{5} until", t) for t in tools), "the agent was not told HELD: " + " | ".join(t[:100] for t in tools[-2:]))
+    return card
+
+
+def told_agent(fragment, timeout=60):
+    """The turn the plugin started for the agent, found in the requests the model was sent."""
+    return wait_for(lambda: [t for t in last_user_texts() if fragment in t], "the agent to be told: " + fragment, timeout=timeout)[0]
+
+
+def check_held_change_approved_from_the_chat():
+    gateway_is_wired()
+    secret = totp_secret()
+    mid, text, data, chat = propose_port_forward()
+    aid = data[0].split(":")[1]
+    # an /approve of a change that does not wait restates nothing and asks for nothing
+    n = len(bot_sent())
+    say("/approve ZZZZZ")
+    wait_for(answered("No change ZZZZZ is waiting", n), "the answer to /approve of nothing", timeout=20)
+    n = len(bot_sent())
+    ctl("/press", {"data": data[0], "message_id": mid})
+    restated = wait_for(answered("To approve " + aid, n), "Approve to restate the change", timeout=20)
+    need(HEADLINE in restated, "Approve did not restate what openwrt-mcp holds: " + restated[:300])
+    calls = state()["model_calls"]
+    code = totp(secret)
+    n = len(bot_sent())
+    sent = say("%s %s" % (PIN, code))
+    wait_for(answered("Approved and applied", n), "the approval to be answered", timeout=40)
+    need((str(sent["chat_id"]), str(sent["message_id"])) in deleted(), "the message with the PIN and the code was not deleted")
+    got = subprocess.run(["uci", "-q", "get", "firewall.gatefwd.src"], capture_output=True, text=True).stdout.strip()
+    need(got == "wan", "approved, but the port forward is not on the router (%r)" % got)
+    wait_for(lambda: [e for e in edits() if e[0] == str(mid) and "Approved and applied" in e[1]], "the card to say it was applied", timeout=30)
+    turn = told_agent("The owner approved " + aid)
+    need("uci_confirm with token" in turn, "the agent is not told to check and confirm: " + turn[:300])
+    need(PIN not in turn and code not in turn, "the agent's turn holds the PIN or the code")
+    approvals = [a for a in audit() if a.get("tool") == "action_approve"]
+    need(approvals and approvals[-1].get("client") == "hermes-main-owner", "the approval was not made by the owner's client: %s" % approvals[-1:])
+    settle()
+    no_trace([PIN, code], "the PIN or the code")
+    return "the card reached the owner with Approve and Reject, Approve restated the headline, the PIN and code were deleted, the port forward was applied, the card said so, the agent was told to check and confirm; neither secret in a request or a file"
+
+
+def check_held_change_rejected_from_the_chat():
+    gateway_is_wired()
+    mid, text, data, chat = propose_port_forward()
+    aid = data[0].split(":")[1]
+    before = open("/etc/config/firewall").read()
+    # a stranger's press does nothing
+    ctl("/press", {"data": data[1], "message_id": mid, "user_id": STRANGER, "chat_id": STRANGER})
+    settle(3.0)
+    need(not [e for e in edits() if e[0] == str(mid)], "a stranger's press changed the card")
+    ctl("/press", {"data": data[1], "message_id": mid})
+    wait_for(lambda: [e for e in edits() if e[0] == str(mid) and "Rejected" in e[1]], "the card to say it was rejected", timeout=30)
+    need(open("/etc/config/firewall").read() == before, "a rejected change touched the firewall")
+    turn = told_agent("The owner rejected " + aid)
+    need("Do not propose it again" in turn, "the agent is not told to leave it: " + turn[:200])
+    rejects = [a for a in audit() if a.get("tool") == "action_reject"]
+    need(rejects and "pin" not in json.dumps(rejects[-1].get("args") or {}), "the rejection asked for a factor, or was not made: %s" % rejects[-1:])
+    return "a stranger's press did nothing; the owner's Reject, one tap and no code, left the firewall as it was, the card said so and the agent was told not to propose it again"
+
+
+def check_owner_token_never_reaches_the_agent():
+    gateway_is_wired()
+    owner = open(OWNER_TOKEN_FILE).read().strip()
+    need(len(owner) > 20, "measured nothing: no owner's token on the router")
+    probe = ("env; echo ENV-DONE; tr '\\0' '\\n' < /proc/self/environ; echo SELF-DONE; "
+             "for p in /proc/[0-9]*; do tr '\\0' '\\n' < $p/environ 2>/dev/null; done; echo ALL-DONE; "
+             "cat " + OWNER_TOKEN_FILE + " 2>&1; echo FILE-DONE")
+    ctl("/set", {"model_script": [{"tool_call": {"name": "terminal", "arguments": {"command": probe}}}, {"text": "done"}]})
+    before = len(chat_requests())
+    say("what is in your environment?")
+    wait_for(lambda: len(chat_requests()) >= before + 2 and state()["model_inflight"] == 0, "the terminal to have run", timeout=120)
+    settle(1.5)
+    results = [m.get("content", "") for req in chat_requests() for m in req["body"].get("messages", []) if m.get("role") == "tool"]
+    ran = [r for r in results if "ALL-DONE" in r]
+    need(ran, "measured nothing: the terminal never ran the probe: " + " | ".join(r[:100] for r in results[-2:]))
+    need("OPENWRT_MCP_TOKEN=" in ran[-1] or "TERMINAL" in ran[-1] or "HERMES" in ran[-1],
+         "measured nothing: the probe saw no environment at all")
+    leaked = model_text_with([owner]) or [r for r in results if owner in r or "OPENWRT_MCP_OWNER_TOKEN" in r]
+    need(not leaked, "the owner's token reached the agent")
+    # Not vacuous: the plugin that holds it still answers the owner.
+    reply = unlock("/unlock " + PIN)
+    need(not locked(), "the owner's unlock did not work, so the token was not with the plugin either: " + reply)
+    return "the agent's terminal read its environment, every process's it could, and the token file: no owner's token, no variable naming it; the plugin's /unlock still worked"
+
+
 # ======================================================================================== entry point
 
 # ================================================================== router secrets never reach the model
@@ -1078,6 +1258,9 @@ def main(argv):
             print("FAIL: " + str(exc))
             return 1
         print("PASS: the gateway is polling")
+        return 0
+    if cmd == "code":
+        print(totp(totp_secret()))
         return 0
     if cmd == "factor":
         try:

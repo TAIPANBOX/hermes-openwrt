@@ -25,7 +25,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_packages_written_only_with_a_factor check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_packages_written_only_with_a_factor check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_chosen_only_from_the_allowed_ids check_security_approver_offered_only_from_the_allowed_ids check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -484,7 +484,7 @@ want "$st" factor none; want "$st" factor_ready true; want "$st" window 15m; wan
 want "$st" pin_set false; want "$st" totp_enrolled false; want "$st" totp_pending false; want "$st" packages off
 # Exactly these facts and no other key: a debugging field added later is the way a secret gets in.
 keys_of() { ( set +u; . /usr/share/libubox/jshn.sh; json_load "$1"; json_get_keys k; echo "$k" | tr ' ' '\n' | sort | tr '\n' ' ' ); }
-[ "$(keys_of "$st")" = "applies factor factor_ready lockout max_failures mcp_ok packages paired pin_set profile totp_enrolled totp_pending window " ] \
+[ "$(keys_of "$st")" = "applies approvals_ready approver approver_choices approver_id factor factor_ready lockout max_failures mcp_ok packages paired pin_set profile totp_enrolled totp_pending window " ] \
 	|| sf "the reply carries other keys than the facts: $(keys_of "$st")"
 # It follows what openwrt-mcp holds.
 SECRETPIN=73195028
@@ -743,6 +743,51 @@ rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev
 uci -q delete hermes.security.packages; uci set hermes.security.factor=none; uci commit hermes
 echo "PASS check_security_packages_written_only_with_a_factor"
 
+# ---- 18d. who approves a high-impact change: one of the allowed Telegram ids, or none ----
+# openwrt-mcp holds a high-impact change until that one change is approved in Telegram with the PIN
+# and a code (0.21.5-r16). The approver is one of the ids allowed to talk to the agent, since the
+# plugin answers no one else; an id that is not one could never approve, and is refused. It is
+# written the way set_factor writes, and the status tells what is in force and whether it can work.
+ap() { fail check_security_approver_chosen_only_from_the_allowed_ids "$1"; }
+$MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || ap "could not pair"
+uci set hermes.main.profile=owner; uci set hermes.telegram.enabled=1; { uci -q delete hermes.telegram.allow_user_id || true; }
+uci add_list hermes.telegram.allow_user_id=111; uci add_list hermes.telegram.allow_user_id=222
+{ uci -q delete hermes.security.approver_id || true; }; uci commit hermes
+service_standin check_security_approver_chosen_only_from_the_allowed_ids
+sa_call() { ubus call hermes set_approver "{\"approver_id\":\"$1\"}" 2>&1; }
+ap_get() { ubus call hermes security_status 2>/dev/null | jsonfilter -e "@.$1"; }
+[ "$(ap_get approver)" = "" ] || ap "with two ids allowed and none chosen the approver is '$(ap_get approver)', not nobody"
+[ "$(ubus call hermes security_status | jsonfilter -e '@.approver_choices[*]' | tr '\n' ' ')" = "111 222 " ] || ap "the choices are not the two allowed ids"
+before=$(md5sum < /etc/config/hermes)
+for v in 333 abc '$(id)' '111;reboot' ' 111' -1; do
+	out=$(sa_call "$v"); echo "$out" | grep -q '"ok": false' || { echo "$out"; ap "approver '$v' was accepted"; }
+done
+sleep 1
+[ "$(md5sum < /etc/config/hermes)" = "$before" ] || ap "a refused set_approver changed /etc/config/hermes"
+[ "$(hermes_events)" = 0 ] || ap "a refused set_approver told procd the config changed"
+rm -f /tmp/service-events
+out=$(sa_call 222); echo "$out" | grep -q '"ok": true' || { echo "$out"; ap "an allowed id was refused"; }
+[ "$(uci -q get hermes.security.approver_id)" = 222 ] || ap "222 was answered ok and not written"
+i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+sleep 1; [ "$(hermes_events)" = 1 ] || ap "one choice told procd $(hermes_events) times that hermes changed, not once"
+[ "$(ap_get approver)" = 222 ] && [ "$(ap_get approver_id)" = 222 ] || ap "the status does not say 222 approves"
+[ "$(ap_get approvals_ready)" = false ] || ap "with no PIN and no phone an approval is reported as ready"
+printf '%s\n' 4821 | $MCP pin set hermes-main >/dev/null; $MCP mfa enrol hermes-main >/dev/null
+[ "$(ap_get approvals_ready)" = true ] || ap "with a PIN and a phone an approval is not reported as ready"
+# None: with two allowed it is nobody; with one allowed, that one.
+out=$(sa_call ''); echo "$out" | grep -q '"ok": true' || { echo "$out"; ap "none was refused"; }
+[ "$(ap_get approver)" = "" ] || ap "none with two allowed ids still names '$(ap_get approver)'"
+{ uci -q delete hermes.telegram.allow_user_id || true; }; uci add_list hermes.telegram.allow_user_id=111; uci commit hermes
+[ "$(ap_get approver)" = 111 ] || ap "none with one allowed id is not that id: '$(ap_get approver)'"
+# Telegram off: no choice at all, and an id is refused.
+uci set hermes.telegram.enabled=0; uci commit hermes
+[ -z "$(ubus call hermes security_status | jsonfilter -e '@.approver_choices[*]')" ] || ap "with Telegram off there are ids to choose"
+out=$(sa_call 111); echo "$out" | grep -q '"ok": false' || { echo "$out"; ap "an approver was accepted with Telegram off"; }
+service_standin_gone
+rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
+{ uci -q delete hermes.security.approver_id || true; }; { uci -q delete hermes.telegram.allow_user_id || true; }; uci commit hermes
+echo "PASS check_security_approver_chosen_only_from_the_allowed_ids"
+
 # ---- 19. outside the owner profile the Security calls refuse ----
 # The page says it offers nothing there, and that is the page. The backend is what a script, an
 # old tab or a hand-made request reaches, and in the root and assistant profiles the agent has no
@@ -828,7 +873,7 @@ CONTAINER
 # (LuCI then does not reload), and an old message is not shown.
 echo "-- the views, on the installed files --"
 docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
-	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_offered_only_from_the_allowed_ids
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

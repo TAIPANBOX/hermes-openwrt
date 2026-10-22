@@ -19,3 +19,16 @@ try:
 except Exception as e:  # noqa: BLE001 -- any failure means the keys would stay readable
     sys.stderr.write("hermes-gateway: cannot make the gateway non-dumpable (%s); not starting\n" % e)
     raise SystemExit(1)
+
+# The owner's client token (0.21.5-r16) is for the unlock plugin alone. It is taken out of the
+# environment here, before any of upstream's code runs, so no process the gateway starts inherits it
+# whatever starts first, and the plugin takes it from this module, once.
+import os
+
+_owner_token = os.environ.pop("OPENWRT_MCP_OWNER_TOKEN", "")
+
+
+def take_owner_token():
+    global _owner_token
+    token, _owner_token = _owner_token, ""
+    return token

@@ -333,6 +333,32 @@ sec_refuse() {
 	json_init; json_add_boolean "ok" 0; json_add_string "error" "$1"; json_dump
 }
 
+# The Telegram ids allowed to talk to the agent, the numeric ones, as the init reads them; none
+# when Telegram is off, since approvals are given in its private chat.
+sec_allowed_ids() {
+	local v
+	[ "$(uci -q get hermes.telegram.enabled)" = 1 ] || return 0
+	for v in $(uci -q get hermes.telegram.allow_user_id); do
+		case "$v" in ''|*[!0-9]*) ;; *) echo "$v" ;; esac
+	done
+}
+
+# Who approves a high-impact change, the way the init decides it (0.21.5-r16): hermes.security.approver_id
+# when it is one of the allowed ids, or the one allowed id when exactly one is listed and none is
+# chosen; nobody otherwise, and a high-impact change is then refused.
+sec_approver() {
+	local set ids n
+	set=$(sec_conf approver_id '')
+	ids=$(sec_allowed_ids)
+	n=$(echo "$ids" | grep -c .)
+	if [ -n "$set" ]; then
+		echo "$ids" | grep -qx "$set" && echo "$set"
+		return 0
+	fi
+	[ "$n" = 1 ] && echo "$ids"
+	return 0
+}
+
 # The refusals every write shares, in the order that matters: not the owner profile, openwrt-mcp
 # not answering, the agent's client not paired yet. Answers and returns 1 when one applies.
 sec_gate() {
@@ -375,6 +401,20 @@ method_security_status() {
 	# actually given apk_add also takes a factor and an openwrt-mcp that installs official packages
 	# only, which the agent's own start decides and says in the log.
 	json_add_string  "packages" "$(sec_packages)"
+	# Who approves a high-impact change, held by openwrt-mcp until that one change is approved from
+	# Telegram with the PIN and an app code: the id as set, the ids it may be chosen from (Telegram
+	# ids are no secret: the hermes config, which this page may read, lists them), the one in force,
+	# and whether an approval could work now, which takes a PIN and an enrolled phone both.
+	local approver_id approver id
+	approver_id=$(sec_conf approver_id '')
+	case "$approver_id" in *[!0-9]*) approver_id=invalid ;; esac
+	approver=$(sec_approver)
+	json_add_string  "approver_id" "$approver_id"
+	json_add_array   "approver_choices"
+	for id in $(sec_allowed_ids); do json_add_string "" "$id"; done
+	json_close_array
+	json_add_string  "approver" "$approver"
+	json_add_boolean "approvals_ready" "$([ -n "$approver" ] && [ "$PIN_SET" = 1 ] && [ "$TOTP_ENROLLED" = 1 ] && echo 1 || echo 0)"
 	json_dump
 }
 
@@ -587,6 +627,24 @@ method_set_packages() {
 	json_init; json_add_boolean "ok" 1; json_add_string "packages" "$packages"; json_dump
 }
 
+# Who approves a high-impact change: one of the Telegram ids allowed to talk to the agent, or none
+# ('' leaves it to the init: the one allowed id when exactly one is listed). An id that is not
+# allowed could never approve, since the plugin answers only allowed ids, so it is refused.
+method_set_approver() {
+	local id
+	read -r MSG
+	id=$(msg_get approver_id)
+	MSG=
+	sec_gate || return 0
+	if [ -n "$id" ]; then
+		case "$id" in *[!0-9]*) sec_refuse "the approver is a numeric Telegram id"; return 0 ;; esac
+		sec_allowed_ids | grep -qx "$id" || {
+			sec_refuse "that id is not one of the Telegram users allowed to talk to the agent (Settings tab), so it could never approve"; return 0; }
+	fi
+	sec_save approver_id="$id" || return 0
+	json_init; json_add_boolean "ok" 1; json_add_string "approver_id" "$id"; json_dump
+}
+
 method_logs() {
 	local lines input
 	read -r input
@@ -707,6 +765,9 @@ list)
 	json_add_object "set_packages"
 		json_add_string "packages" ""
 	json_close_object
+	json_add_object "set_approver"
+		json_add_string "approver_id" ""
+	json_close_object
 	json_dump
 	;;
 call)
@@ -724,6 +785,7 @@ call)
 		enrol_activate)       method_enrol_activate ;;
 		set_factor)           method_set_factor ;;
 		set_packages)         method_set_packages ;;
+		set_approver)         method_set_approver ;;
 		*) json_init; json_add_string "error" "unknown method"; json_dump ;;
 	esac
 	;;

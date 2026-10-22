@@ -50,7 +50,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only check_agent_cannot_unlock_itself check_no_change_policy_without_held_capability check_high_impact_change_held_in_window check_held_change_approved_from_the_chat check_held_change_rejected_from_the_chat check_owner_token_never_reaches_the_agent'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -425,7 +425,17 @@ desc() { uci -q get 'system.@system[0].description'; }
 # The owner's PIN, set the way the owner does it.
 set_pin() { printf '%s\n' "$2" | openwrt-mcp pin set "$1" >/dev/null || fail "could not set a PIN for $1"; }
 TOKEN=/etc/hermes-agent/router-mcp.token
+# The owner's client (0.21.5-r16), which alone opens hermes-main's window and approves its held
+# changes: openwrt-mcp refuses hermes-main's own token an unlock.
+OWNER_TOKEN=/etc/hermes-agent/router-mcp-owner.token
 CHANGE='{"changes":[{"config":"system","section":"@system[0]","option":"description","value":"changed-by-gate"}]}'
+# The owner opens hermes-main's window: unlock_main '{"pin":"4821"}'. A package from before r16
+# pairs no owner's client, and there the agent's own token still unlocks; check_agent_cannot_unlock_itself
+# is what requires the owner's client to exist.
+unlock_main() {
+	if [ -s "$OWNER_TOKEN" ]; then mcp "$OWNER_TOKEN" mfa_unlock "{\"client\":\"hermes-main\",${1#\{}"
+	else mcp "$TOKEN" mfa_unlock "$1"; fi
+}
 
 # ======================================================================= the checks
 
@@ -904,7 +914,7 @@ check_unlock_tools_hidden_from_model() {
 	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
 	daemon_start
 	# Not vacuous: the daemon itself offers both, to any client.
-	python3 - <<'PY' || fail "openwrt-mcp does not list mfa_unlock and mfa_lock to begin with, so hiding them proves nothing"
+	python3 - <<'PY' || fail "openwrt-mcp does not list mfa_unlock, mfa_lock and the approver's tools to begin with, so hiding them proves nothing"
 import json, sys, urllib.request
 tok = open("/etc/hermes-agent/router-mcp.token").read().strip()
 def post(body, sid=None):
@@ -918,7 +928,7 @@ def post(body, sid=None):
 _, sid = post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "gate", "version": "0"}}})
 post({"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
 names = {t["name"] for t in post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, sid)[0]["result"]["tools"]}
-sys.exit(0 if {"mfa_unlock", "mfa_lock"} <= names else 1)
+sys.exit(0 if {"mfa_unlock", "mfa_lock", "action_list", "action_approve", "action_reject"} <= names else 1)
 PY
 	probe_tools
 	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
@@ -927,7 +937,9 @@ PY
 	echo "$names" | grep -q 'mcp__openwrt__ubus_call' || { echo "$names"; cat /srv/hermes/probe.err; fail "upstream offers the model no openwrt tools at all, so absence proves nothing"; }
 	echo "$names" | grep -q 'mfa_unlock' && fail "the model is offered mfa_unlock: $names"
 	echo "$names" | grep -q 'mfa_lock' && fail "the model is offered mfa_lock: $names"
-	pass "upstream's registry offers the model $(echo "$names" | grep -o 'mcp__' | wc -l) openwrt tools, neither mfa_unlock nor mfa_lock"
+	echo "$names" | grep -qE 'action_(list|approve|reject)' && fail "the model is offered the approver's tools: $names"
+	echo "$names" | grep -q 'mcp__openwrt__action_status' || fail "the model is not offered action_status, its own held changes: $names"
+	pass "upstream's registry offers the model $(echo "$names" | grep -o 'mcp__' | wc -l) openwrt tools, action_status among them, and none of mfa_unlock, mfa_lock, action_list, action_approve, action_reject"
 }
 
 check_unlock_is_per_agent() {
@@ -946,7 +958,7 @@ check_unlock_is_per_agent() {
 		if out=$(mcp "$t" uci_apply "$CHANGE"); then fail "a change was allowed before any unlock: $out"; fi
 		echo "$out" | grep -q 'requires a second factor' || fail "refused, but not for the second factor: $out"
 	done
-	out=$(mcp "$TOKEN" mfa_unlock '{"pin":"4821"}') || fail "the owner's PIN did not unlock the first agent: $out"
+	out=$(unlock_main '{"pin":"4821"}') || fail "the owner's PIN did not unlock the first agent: $out"
 	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "the first agent was refused after its own unlock: $out"
 	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "the first agent's change did not apply: $out"
 	if out=$(mcp "$OTHER" uci_apply "$CHANGE"); then fail "the second agent changed the router on the first agent's unlock: $out"; fi
@@ -960,7 +972,7 @@ check_rollback_survives_reboot() {
 	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
 	set_pin hermes-main 4821
 	daemon_start
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock"
 	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "the change was refused after the unlock: $out"
 	[ "$(desc)" = changed-by-gate ] || fail "the change did not land"
 	# Where the rollback state lives: on flash, under the state directory, not in /tmp.
@@ -981,7 +993,7 @@ check_rollback_survives_reboot() {
 	sleep 1
 	[ "$(desc)" = baseline-gate ] || fail "after the reboot the router kept the unconfirmed change: $(desc)"
 	# And the other way out: nobody confirms in time.
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock again"
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock again"
 	out=$(mcp "$TOKEN" uci_apply '{"changes":[{"config":"system","section":"@system[0]","option":"description","value":"changed-by-gate"}],"timeout":3}') || fail "the second change was refused: $out"
 	[ "$(desc)" = changed-by-gate ] || fail "the second change did not land"
 	sleep 6
@@ -1001,7 +1013,7 @@ check_window_changes_settings_never_runs_commands() {
 	daemon_start
 	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
 	uci -q show openwrt-mcp | grep -q "hermes_main_change_ubus.scopes=.*'\*'" && fail "the ubus change policy grants '*'"
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock"
 	: > /tmp/ubus.calls
 	for call in '{"object":"file","method":"exec","args":{"command":"/bin/id"}}' \
 		'{"object":"file","method":"write","args":{"path":"/etc/rc.local","data":"id"}}' \
@@ -1045,7 +1057,7 @@ check_window_cannot_reach_the_agents_own_config() {
 	set_pin hermes-main 4821
 	daemon_start
 	[ -s "$TOKEN" ] || fail "the package left no router MCP token in $TOKEN"
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock"
 	before_mcp=$(md5sum < /etc/config/openwrt-mcp)
 	before_hermes=$(md5sum < /etc/config/hermes)
 	for change in '{"config":"hermes","section":"main","option":"profile","value":"root"}' \
@@ -1061,13 +1073,136 @@ check_window_cannot_reach_the_agents_own_config() {
 	[ "$(md5sum < /etc/config/openwrt-mcp)" = "$before_mcp" ] || fail "/etc/config/openwrt-mcp changed"
 	[ "$(md5sum < /etc/config/hermes)" = "$before_hermes" ] || fail "/etc/config/hermes changed"
 	[ -z "$(uci -q get hermes.main.profile)" ] || fail "hermes.main.profile is now $(uci -q get hermes.main.profile)"
-	# Not vacuous: the VPN and the firewall, in one apply, with its rollback armed.
-	VPN='{"changes":[{"config":"network","section":"gatevpn","type":"interface"},{"config":"network","section":"gatevpn","option":"proto","value":"wireguard"},{"config":"firewall","section":"gatezone","type":"zone"},{"config":"firewall","section":"gatezone","option":"name","value":"gatevpn"}]}'
-	out=$(mcp "$TOKEN" uci_apply "$VPN") || fail "a WireGuard interface and a firewall zone were refused in an open window: $out"
+	# Not vacuous: the network and the firewall, in one apply, with its rollback armed. (A WireGuard
+	# interface is VPN routing, which since 0.21.5-r16 waits for the owner's approval of that one
+	# change: check_high_impact_change_held_in_window.)
+	NET='{"changes":[{"config":"network","section":"gatenet","type":"interface"},{"config":"network","section":"gatenet","option":"proto","value":"static"},{"config":"firewall","section":"gatezone","type":"zone"},{"config":"firewall","section":"gatezone","option":"name","value":"gatenet"}]}'
+	out=$(mcp "$TOKEN" uci_apply "$NET") || fail "an interface and a firewall zone were refused in an open window: $out"
 	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "the network and firewall change did not arm its rollback: $out"
-	[ "$(uci -q get network.gatevpn.proto)" = wireguard ] && [ "$(uci -q get firewall.gatezone.name)" = gatevpn ] \
+	[ "$(uci -q get network.gatenet.proto)" = static ] && [ "$(uci -q get firewall.gatezone.name)" = gatenet ] \
 		|| fail "the network and firewall change did not land"
-	pass "in an open window: hermes, openwrt-mcp, rpcd, dropbear, uhttpd and fstab refused for want of a scope, their files unchanged; a WireGuard interface and a firewall zone applied with the rollback armed"
+	pass "in an open window: hermes, openwrt-mcp, rpcd, dropbear, uhttpd and fstab refused for want of a scope, their files unchanged; an interface and a firewall zone applied with the rollback armed"
+}
+
+# ---- a high-impact change waits for the owner's approval (0.21.5-r16, openwrt-mcp 0.5.0.5) ----
+
+# The one Telegram id allowed to talk to the bot, which the init then chooses to approve held
+# changes; the gateway itself is not started by the checks that use this.
+with_approver() {
+	uci set hermes.telegram.enabled=1
+	uci -q delete hermes.telegram.allow_user_id || true
+	uci add_list hermes.telegram.allow_user_id=4242
+	uci commit hermes
+	printf '%s' "$TGTOKEN" > /etc/hermes-agent/telegram.token
+	chmod 600 /etc/hermes-agent/telegram.token
+}
+# A firewall with the two zones a router has, so that a zone faces the internet.
+real_firewall() {
+	printf '%s\n' "config defaults" "	option input 'REJECT'" "	option output 'ACCEPT'" "	option forward 'REJECT'" "" \
+		"config zone" "	option name 'lan'" "	list network 'lan'" "	option input 'ACCEPT'" "	option output 'ACCEPT'" "	option forward 'ACCEPT'" "" \
+		"config zone" "	option name 'wan'" "	list network 'wan'" "	list network 'wan6'" "	option input 'REJECT'" "	option output 'ACCEPT'" \
+		"	option forward 'REJECT'" "	option masq '1'" > /etc/config/firewall
+}
+PORTFWD='{"changes":[{"config":"firewall","section":"gatefwd","type":"redirect"},{"config":"firewall","section":"gatefwd","option":"src","value":"wan"},{"config":"firewall","section":"gatefwd","option":"src_dport","value":"2222"},{"config":"firewall","section":"gatefwd","option":"proto","value":"tcp"},{"config":"firewall","section":"gatefwd","option":"dest","value":"lan"},{"config":"firewall","section":"gatefwd","option":"dest_ip","value":"192.168.77.20"},{"config":"firewall","section":"gatefwd","option":"dest_port","value":"22"}]}'
+WGIF='{"changes":[{"config":"network","section":"gatewg","type":"interface"},{"config":"network","section":"gatewg","option":"proto","value":"wireguard"}]}'
+# One field of one held change, as the owner's client lists it: held_field <id> <field>.
+held_field() { mcp "$OWNER_TOKEN" action_list | python3 -c 'import json, sys
+for a in json.load(sys.stdin)["actions"]:
+    if a["id"] == sys.argv[1]:
+        print(a[sys.argv[2]])' "$1" "$2"; }
+# The confirm token an approved apply's outcome names, as the agent reads it.
+confirm_token() { mcp "$TOKEN" action_status | python3 -c 'import json, re, sys
+for a in json.load(sys.stdin)["actions"]:
+    m = re.search(r"uci_confirm \{\"token\": \"([^\"]+)\"\}", a.get("result") or "")
+    if m:
+        print(m.group(1))'; }
+approve_args() { printf '{"id":"%s","hash":"%s","pin":"4821","code":"%s"}' "$1" "$(held_field "$1" hash)" "$(python3 /harness.py code)"; }
+
+check_agent_cannot_unlock_itself() {
+	reset; configure - pin
+	started
+	set_pin hermes-main 4821
+	daemon_start
+	[ -s "$OWNER_TOKEN" ] || fail "the package paired no owner's client into $OWNER_TOKEN"
+	[ "$(owner_of "$OWNER_TOKEN")" = 0 ] && [ "$(mode_of "$OWNER_TOKEN")" = "-rw-------" ] || fail "$OWNER_TOKEN is $(mode_of "$OWNER_TOKEN") uid $(owner_of "$OWNER_TOKEN"), not 0600 root"
+	cmp -s "$OWNER_TOKEN" "$TOKEN" && fail "the owner's client and the agent's share one token"
+	openwrt-mcp clients | grep -qx hermes-main-owner || fail "openwrt-mcp has no client hermes-main-owner"
+	grep -qx "HERMES_MCP_OWNER_TOKEN_FILE=$OWNER_TOKEN" /tmp/envv || fail "procd is not handed the owner's token file's path"
+	grep -qF "$(cat "$OWNER_TOKEN")" /tmp/envv /tmp/argv && fail "procd is handed the owner's token itself"
+	if out=$(mcp "$TOKEN" mfa_unlock '{"pin":"4821"}'); then fail "the agent's own token opened its window: $out"; fi
+	echo "$out" | grep -q "opened by the owner's client" || fail "the agent's own unlock was refused, but not as the owner's: $out"
+	for i in 1 2 3 4 5 6; do mcp "$TOKEN" mfa_unlock '{"pin":"0000"}' >/dev/null 2>&1 || true; done
+	out=$(unlock_main '{"pin":"4821"}') || fail "after six wrong tries by the agent's token the owner could not unlock, so they were counted: $out"
+	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "a change was refused after the owner's unlock: $out"
+	pass "the agent's token was refused an unlock, right or wrong, without a try counted; the owner's client, 0600 root and only a path to procd, opened the window"
+}
+
+# A change policy only from an openwrt-mcp that holds high-impact changes for the owner (0.5.0.5 on,
+# actions_held_for_approval in its status): without it a port forward would run in the window.
+check_no_change_policy_without_held_capability() {
+	reset; configure - pin
+	mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.real
+	printf '%s\n' '#!/bin/sh' 'if [ "$1" = status ]; then' \
+		'	/usr/bin/openwrt-mcp.real "$@" | python3 -c '"'"'import json, sys; d = json.load(sys.stdin); d.get("capabilities", {}).pop("actions_held_for_approval", None); json.dump(d, sys.stdout)'"'" \
+		'	exit' 'fi' 'exec /usr/bin/openwrt-mcp.real "$@"' > /usr/bin/openwrt-mcp
+	chmod 755 /usr/bin/openwrt-mcp
+	[ "$(mcp_status capabilities.uci_apply_refuses_code_exec)" = true ] || fail "measured nothing: the stand-in lost more than the one capability"
+	[ -z "$(mcp_status capabilities.actions_held_for_approval)" ] || fail "measured nothing: the stand-in still reports actions_held_for_approval"
+	started
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_read_ubus=' || fail "measured nothing: no read policy was written"
+	uci -q show openwrt-mcp | grep -qE '^openwrt-mcp\.hermes_main_(change|change_ubus|approval|hold)=' && fail "a change policy was written for an openwrt-mcp that does not hold high-impact changes: $(uci -q show openwrt-mcp | grep -E 'hermes_main_(change|approval)' | head -3)"
+	n=$(grep -c 'does not report that it holds high-impact changes' /tmp/start.log)
+	[ "$n" = 1 ] || { cat /tmp/start.log; fail "the start said why in $n lines, not one"; }
+	# Not vacuous: with the real status the same start writes the change policies and the approval.
+	mv -f /usr/bin/openwrt-mcp.real /usr/bin/openwrt-mcp
+	started
+	uci -q show openwrt-mcp | grep -q '^openwrt-mcp\.hermes_main_change=' || fail "the real status did not get a change policy written either, so the refusal above proves nothing"
+	[ "$(uci -q get openwrt-mcp.hermes_main_approval.approver)" = hermes-main-owner ] || fail "the approval section does not name the owner's client: $(uci -q show openwrt-mcp | grep hermes_main_approval)"
+	[ "$(uci -q get openwrt-mcp.hermes_main_change.approval)" = hermes_main_approval ] || fail "the change policy does not name the approval section"
+	pass "no actions_held_for_approval: reads only, no change policy, said in one line; the real status wrote the change policies naming the approval section, approver hermes-main-owner"
+}
+
+check_high_impact_change_held_in_window() {
+	reset; configure - pin; with_approver; real_firewall
+	started
+	[ "$(uci -q get openwrt-mcp.hermes_main_approval.approvals)" = on ] || { cat /tmp/start.log; fail "approvals are not on with one Telegram id allowed, so nothing can be held"; }
+	grep -qx 'HERMES_OPENWRT_APPROVER_ID=4242' /tmp/envv || fail "the gateway is not told who approves"
+	set_pin hermes-main 4821
+	python3 /harness.py factor totp >/tmp/harness.out || fail "$(last_line < /tmp/harness.out)"
+	daemon_start
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "the owner's client could not open the window"
+	before=$(md5sum < /etc/config/firewall)
+	out=$(mcp "$TOKEN" uci_apply "$PORTFWD") || fail "a port forward from the internet was refused, not held: $out"
+	id=$(echo "$out" | sed -n 's/^HELD \([A-Z]\{5\}\) until .*/\1/p')
+	[ -n "$id" ] || fail "a port forward from the internet was not held in an open window: $out"
+	[ "$(md5sum < /etc/config/firewall)" = "$before" ] && ! uci -q get firewall.gatefwd >/dev/null || fail "the held port forward changed the firewall"
+	card=$(held_field "$id" card) || fail "the owner's client could not read the card"
+	echo "$card" | grep -q 'OPENS THE ROUTER TO THE INTERNET: tcp 2222 from any address to 192.168.77.20:22' || fail "the card does not say what it opens: $card"
+	if out=$(mcp "$TOKEN" action_list); then fail "the agent's token read the cards: $out"; fi
+	if out=$(mcp "$TOKEN" action_approve "$(approve_args "$id")"); then fail "the agent's token approved its own change: $out"; fi
+	[ "$(md5sum < /etc/config/firewall)" = "$before" ] || fail "the agent's own approval changed the firewall"
+	out=$(mcp "$OWNER_TOKEN" action_approve "$(approve_args "$id")") || fail "the owner's client did not approve with the PIN and a code: $out"
+	[ "$(uci -q get firewall.gatefwd.src)" = wan ] && [ "$(uci -q get firewall.gatefwd.dest_port)" = 22 ] || fail "approved, but the port forward is not there"
+	tok=$(confirm_token)
+	[ -n "$tok" ] || fail "the agent cannot read the confirm token of its approved change: $(mcp "$TOKEN" action_status | head -c 300)"
+	mcp "$OWNER_TOKEN" mfa_lock '{"client":"hermes-main"}' >/dev/null
+	out=$(mcp "$TOKEN" uci_confirm "{\"token\":\"$tok\"}") || fail "the agent could not confirm the approved change once the window was closed: $out"
+	# A WireGuard interface is VPN routing: held too, now with the window closed.
+	out=$(mcp "$TOKEN" uci_apply "$WGIF") || fail "a WireGuard interface was refused, not held: $out"
+	echo "$out" | grep -q '^HELD [A-Z]\{5\} until ' || fail "a WireGuard interface was not held: $out"
+	uci -q get network.gatewg >/dev/null && fail "the held WireGuard interface exists"
+	# Nobody chosen to approve: the same change is refused, not held, and not run either.
+	daemon_stop
+	reset; configure - pin; real_firewall
+	started
+	[ "$(uci -q get openwrt-mcp.hermes_main_approval.approvals)" = off ] || fail "approvals are on with no Telegram"
+	set_pin hermes-main 4821
+	daemon_start
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	if out=$(mcp "$TOKEN" uci_apply "$PORTFWD"); then fail "with nobody to approve, the port forward ran or was held: $out"; fi
+	echo "$out" | grep -q 'approval is switched off' || fail "refused, but not as needing an approval: $out"
+	uci -q get firewall.gatefwd >/dev/null && fail "the refused port forward is there"
+	pass "in an open window a port forward from the internet and a WireGuard interface were held, the card named tcp 2222 to 192.168.77.20:22, the agent could neither read nor approve it, the owner's client approved it with the PIN and a code and the agent confirmed it; with nobody to approve it was refused"
 }
 
 # A change policy only from an openwrt-mcp that refuses an apply that would run code (0.5.0.3 on,
@@ -1094,7 +1229,7 @@ EOF
 	[ "$n" = 1 ] || { cat /tmp/start.log; fail "the start said why in $n lines, not one"; }
 	set_pin hermes-main 4821
 	daemon_start
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null 2>&1
+	unlock_main '{"pin":"4821"}' >/dev/null 2>&1
 	if out=$(mcp "$TOKEN" uci_apply "$CHANGE"); then fail "uci_apply was allowed: $out"; fi
 	echo "$out" | grep -q 'no policy grants uci_apply' || fail "uci_apply was refused, but not for want of a policy: $out"
 	[ "$(desc)" = baseline-gate ] || fail "the change was applied anyway"
@@ -1261,9 +1396,9 @@ check_no_package_policy_from_a_daemon_from_before_the_upgrade() {
 	uci set hermes.security.packages=official; uci commit hermes
 	ver=$(mcp_status version)
 	[ -n "$ver" ] && [ "$ver" != 0.5.0 ] || fail "measured nothing: the installed openwrt-mcp is '$ver'"
-	apk_standin uci_get_redacts_credentials uci_apply_refuses_code_exec
+	apk_standin uci_get_redacts_credentials uci_apply_refuses_code_exec actions_held_for_approval
 	[ "$(mcp_status capabilities.apk_add_official_feed_only)" = true ] || fail "measured nothing: the stand-in does not report apk_add_official_feed_only"
-	[ -z "$(mcp_status capabilities.uci_apply_refuses_code_exec)$(mcp_status capabilities.uci_get_redacts_credentials)" ] \
+	[ -z "$(mcp_status capabilities.uci_apply_refuses_code_exec)$(mcp_status capabilities.uci_get_redacts_credentials)$(mcp_status capabilities.actions_held_for_approval)" ] \
 		|| fail "measured nothing: the stand-in still reports another capability, which alone would send the init to /health"
 	health_standin 0.5.0
 	[ "$(mcp_status running)" = true ] || { standin_stop; fail "measured nothing: openwrt-mcp status does not see the stand-in as a running daemon"; }
@@ -1316,7 +1451,7 @@ check_package_install_needs_the_unlock() {
 	echo "$out" | grep -q 'second factor' || fail "with no unlock a malformed name reached apk_add's own rules: $out"
 	# Unlocked: the policy lets apk_add through, and apk_add's own rules refuse what is not a plain
 	# package name, saying nothing was installed.
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock"
 	for bad in 'wireguard-tools=1.0' 'x.apk' '--allow-untrusted' 'wireguard-tools@custom'; do
 		if out=$(mcp "$TOKEN" apk_add "{\"packages\":[\"$bad\"],\"dry_run\":true}"); then fail "apk_add took '$bad' in an open window: $out"; fi
 		echo "$out" | grep -q 'Nothing was installed' || fail "in an open window '$bad' was refused, but not by apk_add's own rules (the policy stopped it, or something else did): $out"
@@ -1336,7 +1471,7 @@ check_package_install_needs_the_unlock() {
 	uci -q get openwrt-mcp.hermes_main_packages >/dev/null && fail "packages off and the package policy is still there"
 	grep -q '^HERMES_OPENWRT_PACKAGES=off$' /tmp/envv || fail "packages off and the gateway is not told so"
 	daemon_start
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock with packages off"
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock with packages off"
 	if out=$(mcp "$TOKEN" apk_add "$DRY"); then fail "apk_add answered with packages off: $out"; fi
 	echo "$out" | grep -q 'no policy grants apk_add' || fail "with packages off apk_add was refused, but not for want of a policy: $out"
 	probe_tools
@@ -1460,7 +1595,7 @@ check_installed_package_config_is_read_redacted() {
 	# The read reaches no change: in an open window uci_apply on the package's config is refused for
 	# want of a scope, and the file is as it was.
 	before=$(md5sum < /etc/config/transmission)
-	mcp "$TOKEN" mfa_unlock '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock"
 	if out=$(mcp "$TOKEN" uci_apply '{"changes":[{"config":"transmission","section":"transmission","option":"rpc_port","value":"9092"}]}'); then fail "uci_apply on transmission was allowed in an open window: $out"; fi
 	echo "$out" | grep -q 'no policy scope covers' || fail "uci_apply on transmission was refused, but not for want of a scope: $out"
 	[ "$(md5sum < /etc/config/transmission)" = "$before" ] || fail "/etc/config/transmission changed"
@@ -1613,6 +1748,9 @@ check_agent_told_window_is_open()                        { scenario "$CUR_NAME" 
 check_agent_not_told_after_window_ends()                  { scenario "$CUR_NAME" pin 20s; }
 check_router_secret_never_reaches_model()                 { scenario "$CUR_NAME" pin; }
 check_scheduled_job_cannot_change()                       { scenario "$CUR_NAME" pin; }
+check_held_change_approved_from_the_chat()                { scenario "$CUR_NAME" pin+totp; }
+check_held_change_rejected_from_the_chat()                { scenario "$CUR_NAME" pin+totp; }
+check_owner_token_never_reaches_the_agent()               { scenario "$CUR_NAME" pin; }
 
 # ======================================================= the LuCI Security page, and the SSH enrolment
 
@@ -1687,8 +1825,8 @@ check_luci_enrol_shows_qr_and_verifies() {
 	started
 	daemon_start
 	[ "$(uci -q get openwrt-mcp.hermes_main_change.mfa_factor)" = totp ] || fail "the factor chosen on the page did not reach the change policy: $(uci -q get openwrt-mcp.hermes_main_change.mfa_factor)"
-	if out=$(mcp "$TOKEN" mfa_unlock "{\"code\":\"$(python3 /sec/security-harness.py code pending)\"}"); then fail "the second phone, never activated, unlocked changes: $out"; fi
-	out=$(mcp "$TOKEN" mfa_unlock "{\"code\":\"$(python3 /sec/security-harness.py code active)\"}") || fail "the code from the phone enrolled on the page did not unlock: $out"
+	if out=$(unlock_main "{\"code\":\"$(python3 /sec/security-harness.py code pending)\"}"); then fail "the second phone, never activated, unlocked changes: $out"; fi
+	out=$(unlock_main "{\"code\":\"$(python3 /sec/security-harness.py code active)\"}") || fail "the code from the phone enrolled on the page did not unlock: $out"
 	out=$(mcp "$TOKEN" uci_apply "$CHANGE") || fail "a change was refused after that unlock: $out"
 	pass "$summary; after the restart its code opened changes and the unactivated phone's did not"
 }
@@ -1712,8 +1850,8 @@ check_luci_pin_write_only() {
 	started
 	daemon_start
 	[ "$(uci -q get openwrt-mcp.hermes_main_change.mfa_factor)" = pin ] || fail "the factor chosen on the page did not reach the change policy"
-	if out=$(mcp "$TOKEN" mfa_unlock '{"pin":"07310529"}'); then fail "a wrong PIN unlocked changes: $out"; fi
-	out=$(mcp "$TOKEN" mfa_unlock '{"pin":"07310528"}') || fail "the PIN set through the page did not unlock: $out"
+	if out=$(unlock_main '{"pin":"07310529"}'); then fail "a wrong PIN unlocked changes: $out"; fi
+	out=$(unlock_main '{"pin":"07310528"}') || fail "the PIN set through the page did not unlock: $out"
 	security_scenario scan 07310528
 	pass "$summary; it then unlocked, a PIN one digit off did not, and still no file held it"
 }

@@ -66,6 +66,16 @@ win over the list and leave the owner's PIN to the model: in this profile that i
 operator's to turn off, because the unlock is the control. The other profiles remove the name
 again, but only when this bridge was what added it (the _openwrt_unlock_managed marker).
 
+@decided 2026-10-22 (per-action approval, paraphrased): a high-impact change waits in openwrt-mcp
+for the owner's approval of that one change, given in the chat with the PIN and a code. How
+(0.21.5-r16): openwrt-mcp's action_list, action_approve and action_reject are the owner's client's
+alone and are excluded from the model like the unlock tools; action_status and action_withdraw,
+the agent's own, stay. The owner note says what HELD means (HERMES_OPENWRT_APPROVALS on) or that
+such a change is refused until someone is chosen to approve it (off). In the owner profile
+plugins.entries.openwrt-unlock.allow_gateway_injection is set, so the plugin can start the turn
+that tells the agent the owner's answer; the other profiles take it out again, when this bridge
+was what set it (the same marker as the plugin's).
+
 @decided 2026-09-25: more than one provider on one router. Every chat starts on the
 UCI main model; the others are offered by /model and switch that chat only.
 
@@ -140,6 +150,25 @@ OWNER_NOTE_PACKAGES = (" You may install packages with apk_add, from the officia
                        "first and tell the owner what it would install and how much space that "
                        "takes, and never suggest enabling another feed or installing from anywhere "
                        "else.")
+# Since 0.21.5-r16: what a high-impact change answers, and what to do with it.
+OWNER_NOTE_HELD = (" Some changes wait for the owner's approval of that one change, however the unlock "
+                   "stands: opening a port to the internet, weakening the firewall, rewiring the router's "
+                   "ports, VLANs or what an interface sits on, changing VPN routing, DNS or the time servers, "
+                   "opening a Wi-Fi without a password into a trusted network, stopping a service that guards "
+                   "the router, a reboot. A guest network still runs in the unlock window when it is a new "
+                   "bridge named br-<name> with no ports, an interface on it, a Wi-Fi with a password on that "
+                   "network and its own zone. Such a call answers HELD with an "
+                   "id: nothing was applied, the owner was sent the change to approve in this chat, and you "
+                   "are told their answer. Say that it waits for their approval; do not retry it, do not "
+                   "ask for a PIN or a code, and do not try another way to make the change. When you are "
+                   "told it was applied, check the router, then confirm it with uci_confirm.")
+OWNER_NOTE_HELD_OFF = (" Some changes need the owner's approval of that one change: opening a port to the "
+                       "internet, weakening the firewall, rewiring the router's ports, VLANs or what an "
+                       "interface sits on, changing VPN routing, DNS or the time servers, "
+                       "opening a Wi-Fi without a password into a trusted network, stopping a service that "
+                       "guards the router, a reboot. Nobody is chosen to approve them on this router, so "
+                       "they are refused: say so, and that the owner chooses who approves in LuCI "
+                       "(Services -> Hermes Agent -> Security), or makes the change by hand.")
 OWNER_NOTE_NO_FACTOR = ("No second factor is set up on this router, so every change is refused. "
                         "When a change is refused, tell the owner that a factor has to be set up "
                         "in LuCI (Services -> Hermes Agent -> Security) first, and do not look for "
@@ -151,14 +180,19 @@ FACTORS = ("none", "pin", "totp", "pin+totp")
 PACKAGE_GRANTS = ("off", "granted")
 
 
-def _note_for(profile, factor: str, packages: bool = False):
-    """The note a profile puts in agent.system_prompt, or None when it puts none."""
+def _note_for(profile, factor: str, packages: bool = False, approvals=None):
+    """The note a profile puts in agent.system_prompt, or None when it puts none. approvals is
+    "on" or "off" in the owner profile with a factor, and None where held changes do not arise."""
     if profile == "assistant":
         text = ASSISTANT_NOTE
     elif profile == "owner":
         text = OWNER_NOTE + (OWNER_NOTE_NO_FACTOR if factor == "none" else OWNER_NOTE_LOCKED)
         if packages:
             text += OWNER_NOTE_PACKAGES
+        if factor != "none" and approvals == "on":
+            text += OWNER_NOTE_HELD
+        elif factor != "none" and approvals == "off":
+            text += OWNER_NOTE_HELD_OFF
     else:
         return None
     opening, closing = _markers(profile)
@@ -236,13 +270,21 @@ PROFILES = ("owner", "assistant", "root", "admin")
 # The unlock plugin's name in plugins.enabled (its entry point's name, see build.sh).
 UNLOCK_PLUGIN = "openwrt-unlock"
 UNLOCK_MARKER = "_openwrt_unlock_managed"
+# Upstream's per-plugin consent to start a gateway turn (hermes_cli/plugins.py inject_message).
+INJECTION_KEY = "allow_gateway_injection"
+# What the init passes as HERMES_OPENWRT_APPROVALS: whether a held change can be approved.
+APPROVALS = ("off", "on")
 
 # The tools of openwrt-mcp the model is never offered, in any profile. mfa_unlock and mfa_lock are
 # how the OWNER proves who they are, and a model that could call them would be asking for a PIN.
 # exec and wg_new_client are never granted to the agent's client (invariant 18), and a model that
 # sees them reaches for them: on a Brume 2 on 2026-10-08 two models in a row pinged through exec,
 # were refused, and reported ping as "blocked by policy" without trying their own terminal.
-MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")
+# action_list, action_approve and action_reject (0.21.5-r16) are the owner's client's: openwrt-mcp
+# refuses them to the agent's, and a model that saw them would reach for them.
+MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client", "action_list", "action_approve", "action_reject")
+# What r10 to r15 hid, so an entry those releases wrote is still ours.
+MCP_HIDDEN_R15 = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")
 # What 0.21.5-r3 to r9 hid, so an entry those releases wrote, pasted back by hand, is still ours.
 MCP_HIDDEN_R9 = ("mfa_unlock", "mfa_lock")
 # openwrt-mcp's package install, hidden as well unless the package policy is granted (0.21.5-r13).
@@ -384,10 +426,10 @@ def main() -> int:
                 expected = {"url": url, "headers": headers, "tools": {"exclude": list(hidden)}}
                 # The entry as releases before the unlock wrote it, without the tools key.
                 earlier = {"url": url, "headers": headers}
-                # The entry as r10 to r12 wrote it, and as r13 does with apk_add granted or not:
-                # which of those two is right changes with the owner's setting, and both are ours.
+                # The entry as r10 to r15 wrote it, and as r16 does, with apk_add granted or not:
+                # which of those is right changes with the owner's setting, and all are ours.
                 current = [{"url": url, "headers": headers, "tools": {"exclude": list(h)}}
-                           for h in (MCP_HIDDEN, MCP_HIDDEN + PACKAGE_TOOLS)]
+                           for h in (MCP_HIDDEN, MCP_HIDDEN + PACKAGE_TOOLS, MCP_HIDDEN_R15, MCP_HIDDEN_R15 + PACKAGE_TOOLS)]
                 # The entry as 0.21.5-r3 to r9 wrote it, hiding the unlock tools only.
                 earlier_r9 = {"url": url, "headers": headers, "tools": {"exclude": list(MCP_HIDDEN_R9)}}
                 # An operator may already have pasted in exactly this entry by hand,
@@ -542,6 +584,18 @@ def main() -> int:
                     plugins["disabled"] = kept
                 else:
                     plugins.pop("disabled", None)
+            # The plugin starts the turn that tells the agent the owner's answer to a held change.
+            entries = plugins.get("entries")
+            if entries is None:
+                entries = plugins["entries"] = {}
+            if not isinstance(entries, dict):
+                raise ValueError("plugins.entries must be a mapping")
+            entry = entries.get(UNLOCK_PLUGIN)
+            if entry is None:
+                entry = entries[UNLOCK_PLUGIN] = {}
+            if not isinstance(entry, dict):
+                raise ValueError("plugins.entries.openwrt-unlock must be a mapping")
+            entry[INJECTION_KEY] = True
             config[UNLOCK_MARKER] = True
         elif profile is not None and config.get(UNLOCK_MARKER) is True:
             plugins = config.get("plugins")
@@ -551,8 +605,16 @@ def main() -> int:
                     plugins["enabled"] = remaining
                 else:
                     plugins.pop("enabled", None)
-                if not plugins:
-                    config.pop("plugins", None)
+            if isinstance(plugins, dict) and isinstance(plugins.get("entries"), dict):
+                entry = plugins["entries"].get(UNLOCK_PLUGIN)
+                if isinstance(entry, dict):
+                    entry.pop(INJECTION_KEY, None)
+                    if not entry:
+                        plugins["entries"].pop(UNLOCK_PLUGIN, None)
+                if not plugins["entries"]:
+                    plugins.pop("entries", None)
+            if isinstance(plugins, dict) and not plugins:
+                config.pop("plugins", None)
             config.pop(UNLOCK_MARKER, None)
 
         # The profile's note, once for each kind of agent: in agent.system_prompt, which the
@@ -564,7 +626,12 @@ def main() -> int:
             factor = os.environ.get("HERMES_OPENWRT_FACTOR", "none")
             if factor not in FACTORS:
                 raise ValueError("HERMES_OPENWRT_FACTOR must be none, pin, totp or pin+totp")
-            note = _note_for(profile, factor, packages_on)
+            # Unset, as from a caller that is not this package's init: nothing is said either way.
+            approvals = os.environ.get("HERMES_OPENWRT_APPROVALS")
+            if approvals is not None and approvals not in APPROVALS:
+                raise ValueError("HERMES_OPENWRT_APPROVALS must be off or on")
+            mcp_on = len(sys.argv) >= 4 and bool(sys.argv[3])
+            note = _note_for(profile, factor, packages_on, approvals if mcp_on else None)
             agent_cfg = config.get("agent")
             if agent_cfg is None and note:
                 agent_cfg = config["agent"] = {}

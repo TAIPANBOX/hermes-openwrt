@@ -469,6 +469,30 @@ repack_luci
 expect_red "set_packages left out of the write permission" check_security_page_calls_are_granted
 cp "$SRC_ACL" "$ACL"
 
+# ---- fault 43: an approver who could never approve accepted ----
+plant "$RPCD" '		sec_allowed_ids | grep -qx "$id" || {' '		true || {' "fault 43"
+repack_luci
+expect_red "an approver outside the allowlist accepted" check_security_approver_chosen_only_from_the_allowed_ids
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 44: the status naming no approver whatever is set ----
+plant "$RPCD" '	json_add_string  "approver" "$approver"' '	json_add_string  "approver" ""' "fault 44"
+repack_luci
+expect_red "the status not telling who approves" check_security_approver_chosen_only_from_the_allowed_ids
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 45: set_approver left out of the write permission ----
+plant "$ACL" '"set_packages", "set_approver",' '"set_packages",' "fault 45"
+repack_luci
+expect_red "set_approver left out of the write permission" check_security_page_calls_are_granted
+cp "$SRC_ACL" "$ACL"
+
+# ---- fault 46: the page sends whatever the select holds ----
+plant "$SECURITY" "if (want !== '' && choices.indexOf(want) < 0)" "if (false)" "fault 46"
+repack_luci
+expect_red "the page sends an id that is not allowed" check_security_approver_offered_only_from_the_allowed_ids
+cp "$SRC_SECURITY" "$SECURITY"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -476,6 +500,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 42 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 42 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 46 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 46 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 42 faults on 26 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 46 faults on 28 checks (shard $SHARD), green restored"

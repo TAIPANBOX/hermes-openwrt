@@ -140,6 +140,28 @@
 #                        the sandbox died with ujail, so a ujail killed first left the gateway
 #                        running unsupervised. The fourth scenario is that.
 #
+#   @decided 2026-10-22  A tiered model. Reads always; reversible changes in the unlock window;
+#                        high-impact changes (a port opened to the internet, the firewall weakened,
+#                        VPN routing, upstream DNS, a service that guards the router stopped, a
+#                        reboot, and also the time servers and an open Wi-Fi into a trusted
+#                        network) held in openwrt-mcp as a record that cannot change, and approved
+#                        one by one from Telegram with the PIN and a code against a hash of the exact
+#                        change; what only a person may do, never. The approval needs both the PIN
+#                        and the app, and is off until both exist; the card comes from the same bot,
+#                        and the plugin restates the real headline before asking for the code; a
+#                        change may be proposed while the window is closed, with limits; one person
+#                        approves; and /unlock and approvals go through a client of the owner's own,
+#                        whose token only the plugin holds, so the agent cannot spend the owner's
+#                        tries. Protections must not add steps for the owner: it is a home service.
+#   @claude 2026-10-22   How (0.21.5-r16, with openwrt-mcp 0.5.0.5): the init pairs hermes-main-owner
+#                        beside hermes-main, writes openwrt-mcp's approval section (approver
+#                        hermes-main-owner, PIN and code), and writes a change policy only for a
+#                        daemon that reports actions_held_for_approval. The approver is
+#                        hermes.security.approver_id, or the one Telegram id allowed to talk to the bot
+#                        when only one is (a choice of mine: it adds no step); with none, a
+#                        high-impact change is refused rather than held. The scenarios under "A
+#                        high-impact change waits for the owner's approval" are that.
+#
 # Bound to scripts/gate-unlock.sh, and in gate-scenarios-bound.sh's PAIRS, since the change
 # that added that gate. Every check there went red against the unchanged package before its
 # fix. A scenario whose check is not built yet is listed by the gate as NOT IMPLEMENTED and
@@ -505,3 +527,44 @@ Feature: The agent changes the router only when its owner unlocks it
     When the owner sets a PIN in LuCI
     Then the page can say a PIN is set, and nothing can read it back
     # -> check_luci_pin_write_only
+
+  # ---- A high-impact change waits for the owner's approval ----
+
+  Scenario: The agent cannot open its own window or spend the owner's tries
+    Given the package paired a second client, the owner's, beside the agent's
+    When the agent's own token asks openwrt-mcp to unlock, rightly or five times wrongly
+    Then it is refused every time, and the owner's PIN still unlocks through the owner's client
+    And the owner's token is in a root-only file, and procd holds only its path
+    # -> check_agent_cannot_unlock_itself
+
+  Scenario: No change policy from an openwrt-mcp that does not hold high-impact changes
+    Given an openwrt-mcp whose status does not report actions_held_for_approval
+    When the agent starts with a factor set
+    Then no change policy is written and the log says why, once
+    # -> check_no_change_policy_without_held_capability
+
+  Scenario: A port opened to the internet waits for the owner even in an open window
+    Given the owner has unlocked changes and someone is chosen to approve
+    When the agent asks for a port forward from the internet, or a WireGuard interface
+    Then nothing is applied, the agent is told HELD, and the owner's client reads a card that says what it opens
+    And the owner's client approves that exact card with the PIN and a code, and only then is it applied, with a rollback the agent confirms
+    And with nobody chosen to approve, the same change is refused rather than held
+    # -> check_high_impact_change_held_in_window
+
+  Scenario: The owner approves a held change from the chat, and the PIN and code never reach the model
+    When the agent proposes a port forward from the internet in the chat
+    Then the owner gets the card from the bot with Approve and Reject
+    And Approve restates what openwrt-mcp holds before asking for the PIN and the code
+    And the message that carries them is deleted, the change is applied, the card says so, and the agent is told to check and confirm
+    And neither the PIN nor the code reaches the model or any file
+    # -> check_held_change_approved_from_the_chat
+
+  Scenario: Rejecting a held change takes one tap and no code
+    When the owner presses Reject under a card
+    Then nothing is applied, the card says so, and the agent is told not to propose it again
+    # -> check_held_change_rejected_from_the_chat
+
+  Scenario: The owner's token never reaches the agent
+    When the agent looks for it with its own terminal, in its environment and its process's
+    Then it is not there, though the plugin that holds it answers the owner
+    # -> check_owner_token_never_reaches_the_agent

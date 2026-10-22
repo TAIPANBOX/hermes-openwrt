@@ -105,12 +105,13 @@ class RuntimeTests(unittest.TestCase):
 
     def test_mcp_identical_manual_entry_is_adopted(self):
         url = "http://127.0.0.1:8730/mcp"
-        # The entry as the package writes it since r13 with no package policy granted: the unlock
-        # tools, exec, wg_new_client and apk_add hidden from the model; the earlier shapes are adopted
-        # too (see test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape).
+        # The entry as the package writes it since r16 with no package policy granted: the unlock
+        # tools, exec, wg_new_client, the approver's tools and apk_add hidden from the model; the
+        # earlier shapes are adopted too (see test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape).
         manual = {"mcp_servers": {"openwrt": {"url": url,
                   "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"},
-                  "tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "apk_add"]}}}}
+                  "tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "action_list",
+                                        "action_approve", "action_reject", "apk_add"]}}}}
         (self.home / "config.yaml").write_text(yaml.safe_dump(manual))
         result = self.configure(mcp=url)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -703,6 +704,7 @@ mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
 printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
 printf '%s' '123456:telegramCanary012345678901234567890' > /etc/hermes-agent/telegram.token
 printf '%s' 'mcp-canary-runtime' > /etc/hermes-agent/router-mcp.token
+printf '%s' 'owner-canary-runtime' > /etc/hermes-agent/router-mcp-owner.token
 uci set hermes.main.enabled=1
 uci set hermes.main.mem_max_mb=0
 uci set hermes.main.data_dir={shlex.quote(str(self.home))}
@@ -729,7 +731,7 @@ procd_close_service
 
     def test_all_secrets_absent_from_procd(self):
         _parsed, raw = self._service_instance_json()
-        for secret in ("provider-canary-runtime", "telegramCanary", "mcp-canary-runtime"):
+        for secret in ("provider-canary-runtime", "telegramCanary", "mcp-canary-runtime", "owner-canary-runtime"):
             self.assertNotIn(secret, raw)
 
     def test_procd_respawn_is_bounded(self):
@@ -1186,7 +1188,8 @@ procd_close_service
         # well, apk_add not yet), pasted by hand, are the package's own shapes: adopted and brought
         # up to date, not refused.
         for earlier in ({}, {"tools": {"exclude": ["mfa_unlock", "mfa_lock"]}},
-                        {"tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"]}}):
+                        {"tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"]}},
+                        {"tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "apk_add"]}}):
             with self.subTest(earlier=earlier):
                 (self.home / "config.yaml").write_text(yaml.safe_dump({"mcp_servers": {"openwrt": dict({
                     "url": url, "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"}}, **earlier)}}))
@@ -1197,7 +1200,8 @@ procd_close_service
 
     # What the package-written openwrt entry keeps from the model, in this order, when no package
     # policy is granted (apk_add then hidden too; see test_apk_add_offered_only_when_granted...).
-    HIDDEN = ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "apk_add"]
+    HIDDEN = ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "action_list", "action_approve", "action_reject",
+              "apk_add"]
 
     def test_apk_add_offered_only_when_granted_and_the_note_says_how(self):
         # @decided 2026-10-08, paraphrased: packages may be installed from the official OpenWrt feed
@@ -1239,7 +1243,8 @@ procd_close_service
                 result = self.bridge("owner", factor=factor, mcp=url, packages="granted")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.config()["mcp_servers"]["openwrt"]["tools"]["exclude"],
-                                 ["mfa_unlock", "mfa_lock", "exec", "wg_new_client"])
+                                 ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "action_list", "action_approve",
+                                  "action_reject"])
                 self.assertEqual(offered(), "True True False False")
                 for where in prompts():
                     for sentence in sentences:
@@ -1300,6 +1305,313 @@ procd_close_service
                                        capture_output=True, text=True)
                 self.assertEqual(check.returncode, 0, check.stderr)
                 self.assertEqual(check.stdout.strip().splitlines()[-1], "False False True True")
+
+    def test_mcp_entry_hides_the_approvers_tools_and_lets_the_plugin_tell_the_agent(self):
+        # @decided 2026-10-22, paraphrased: a high-impact change waits for the owner's approval, given
+        # through a client of the owner's own. action_list, action_approve and action_reject are that
+        # client's, and openwrt-mcp refuses them to the agent's; a model offered them would reach for
+        # them. action_status and action_withdraw are the agent's own. And the plugin starts the turn
+        # that tells the agent the owner's answer, which upstream lets a plugin do only by consent.
+        url = "http://127.0.0.1:8730/mcp"
+        code = ("import yaml; from hermes_cli.config import get_config_path; "
+                "from tools.mcp_tool_registration import _make_tool_filter; "
+                "entry = yaml.safe_load(get_config_path().read_text())['mcp_servers']['openwrt']; "
+                "keep = _make_tool_filter('openwrt', entry); "
+                "print(keep('action_list'), keep('action_approve'), keep('action_reject'), keep('action_status'), "
+                "keep('action_withdraw'), keep('uci_apply'))")
+        consent = ("from hermes_cli.plugins_state import _plugin_settings_entry; import yaml; "
+                   "from hermes_cli.config import get_config_path; "
+                   "print((_plugin_settings_entry(yaml.safe_load(get_config_path().read_text()), 'openwrt-unlock') or {})"
+                   ".get('allow_gateway_injection') is True)")
+
+        def run(snippet):
+            check = subprocess.run(["python3", "-c", snippet], env=self.env, check=False, capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stderr)
+            return check.stdout.strip().splitlines()[-1]
+        for profile in ("owner", "assistant", "root"):
+            with self.subTest(profile=profile):
+                (self.home / "config.yaml").unlink(missing_ok=True)
+                result = self.bridge(profile, factor="pin", mcp=url)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(run(code), "False False False True True True")
+        # The consent: given in the owner profile, taken back by the others only when this bridge gave
+        # it, and the operator's own settings for the plugin kept.
+        (self.home / "config.yaml").write_text(yaml.safe_dump(
+            {"plugins": {"entries": {"openwrt-unlock": {"settings": {"x": 1}}, "other": {"allow_gateway_injection": True}}}}))
+        self.assertEqual(self.bridge("owner", factor="pin", mcp=url).returncode, 0)
+        self.assertEqual(run(consent), "True")
+        entries = self.config()["plugins"]["entries"]
+        self.assertEqual(entries["openwrt-unlock"]["settings"], {"x": 1})
+        self.assertEqual(entries["other"], {"allow_gateway_injection": True})
+        before = (self.home / "config.yaml").read_bytes()
+        self.assertEqual(self.bridge("owner", factor="pin", mcp=url).returncode, 0)
+        self.assertEqual((self.home / "config.yaml").read_bytes(), before)
+        self.assertEqual(self.bridge("assistant", factor="pin", mcp=url).returncode, 0)
+        self.assertEqual(run(consent), "False")
+        entries = self.config()["plugins"]["entries"]
+        self.assertEqual(entries["openwrt-unlock"], {"settings": {"x": 1}})
+        self.assertEqual(entries["other"], {"allow_gateway_injection": True})
+
+    def test_owner_note_says_what_a_held_change_means(self):
+        # With someone chosen to approve, the agent is told that HELD means waiting for the owner, not
+        # to retry, ask for a code or go around it, and to check and confirm once told it was applied.
+        # With nobody, that such a change is refused and where the owner chooses who approves.
+        url = "http://127.0.0.1:8730/mcp"
+        held = ("Such a call answers HELD with an id", "do not retry it", "do not try another way",
+                "confirm it with uci_confirm", "bridge named br-<name> with no ports")
+        off = ("Nobody is chosen to approve them on this router", "Services -> Hermes Agent -> Security")
+
+        def note(approvals, factor="pin", mcp=url):
+            (self.home / "config.yaml").unlink(missing_ok=True)
+            env = dict(self.env, HERMES_OPENWRT_FACTOR=factor)
+            if approvals is not None:
+                env["HERMES_OPENWRT_APPROVALS"] = approvals
+            args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", mcp,
+                    "http://127.0.0.1:9/v1", "runtime-model", "owner"]
+            result = subprocess.run(args, env=env, check=False, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            config = self.config()
+            cron = (config.get("platform_hints") or {}).get("cron") or {}
+            return (config.get("agent") or {}).get("system_prompt", ""), cron.get("append", "")
+        for where in note("on"):
+            for sentence in held:
+                self.assertIn(sentence, where)
+            self.assertNotIn(off[0], where)
+        for where in note("off"):
+            for sentence in off:
+                self.assertIn(sentence, where)
+            self.assertNotIn(held[0], where)
+        for case, approvals, factor, mcp in (("unset", None, "pin", url), ("no factor", "on", "none", url),
+                                             ("no connection", "on", "pin", "")):
+            with self.subTest(case=case):
+                for where in note(approvals, factor, mcp):
+                    self.assertNotIn("HELD", where)
+                    self.assertNotIn(off[0], where)
+        bad = subprocess.run(["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", url,
+                              "http://127.0.0.1:9/v1", "runtime-model", "owner"],
+                             env=dict(self.env, HERMES_OPENWRT_FACTOR="pin", HERMES_OPENWRT_APPROVALS="maybe"),
+                             check=False, capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_owner_client_is_paired_and_the_policies_name_its_approval(self):
+        # The owner's client, hermes-<agent>-owner, is paired beside the agent's into a root-only
+        # file of its own, and openwrt-mcp's approval section names it; the change policies name the
+        # section, which openwrt-mcp requires to exist; a reboot is granted only to wait for approval,
+        # and only when someone can approve. All of it read back through openwrt-mcp's own parser.
+        config = Path("/etc/config/openwrt-mcp")
+        original = config.read_bytes() if config.exists() else None
+
+        def restore():
+            if original is None:
+                config.unlink(missing_ok=True)
+            else:
+                config.write_bytes(original)
+        self.addCleanup(restore)
+        for client in ("hermes-unit", "hermes-unit-owner"):
+            self.addCleanup(subprocess.run, ["openwrt-mcp", "unpair", client], capture_output=True)
+        config.write_text("config server\n\toption listen '127.0.0.1:8730'\n")
+        token, owner = self.home / "unit.token", self.home / "unit-owner.token"
+
+        def agent(approvals):
+            script = (f". /lib/functions.sh; . {shlex.quote(str(FILES / 'hermes-agent.init'))}; "
+                      f"hermes_mcp_agent unit {shlex.quote(str(token))} pin 20m 3 1h off {approvals}")
+            return subprocess.run(["sh", "-c", script], check=False, capture_output=True, text=True)
+
+        def show():
+            out = subprocess.run(["uci", "-q", "show", "openwrt-mcp"], check=True, capture_output=True, text=True).stdout
+            return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        for approvals in ("on", "off"):
+            with self.subTest(approvals=approvals):
+                result = agent(approvals)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                got = show()
+                self.assertEqual(got["openwrt-mcp.hermes_unit_approval"], "approval")
+                self.assertEqual(got["openwrt-mcp.hermes_unit_approval.client"], "'hermes-unit'")
+                self.assertEqual(got["openwrt-mcp.hermes_unit_approval.approver"], "'hermes-unit-owner'")
+                self.assertEqual(got["openwrt-mcp.hermes_unit_approval.factor"], "'pin+totp'")
+                self.assertEqual(got["openwrt-mcp.hermes_unit_approval.approvals"], "'%s'" % approvals)
+                for sect in ("change", "change_ubus"):
+                    self.assertEqual(got[f"openwrt-mcp.hermes_unit_{sect}.approval"], "'hermes_unit_approval'")
+                if approvals == "on":
+                    self.assertEqual(got["openwrt-mcp.hermes_unit_hold.scopes"], "'system.reboot'")
+                    self.assertEqual(got["openwrt-mcp.hermes_unit_hold.hold"], "'1'")
+                    self.assertNotIn("openwrt-mcp.hermes_unit_hold.mfa_tools", got)
+                else:
+                    self.assertNotIn("openwrt-mcp.hermes_unit_hold", got)
+                policies = subprocess.run(["openwrt-mcp", "policies"], check=False, capture_output=True, text=True)
+                self.assertEqual(policies.returncode, 0, policies.stderr)
+                self.assertTrue(owner.exists() and owner.read_text().strip(), "no owner's token")
+                self.assertEqual(owner.stat().st_mode & 0o777, 0o600)
+                self.assertNotEqual(owner.read_bytes(), token.read_bytes())
+                clients = subprocess.run(["openwrt-mcp", "clients"], check=True, capture_output=True, text=True).stdout.split()
+                self.assertIn("hermes-unit-owner", clients)
+        # A start that changes nothing writes nothing, and keeps both tokens.
+        first = (token.read_bytes(), owner.read_bytes())
+        before, inode = config.read_bytes(), config.stat().st_ino
+        self.assertEqual(agent("off").returncode, 0)
+        self.assertEqual((config.read_bytes(), config.stat().st_ino), (before, inode))
+        self.assertEqual((token.read_bytes(), owner.read_bytes()), first)
+
+    def test_wrapper_hands_the_owner_token_to_the_gateway_alone(self):
+        # The owner's token goes to the gateway's own exec, for the plugin, and to nothing the wrapper
+        # runs before it as the agent's user; procd holds only its path, which the gateway never sees.
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        seen = {}
+        for name in ("hermes-set-toolsets", "hermes-runtime-check"):
+            helper = Path("/usr/libexec") / name
+            original = helper.read_bytes()
+            self.addCleanup(helper.write_bytes, original)
+            marker = self.home / f"{name}.env"
+            seen[name] = marker
+            helper.write_text(f"import os\nopen({str(marker)!r}, 'w').write(repr(sorted(os.environ)))\n")
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        # -S: what the wrapper hands over, before the gateway's own sitecustomize takes the owner's token.
+        cli.write_text("#!/bin/sh\nexec python3 -S -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        key, mcp, owner = self.home / "key", self.home / "mcp", self.home / "owner"
+        key.write_text("provider-runtime-canary")
+        mcp.write_text("agent-runtime-canary")
+        owner.write_text("owner-runtime-canary")
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="http://127.0.0.1:8730/mcp",
+                   HERMES_MCP_TOKEN_FILE=str(mcp), HERMES_MCP_OWNER_TOKEN_FILE=str(owner),
+                   HERMES_MEM_MAX_MB="0", OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model")
+        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)], env=env, check=False,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        child = gateway_json(result.stdout)
+        self.assertEqual(child.get("OPENWRT_MCP_OWNER_TOKEN"), "owner-runtime-canary")
+        self.assertEqual(child.get("OPENWRT_MCP_TOKEN"), "agent-runtime-canary")
+        self.assertNotIn("HERMES_MCP_OWNER_TOKEN_FILE", child)
+        for name, marker in seen.items():
+            self.assertNotIn("OPENWRT_MCP_OWNER_TOKEN", marker.read_text(), f"{name} was handed the owner's token")
+        # The gateway's sitecustomize takes it out of the environment before upstream runs, so nothing
+        # the gateway starts inherits it, and gives it to the plugin once.
+        boot = subprocess.run(["python3", "-c", "import json, os, subprocess, sitecustomize as s; print(json.dumps({"
+                               "'env': 'OPENWRT_MCP_OWNER_TOKEN' in os.environ, 'child': subprocess.run(['sh', '-c', 'env'], "
+                               "capture_output=True, text=True).stdout.count('owner-runtime-canary'), "
+                               "'first': s.take_owner_token(), 'second': s.take_owner_token()}))"],
+                              env=dict(self.env, PYTHONPATH="/usr/lib/hermes-agent/gateway-boot",
+                                       OPENWRT_MCP_OWNER_TOKEN="owner-runtime-canary"),
+                              check=False, capture_output=True, text=True)
+        self.assertEqual(boot.returncode, 0, boot.stderr)
+        self.assertEqual(json.loads(boot.stdout.strip().splitlines()[-1]),
+                         {"env": False, "child": 0, "first": "owner-runtime-canary", "second": ""})
+        # Another profile has no unlock plugin, so its gateway is not handed the token, though the
+        # file a router keeps from the owner profile is there.
+        other = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                               env=dict(env, HERMES_OPENWRT_PROFILE="assistant"), check=False,
+                               capture_output=True, text=True)
+        self.assertEqual(other.returncode, 0, other.stderr)
+        self.assertNotIn("OPENWRT_MCP_OWNER_TOKEN", gateway_json(other.stdout))
+        self.assertNotIn("owner MCP token file", other.stderr)
+        # Missing, the gateway still starts, with one line, and no owner's token.
+        owner.unlink()
+        result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)], env=env, check=False,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("OPENWRT_MCP_OWNER_TOKEN", gateway_json(result.stdout))
+        self.assertEqual(result.stderr.count("owner MCP token file"), 1, result.stderr)
+
+    def test_plugin_takes_the_owner_token_and_answers_from_the_daemons_words(self):
+        # The plugin takes the owner's token out of the environment as it registers, so a process a
+        # tool starts later does not inherit it; it asks openwrt-mcp with that token, never the
+        # agent's; and what it says to the owner and the agent comes from the daemon's answer.
+        probe = r"""
+import json, os, subprocess, openwrt_unlock as u
+class Ctx:
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+u.register(Ctx())
+print(json.dumps({
+    "env": "OPENWRT_MCP_OWNER_TOKEN" in os.environ,
+    "kept": u._OWNER_TOKEN,
+    "child": subprocess.run(["sh", "-c", "env"], capture_output=True, text=True).stdout.count("OWNER-TOKEN-CANARY"),
+}))
+sent = []
+u._post = lambda url, token, body, session=None, timeout=25.0: (sent.append(token) or ({"result": {"content": [{"text": "ok"}]}}, "sid"))
+u._close = lambda *a: None
+u.call_tool("action_list", {})
+print(json.dumps({"tokens": sorted(set(sent))}))
+print(json.dumps([u.classify(t, "pin", a) for t, a in (("/approve kqwpt", False), ("/reject KQWPT x", False),
+    ("73918260 123456", True), ("73918260 123456", False), ("/approve", False))]))
+print(json.dumps([u.approve_answer(*r) for r in ((True, "Applied KQWPT.\nApplied 7 change(s)", False),
+    (True, "refused: the hash is not that of KQWPT's card", True), (True, "refused: the router's configuration has changed since KQWPT was checked", True),
+    (True, "invalid credentials", True), (False, "", False))]))
+print(json.dumps(u._turn_for({"id": "KQWPT", "status": "applied", "headline": "OPENS THE ROUTER TO THE INTERNET: tcp 2222",
+    "result": 'Applied 7 change(s).\nROLLBACK ARMED: this reverts automatically at 2026-10-22T12:41:00Z (in 5m0s) unless you call\n  uci_confirm {"token": "TOKEN123"}\n'})))
+print(json.dumps(u._turn_for({"id": "KQWPT", "status": "rejected"})))
+"""
+        result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True,
+                                env=dict(self.env, OPENWRT_MCP_OWNER_TOKEN="OWNER-TOKEN-CANARY", OPENWRT_MCP_TOKEN="AGENT-TOKEN",
+                                         HERMES_OPENWRT_UNLOCK_URL="http://127.0.0.1:9/mcp"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [json.loads(line) for line in result.stdout.strip().splitlines()[-6:]]
+        self.assertEqual(lines[0], {"env": False, "kept": "OWNER-TOKEN-CANARY", "child": 0})
+        self.assertEqual(lines[1], {"tokens": ["OWNER-TOKEN-CANARY"]})
+        self.assertEqual(lines[2], [["approve", "KQWPT"], ["reject", "KQWPT"], ["approve_factor", "73918260 123456"],
+                                    ["bare", "73918260 123456"], ["approve", ""]])
+        self.assertEqual(lines[3][0], "Approved and applied.")
+        self.assertIn("no longer the change that waits", lines[3][1])
+        self.assertIn("configuration changed since", lines[3][2])
+        self.assertEqual(lines[3][3], "Refused. Nothing was approved.")
+        self.assertIn("could not reach", lines[3][4])
+        self.assertIn("uci_confirm with token TOKEN123", lines[4])
+        self.assertIn("2026-10-22T12:41:00Z", lines[4])
+        self.assertIn("rejected KQWPT", lines[5])
+
+    def test_card_waits_through_an_approval_in_progress(self):
+        # openwrt-mcp lists a change as approving while an approval runs and as held again when the try
+        # is refused. Neither is an outcome: the card stays one that can be approved, and the agent is
+        # told only the outcome, once, in the session the change was proposed from. Once there is an
+        # outcome, withdrawn included, the plugin keeps neither the card nor the session, so a router up
+        # for months does not grow them at six proposals an hour.
+        probe = r"""
+import asyncio, json, openwrt_unlock as u
+class Msg:
+    chat_id, message_id = 1, 7
+class Bot:
+    edits = []
+    async def send_message(self, **k):
+        return Msg()
+    async def edit_message_text(self, **k):
+        Bot.edits.append(k["text"].split("\n\n")[-1])
+told = []
+class Ctx:
+    def inject_message(self, text, session_key=None):
+        told.append([session_key, text[:40]])
+        return True
+u._BOT, u._CTX, u._approver, u._keyboard = Bot(), Ctx(), (lambda: "1"), (lambda a: None)
+u._sessions["KQWPT"] = "chat-session"
+rec = {"id": "KQWPT", "hash": "a" * 64, "card": "CARD", "headline": "OPENS THE ROUTER TO THE INTERNET: tcp 2222"}
+seen = []
+async def run():
+    for status in ("held", "approving", "held", "approving", "applied"):
+        extra = {"result": 'Applied.\n  uci_confirm {"token": "T1"}'} if status == "applied" else {}
+        await u._show(dict(rec, status=status, **extra))
+        seen.append(u._cards.get("KQWPT", {}).get("shown", "gone"))
+    u._sessions["WTHDR"] = "other-session"
+    for status in ("held", "withdrawn"):
+        await u._show(dict(rec, id="WTHDR", status=status))
+    # A status that is neither held nor an outcome (one a later openwrt-mcp might add) keeps the card
+    # and the session, so the outcome after it is still shown and told.
+    u._sessions["LATER"] = "third-session"
+    for status in ("held", "paused", "rejected"):
+        extra = {}
+        await u._show(dict(rec, id="LATER", status=status))
+asyncio.run(run())
+print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told, "kept": sorted(u._cards) + sorted(u._sessions)}))
+"""
+        result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True, env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        got = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(got["seen"], ["held", "held", "held", "held", "gone"])
+        self.assertEqual(got["edits"], ["Approved and applied.", "Withdrawn by the agent. Nothing was applied.",
+                                        "Rejected. Nothing was applied."])
+        self.assertEqual(got["kept"], [])
+        self.assertEqual(got["told"], [["chat-session", "[The owner approved KQWPT and it was app"],
+                                       ["third-session", "[The owner rejected LATER; it was not ap"]])
 
     def test_tool_search_is_off_unless_the_operator_set_it(self):
         # Upstream defers every MCP tool behind tool_search by default, and on routers on
@@ -1812,7 +2124,8 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
         for missing in (None, "uci_get_redacts_credentials"):
             with self.subTest(missing=missing):
                 policies, stderr = self.r14_policies("pin", missing)
-                self.assertEqual(list(policies), ["read_ubus", "read_uci", "read_log", "change", "change_ubus"])
+                # (and, since r16, the approval section the change policies name, which is not a policy)
+                self.assertEqual(list(policies), ["read_ubus", "read_uci", "read_log", "approval", "change", "change_ubus"])
                 read_ubus, read_uci = policies["read_ubus"], policies["read_uci"]
                 self.assertEqual(read_ubus["tools"], ["ubus_call"])
                 self.assertEqual(read_uci["tools"], ["uci_get"])

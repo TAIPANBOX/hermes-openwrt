@@ -176,7 +176,16 @@ esac
 # few files of /etc, the data directory and a /tmp of its own; no /etc/config, /overlay, /var or
 # ubus. The network is the router's, so diagnostics work as before, and the router is still read
 # and changed through openwrt-mcp. A sandbox that cannot be built stops the start.
-PKGREL=${PKGREL:-15}
+# 0.21.5-r16: a high-impact change waits for the owner's approval of that one change. openwrt-mcp
+# 0.5.0.5 holds a port opened to the internet, the firewall weakened, VPN routing, DNS or the time
+# servers changed, an open Wi-Fi into a trusted network, a guard service stopped or a reboot, inside
+# the unlock window or out of it, until the owner approves it from Telegram with the PIN and an app
+# code, against the hash of the card the bot sent; what only a person may do is refused. The init
+# pairs a second client, hermes-main-owner, whose token the wrapper hands to the gateway alone and the
+# unlock plugin takes out of the environment as it loads; /unlock and approvals go through it, so
+# the agent's own token can no longer spend the owner's tries. The approver is
+# hermes.security.approver_id, or the one Telegram id allowed when only one is.
+PKGREL=${PKGREL:-16}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -192,12 +201,15 @@ PKGREL=${PKGREL:-15}
 # both in `status`; the init grants the wide reads and writes a change policy only on those
 # words, and the floor keeps an upgrade from leaving an older one in place. Since r13 the floor is
 # 0.5.0.4, the first whose apk_add installs from the official feeds only and says so in `status`
-# (apk_add_official_feed_only), which the init asks for before it writes the package policy.
+# (apk_add_official_feed_only), which the init asks for before it writes the package policy. Since
+# r16 it is 0.5.0.5, the first that holds high-impact changes for the owner's approval and refuses
+# the agent's client its own unlock (actions_held_for_approval), without which the init writes no
+# change policy.
 #
 # iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above). procd-ujail is
 # the sandbox the gateway runs in (r15, above); it is in OpenWrt's stock images, and named so an
 # image without it gets it rather than an agent that will not start.
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 iputils-ping procd-ujail"
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

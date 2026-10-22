@@ -180,7 +180,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     red first in openwrt/rootfs 25.12.4 with the real reload_config and a counting ubus
     stand-in, 0 events in both states before, 1 after (gate: `scripts/gate-luci.sh`
     `check_security_factor_announced_when_reload_cannot_tell`; teeth: `scripts/teeth-luci.sh`
-    faults 34 and 35). `@claude` 2026-10-08, the same release: a PIN saved while the factor in
+    faults 34 and 35). `@claude` 2026-10-22, LuCI 0.21.5-r4: security_status also answers who approves
+    a high-impact change (`approver_id` as set, `approver_choices`, the Telegram ids allowed when
+    Telegram is on, `approver` in force, and `approvals_ready`, which needs a PIN and a phone), and
+    `set_approver` (write permission alone) takes one of those ids or none and nothing else, written and
+    announced the way set_factor is (gate: `scripts/gate-luci.sh`
+    `check_security_approver_chosen_only_from_the_allowed_ids`; the page,
+    `check_security_approver_offered_only_from_the_allowed_ids` in `scripts/test-luci-views.mjs`; teeth:
+    `scripts/teeth-luci.sh` faults 43 to 46). `@claude` 2026-10-08, LuCI 0.21.5-r2: a PIN saved while the factor in
     force is `none` says, after the reload and as a warning, to choose PIN under "What unlocking
     asks for" and press Save there, since the PIN and the factor have a Save each and a person
     set one and missed the other (gate: `scripts/test-luci-views.mjs`
@@ -434,7 +441,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     the model, and with the opt-in off refused for want of a policy and hidden.) The rest of the scope holds as the r11 note above says, gated, within
     the limits it names. Only `uci_apply` has the
     automatic rollback; a `ubus_call` (a service restart, say) has none.
-    Unlocking is per agent: `hermes-<name>` has its own token and its own window.
+    Unlocking is per agent: `hermes-<name>` has its own token and its own window. `@claude`
+    2026-10-22, 0.21.5-r16: and only the owner's client `hermes-<name>-owner` opens it; the agent's
+    own client is refused its unlock, and a high-impact change in the window is held for the owner's
+    approval of that one change (invariant 26).
     An unconfirmed change is undone from a snapshot under `/etc/openwrt-mcp`, not `/tmp`,
     so a reboot does not keep it. `@decided 2026-10-08` (the owner's, paraphrased): the owner's
     consent is the /unlock; after an applied change the agent confirms it once it has checked the
@@ -797,6 +807,95 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/test-ci-subjects.sh`, fifteen cases, in the scenarios job, which fails a selector that
     runs nothing or everything). Limits named: which legs a file needs is a list kept by hand, and a
     rule that leaves a leg out wrongly is caught only on main, where every leg runs.
+
+26. `@decided 2026-10-22` (the owner's, paraphrased): a tiered model. Reads always; reversible
+    changes in the unlock window; high-impact changes (a port opened to the internet, the firewall
+    weakened, VPN routing, upstream DNS, a guard service stopped, a reboot, and the time servers and
+    an open Wi-Fi into a trusted zone) held in openwrt-mcp as a record that cannot change and
+    approved one by one from Telegram with the PIN and an app code against a hash of the exact
+    change, off until both exist; the card from the same bot, its headline restated before the code
+    is asked for; proposals while the window is closed, with limits; one approver; /unlock and
+    approvals through a client of the owner's own whose token only the plugin holds; what only a
+    person may do, never. Protections must add no step for the owner.
+    `@claude` 2026-10-22, how (0.21.5-r16, openwrt-mcp 0.5.0.5, LuCI 0.21.5-r4): the init pairs
+    `hermes-<agent>-owner` into `<token file>-owner` (0600 root, `mcp_pair`) and writes openwrt-mcp's
+    approval section `hermes_<agent>_approval` (approver the owner's client, factor pin+totp, ttl 10m,
+    approvals on or off), both change policies and the package policy naming it, and a hold policy
+    `hermes_<agent>_hold` (ubus_call `system.reboot`, hold 1) only when approvals are on. It writes no
+    approval section and no change policy unless openwrt-mcp reports `actions_held_for_approval`
+    (`mcp_daemon_caps`, the word `held`) beside `uci_apply_refuses_code_exec`, and reads the section
+    back. Approvals are on when Telegram is on and an approver is found: `hermes.security.approver_id`
+    (one of `allow_user_id`, else the start is refused), or the one id when exactly one is allowed
+    (a choice of mine: no step for the owner); with several and none chosen, off, and a high-impact
+    change is refused rather than held. procd holds the owner token's path only; the wrapper reads the
+    token and exports it for the gateway's own exec, after both helpers, in the owner profile only
+    (another profile has no plugin, though the file stays); the gateway's sitecustomize takes it out of
+    the environment before upstream runs, so no process the gateway starts inherits it, and hands it
+    to the plugin once (review of #64), and the plugin asks openwrt-mcp with it
+    for `/unlock` (`mfa_unlock {client}`), `/lock` (`mfa_lock {client}`, which also rejects every held
+    change) and approvals. Every 5 s it lists the held changes (`action_list`, closing each MCP session
+    it opens; openwrt-mcp writes no audit line for an answered listing) and sends a new one's card,
+    openwrt-mcp's text verbatim, to the approver's private chat with Approve and Reject buttons
+    (`owa:`/`owr:<id>:<16 hex of the hash>`, a `CallbackQueryHandler` scoped by pattern in group -1).
+    Reject, or `/reject <id>`, rejects with no factor; Approve, or `/approve <id>`, restates the
+    headline and asks for the PIN and the code, which the next fitting message from the approver
+    carries on the unlock's secret path (deleted first, never shown to the model, scrubbed from every
+    request) to `action_approve` with the record's whole hash. The outcome edits the card and starts a
+    turn for the agent with `inject_message` in the session the change was proposed from (learned in
+    `post_tool_call` from the `HELD <id>` answer); the bridge sets
+    `plugins.entries.openwrt-unlock.allow_gateway_injection` in the owner profile. The bridge hides
+    `action_list`, `action_approve` and `action_reject` from the model in every profile and keeps
+    `action_status` and `action_withdraw`; the owner note says what HELD means, or that nobody approves.
+    `@claude` 2026-10-22, beyond the decided list, from review of openwrt-mcp #9: openwrt-mcp also holds
+    any rewiring (a VLAN table, a device's ports or base, what an interface sits on), since following
+    every way netifd resolves a device did not converge, except an interface on a new port-less
+    `br-<name>` bridge the kernel does not have yet, which is the guest-network path and runs in the
+    window; an uplink network put into a trusted zone; and raw nftables fragments. The owner note
+    names the guest-network shape so the agent keeps to it.
+    What is held, how it is decided (the state the change would leave, through the router's own uci
+    on a RAM copy) and what is refused whatever a grant says are openwrt-mcp's (its README, invariant 5
+    and `features/approval.feature`). Limits named and not fixed: a change whose danger lies in a
+    value openwrt-mcp's rules do not read runs in the window; held changes live in openwrt-mcp's memory
+    and a restart drops them; the card comes through the bot the agent writes through, so the restated
+    headline is what to trust; a turn is injected only into a chat the plugin saw the change proposed
+    from; WireGuard client configuration is not handed over yet (stage 6) and `wg_new_client` is refused.
+    (gate: `scripts/gate-unlock.sh` `check_agent_cannot_unlock_itself`,
+    `check_no_change_policy_without_held_capability`, `check_high_impact_change_held_in_window`,
+    `check_held_change_approved_from_the_chat`, `check_held_change_rejected_from_the_chat`,
+    `check_owner_token_never_reaches_the_agent`, `check_unlock_tools_hidden_from_model`;
+    `scripts/gate-runtime.sh` `check_mcp_entry_hides_the_approvers_tools_and_lets_the_plugin_tell_the_agent`,
+    `check_owner_note_says_what_a_held_change_means`, `check_owner_client_is_paired_and_the_policies_name_its_approval`,
+    `check_wrapper_hands_the_owner_token_to_the_gateway_alone`,
+    `check_plugin_takes_the_owner_token_and_answers_from_the_daemons_words`, `check_all_secrets_absent_from_procd`,
+    `check_card_waits_through_an_approval_in_progress` (openwrt-mcp lists a change as approving while an
+    approval runs, and as held again when that try is refused: neither is an outcome);
+    `scripts/gate-luci.sh` `check_security_approver_chosen_only_from_the_allowed_ids` and
+    `scripts/test-luci-views.mjs` `check_security_approver_offered_only_from_the_allowed_ids`;
+    `scripts/gate-package.sh` `check_needs_an_openwrt_mcp_that_redacts` (the floor, 0.5.0.5, and the
+    capability); teeth: `scripts/teeth-unlock.sh` faults 74 to 86, `scripts/teeth-runtime.py`
+    (twenty-five mutants), `scripts/teeth-luci.sh` faults 43 to 46.)
+    `@measured` 2026-10-22 20:09-20:15 BST on a Flint 2 (25.12.5, owner profile, one Telegram id
+    allowed), hermes-agent 0.21.5-r16, luci-app-hermes 0.21.5-r4 and openwrt-mcp 0.5.0.5 from the
+    artifact of CI run 39834353881 (source tree b7af8a9, the tree of 0d3d305), installed over r14 and
+    taken back to r14, LuCI r3 and openwrt-mcp 0.5.0.4 from the feed afterwards, with the 23 files of
+    /etc/config, /etc/openwrt-mcp, /etc/hermes-agent and /etc/apk/world checksummed equal to before and
+    the package list equal; a test PIN and phone on hermes-main, kept in RAM, removed with the rest.
+    The start paired hermes-main-owner (its token 0600 root), wrote hermes_main_approval (approver
+    hermes-main-owner, pin+totp, approvals on) and hermes_main_hold, and security_status named the
+    allowed id and approvals_ready true. With the gateway stopped, so no card reached Telegram, and the
+    owner's client driven with its token as the plugin drives it: the agent's own mfa_unlock was
+    refused without a try; the owner's opened the window; a port forward from wan in the open window
+    answered HELD, the firewall file and the ruleset (counters aside) unchanged; action_list gave
+    openwrt-mcp's card; action_approve with the PIN and a fresh code applied it and fw4 had `tcp dport
+    2224 dnat ip to 192.168.1.250:22`; the same approval again was refused ("is applied"); the agent
+    confirmed it without an unlock, then removed it in the window, not held, and the ruleset was back
+    to the start; a second one, approved after a firewall section was added by hand, was refused for
+    the changed configuration and stayed held; reject needed no factor; mfa_lock closed the window.
+    One turn of `hermes chat --oneshot` (anthropic/claude-haiku-5.5 through OpenRouter, 4 tool calls)
+    asked for a port forward: it read with uci_get, called uci_apply once, got HELD, did not retry,
+    and said it waits for the owner's approval and would not ask for a PIN or a code; it also told
+    the owner to send /unlock first, which an approval does not need. Not run on hardware: the card
+    and its buttons in Telegram, and the injected turn (the gateway was stopped on purpose).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
