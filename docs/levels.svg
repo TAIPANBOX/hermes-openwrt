@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-label="What the agent may do with the router: read it always; change settings after you unlock it, with a rollback; make a high-impact change only once you approve that one change with a PIN and a code; never run its own commands as root, flash firmware or read your Wi-Fi or VPN keys">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
+</defs>
+<rect width="1280" height="440" fill="url(#bg)"/><rect width="1280" height="440" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">What the agent may do with your router</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">Reading is free. Every change goes through openwrt-mcp, which asks you first, and the riskier the change, the more it asks.</text>
+<rect x="48" y="112" width="381" height="196" rx="10" fill="#0f1520" stroke="#3fb950"/>
+<rect x="48" y="112" width="381" height="6" rx="3" fill="#3fb950"/>
+<text x="70" y="154" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3" font-weight="600">Read</text>
+<text x="70" y="178" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#3fb950">always</text>
+<text x="70" y="212" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">status, logs, settings</text>
+<text x="70" y="234" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">ping, DNS, routes</text>
+<text x="70" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">secrets shown as &lt;redacted&gt;</text>
+<text x="70" y="290" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950" font-weight="600">no step for you</text>
+<rect x="449" y="112" width="381" height="196" rx="10" fill="#0f1520" stroke="#2dd4bf"/>
+<rect x="449" y="112" width="381" height="6" rx="3" fill="#2dd4bf"/>
+<text x="471" y="154" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3" font-weight="600">Change settings</text>
+<text x="471" y="178" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#2dd4bf">after you /unlock</text>
+<text x="471" y="212" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">network, Wi-Fi, firewall, DHCP,</text>
+<text x="471" y="234" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">start or stop a service</text>
+<text x="471" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">for 15 minutes, then locked</text>
+<text x="471" y="290" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#2dd4bf" font-weight="600">settings undone unless confirmed</text>
+<rect x="850" y="112" width="381" height="196" rx="10" fill="#0f1520" stroke="#d29922"/>
+<rect x="850" y="112" width="381" height="6" rx="3" fill="#d29922"/>
+<text x="872" y="154" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" fill="#e6edf3" font-weight="600">High-impact change</text>
+<text x="872" y="178" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#d29922">you approve each one</text>
+<text x="872" y="212" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">a port open to the internet,</text>
+<text x="872" y="234" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">firewall weakened, VPN routing,</text>
+<text x="872" y="256" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">DNS, time servers, a reboot</text>
+<text x="872" y="290" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#d29922" font-weight="600">Approve + PIN + code</text>
+<rect x="48" y="328" width="1183" height="52" rx="10" fill="#0f1520" stroke="#f85149" stroke-dasharray="5 4"/>
+<text x="70" y="360" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#f85149" font-weight="600">Never</text>
+<text x="140" y="360" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">run its own commands as root, flash firmware, or read your Wi-Fi password or VPN keys from a file</text>
+<text x="48" y="412" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">The PIN and the code never reach the model: the message that carries them is deleted before anything else happens.</text>
+</svg>

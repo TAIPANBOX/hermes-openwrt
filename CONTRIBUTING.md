@@ -64,7 +64,7 @@ running system. Run them with `ARCH=aarch64_generic`, after the builds above.
 
 The teeth scripts plant faults in the product and require the matching check to catch each
 one. The long ones take a shard, as CI runs them: `SHARD=0/4 ./scripts/teeth-usb.sh`.
-[What is checked, and how](README.md#what-is-checked-and-how) describes every gate.
+[docs/checks.md](docs/checks.md) describes every gate.
 
 ## What a pull request is held to
 
@@ -98,7 +98,7 @@ asks for the same.
 CI builds and gates, and never signs. The feed is signed with a key that lives on a
 maintainer's workstation and published from there with `scripts/publish-feed.sh`, because
 a router that trusts the key keeps trusting anything it signs (see
-[The signed feed](README.md#the-signed-feed)). A merged pull request therefore reaches
+[The signed feed](docs/build.md#the-signed-feed)). A merged pull request therefore reaches
 routers with the next published package revision, not at the moment it is merged.
 
 ## License
