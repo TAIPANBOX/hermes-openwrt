@@ -828,8 +828,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     (one of `allow_user_id`, else the start is refused), or the one id when exactly one is allowed
     (a choice of mine: no step for the owner); with several and none chosen, off, and a high-impact
     change is refused rather than held. procd holds the owner token's path only; the wrapper reads the
-    token and exports it for the gateway's own exec, after both helpers; the plugin pops it from the
-    environment at register, so no process a tool starts inherits it, and asks openwrt-mcp with it
+    token and exports it for the gateway's own exec, after both helpers, in the owner profile only
+    (another profile has no plugin, though the file stays); the gateway's sitecustomize takes it out of
+    the environment before upstream runs, so no process the gateway starts inherits it, and hands it
+    to the plugin once (review of #64), and the plugin asks openwrt-mcp with it
     for `/unlock` (`mfa_unlock {client}`), `/lock` (`mfa_lock {client}`, which also rejects every held
     change) and approvals. Every 5 s it lists the held changes (`action_list`, closing each MCP session
     it opens; openwrt-mcp writes no audit line for an answered listing) and sends a new one's card,
@@ -864,12 +866,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/gate-runtime.sh` `check_mcp_entry_hides_the_approvers_tools_and_lets_the_plugin_tell_the_agent`,
     `check_owner_note_says_what_a_held_change_means`, `check_owner_client_is_paired_and_the_policies_name_its_approval`,
     `check_wrapper_hands_the_owner_token_to_the_gateway_alone`,
-    `check_plugin_takes_the_owner_token_and_answers_from_the_daemons_words`, `check_all_secrets_absent_from_procd`;
+    `check_plugin_takes_the_owner_token_and_answers_from_the_daemons_words`, `check_all_secrets_absent_from_procd`,
+    `check_card_waits_through_an_approval_in_progress` (openwrt-mcp lists a change as approving while an
+    approval runs, and as held again when that try is refused: neither is an outcome);
     `scripts/gate-luci.sh` `check_security_approver_chosen_only_from_the_allowed_ids` and
     `scripts/test-luci-views.mjs` `check_security_approver_offered_only_from_the_allowed_ids`;
     `scripts/gate-package.sh` `check_needs_an_openwrt_mcp_that_redacts` (the floor, 0.5.0.5, and the
     capability); teeth: `scripts/teeth-unlock.sh` faults 74 to 86, `scripts/teeth-runtime.py`
-    (eighteen mutants), `scripts/teeth-luci.sh` faults 43 to 46.)
+    (twenty-three mutants), `scripts/teeth-luci.sh` faults 43 to 46.)
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

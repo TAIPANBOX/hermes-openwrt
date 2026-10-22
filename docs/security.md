@@ -663,8 +663,9 @@ the agent says so. Without Telegram there is no chat to approve in, and the same
 
 **The agent cannot unlock or approve for you.** The package pairs a second openwrt-mcp client,
 `hermes-main-owner`, beside the agent's own, into `/etc/hermes-agent/router-mcp-owner.token`
-(0600, root). The wrapper hands that token to the gateway alone, and the plugin takes it out of the
-environment as it loads, so the agent's terminal never has it; `/unlock`, `/lock` and approvals go
+(0600, root). The wrapper hands that token to the gateway alone, in the owner profile only, and the
+gateway takes it out of its environment before anything else runs and gives it to the plugin, so the
+agent's terminal never has it; `/unlock`, `/lock` and approvals go
 through it. openwrt-mcp refuses `hermes-main` an unlock of its own window, right or wrong and
 without counting a try, and refuses it the approval tools, so the agent's token, which its terminal
 can read, cannot spend your tries. None of this is a step for you: the package pairs the client and

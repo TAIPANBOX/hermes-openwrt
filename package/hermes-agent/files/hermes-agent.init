@@ -386,7 +386,8 @@ hermes_mcp_agent() {
 	case "$caps" in *" redacts "*) read_uci=$MCP_READ_UCI_WIDE ;; *) read_uci=$MCP_READ_UCI ;; esac
 	# A change policy only from a daemon that refuses code execution AND holds high-impact changes
 	# for the owner: without the second, a port opened to the internet would run in the window.
-	case "$caps" in *" noexec "*" held "*|*" held "*" noexec "*) may_change=yes ;; *) may_change=no ;; esac
+	may_change=no
+	case "$caps" in *" noexec "*) case "$caps" in *" held "*) may_change=yes ;; esac ;; esac
 	case "$packages:$caps" in official:*" apk "*) may_packages=yes ;; *) may_packages=no ;; esac
 	case "$caps" in *" held "*) ;; *) approvals=none ;; esac
 	mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" "$may_change" "$may_packages" "$approvals" || return 1

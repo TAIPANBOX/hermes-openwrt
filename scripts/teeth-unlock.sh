@@ -543,8 +543,11 @@ plant "$PLUGIN" '    token = (token if token is not None else _OWNER_TOKEN).stri
 expect_red "the plugin asks with the agent's token" check_pin_alone_unlocks
 
 # ---- 77. a change policy from a daemon that does not hold high-impact changes ----
-plant "$INIT" '	case "$caps" in *" noexec "*" held "*|*" held "*" noexec "*) may_change=yes ;; *) may_change=no ;; esac' \
-	'	case "$caps" in *" noexec "*) may_change=yes ;; *) may_change=no ;; esac'
+# Two guards hold it: the capability, and the read-back of the approval section a daemon without it
+# never gets. Both go, or the second keeps the gate green and the fault measures nothing.
+plant "$INIT" '	case "$caps" in *" noexec "*) case "$caps" in *" held "*) may_change=yes ;; esac ;; esac' \
+	'	case "$caps" in *" noexec "*) may_change=yes ;; esac'
+plant "$INIT" '	if [ "$may_change" = yes ] && [ "$factor" != none ] && \' '	if false && \' "$W/overlay"
 expect_red "a change policy without the held capability" check_no_change_policy_without_held_capability
 
 # ---- 78. nobody ever chosen to approve ----

@@ -61,6 +61,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 import time
 import urllib.request
@@ -322,6 +323,10 @@ _OWNER_TOKEN = ""
 def _take_owner_token() -> None:
     global _OWNER_TOKEN
     token = os.environ.pop("OPENWRT_MCP_OWNER_TOKEN", "").strip()
+    # The gateway's sitecustomize took it out of the environment before upstream ran; it is kept there.
+    take = getattr(sys.modules.get("sitecustomize"), "take_owner_token", None)
+    if callable(take):
+        token = (take() or "").strip() or token
     if token:
         _OWNER_TOKEN = token
 
@@ -866,9 +871,11 @@ def _turn_for(a: dict):
 
 def _tell_agent(a: dict) -> None:
     text = _turn_for(a)
+    if not text:
+        return
     with _sessions_lock:
         key = _sessions.pop(a.get("id", ""), None)
-    if not text or not key or _CTX is None:
+    if not key or _CTX is None:
         return
     try:
         if not _CTX.inject_message(text, session_key=key):
@@ -888,8 +895,12 @@ async def _show(a: dict) -> None:
     """Sends a newly held change's card to the approver, or edits a card whose change was decided."""
     aid, status = a.get("id"), a.get("status")
     card = _cards.get(aid)
-    if status == "held":
-        if card is None and _BOT is not None and a.get("card") and len(a.get("hash", "")) == 64:
+    # openwrt-mcp lists a change as approving while an approval runs, and as held again when that
+    # try is refused: neither is an outcome, so the card stays one that can be approved.
+    if status in ("held", "approving"):
+        if card is not None and status == "held":
+            card["shown"] = "held"
+        if status == "held" and card is None and _BOT is not None and a.get("card") and len(a.get("hash", "")) == 64:
             msg = await _BOT.send_message(chat_id=int(_approver()), text=a["card"], reply_markup=_keyboard(a))
             _cards[aid] = {"hash": a["hash"], "headline": a.get("headline", ""), "tool": a.get("tool"),
                            "chat": msg.chat_id, "message": msg.message_id, "shown": "held", "card": a["card"]}

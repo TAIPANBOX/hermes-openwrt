@@ -750,9 +750,9 @@ echo "PASS check_security_packages_written_only_with_a_factor"
 # written the way set_factor writes, and the status tells what is in force and whether it can work.
 ap() { fail check_security_approver_chosen_only_from_the_allowed_ids "$1"; }
 $MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || ap "could not pair"
-uci set hermes.main.profile=owner; uci set hermes.telegram.enabled=1; uci -q delete hermes.telegram.allow_user_id
+uci set hermes.main.profile=owner; uci set hermes.telegram.enabled=1; { uci -q delete hermes.telegram.allow_user_id || true; }
 uci add_list hermes.telegram.allow_user_id=111; uci add_list hermes.telegram.allow_user_id=222
-uci -q delete hermes.security.approver_id; uci commit hermes
+{ uci -q delete hermes.security.approver_id || true; }; uci commit hermes
 service_standin check_security_approver_chosen_only_from_the_allowed_ids
 sa_call() { ubus call hermes set_approver "{\"approver_id\":\"$1\"}" 2>&1; }
 ap_get() { ubus call hermes security_status 2>/dev/null | jsonfilter -e "@.$1"; }
@@ -777,7 +777,7 @@ printf '%s\n' 4821 | $MCP pin set hermes-main >/dev/null; $MCP mfa enrol hermes-
 # None: with two allowed it is nobody; with one allowed, that one.
 out=$(sa_call ''); echo "$out" | grep -q '"ok": true' || { echo "$out"; ap "none was refused"; }
 [ "$(ap_get approver)" = "" ] || ap "none with two allowed ids still names '$(ap_get approver)'"
-uci -q delete hermes.telegram.allow_user_id; uci add_list hermes.telegram.allow_user_id=111; uci commit hermes
+{ uci -q delete hermes.telegram.allow_user_id || true; }; uci add_list hermes.telegram.allow_user_id=111; uci commit hermes
 [ "$(ap_get approver)" = 111 ] || ap "none with one allowed id is not that id: '$(ap_get approver)'"
 # Telegram off: no choice at all, and an id is refused.
 uci set hermes.telegram.enabled=0; uci commit hermes
@@ -785,7 +785,7 @@ uci set hermes.telegram.enabled=0; uci commit hermes
 out=$(sa_call 111); echo "$out" | grep -q '"ok": false' || { echo "$out"; ap "an approver was accepted with Telegram off"; }
 service_standin_gone
 rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev/null 2>&1 || true
-uci -q delete hermes.security.approver_id; uci -q delete hermes.telegram.allow_user_id; uci commit hermes
+{ uci -q delete hermes.security.approver_id || true; }; { uci -q delete hermes.telegram.allow_user_id || true; }; uci commit hermes
 echo "PASS check_security_approver_chosen_only_from_the_allowed_ids"
 
 # ---- 19. outside the owner profile the Security calls refuse ----

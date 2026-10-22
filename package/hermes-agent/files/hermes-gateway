@@ -64,9 +64,11 @@ if [ -n "${HERMES_OPENWRT_MCP_URL:-}" ]; then
 	# wrapper runs as the agent's user carries it; the unlock plugin takes it out of the gateway's
 	# environment as it loads, before any tool can start a process that would inherit it, and the
 	# bridge never names it, so the model's MCP connection carries only the agent's own token.
+	# Only the owner profile has the plugin, so only it is handed the token: a router that ran the
+	# owner profile once keeps the file, and another profile's gateway must not carry what it holds.
 	# Missing, /unlock and approvals say they cannot reach the router; the agent still reads.
 	owner=""
-	if [ -n "$mcp_effective" ] && ! owner=$(read_required "${HERMES_MCP_OWNER_TOKEN_FILE:-}" "owner MCP token file" 2>/dev/null); then
+	if [ "$profile" = owner ] && [ -n "$mcp_effective" ] && ! owner=$(read_required "${HERMES_MCP_OWNER_TOKEN_FILE:-}" "owner MCP token file" 2>/dev/null); then
 		owner=""
 		echo "hermes-gateway: owner MCP token file ${HERMES_MCP_OWNER_TOKEN_FILE:-} is missing or empty; /unlock and approvals cannot reach the router" >&2
 	fi

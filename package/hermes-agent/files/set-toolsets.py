@@ -626,8 +626,9 @@ def main() -> int:
             factor = os.environ.get("HERMES_OPENWRT_FACTOR", "none")
             if factor not in FACTORS:
                 raise ValueError("HERMES_OPENWRT_FACTOR must be none, pin, totp or pin+totp")
-            approvals = os.environ.get("HERMES_OPENWRT_APPROVALS", "off")
-            if approvals not in APPROVALS:
+            # Unset, as from a caller that is not this package's init: nothing is said either way.
+            approvals = os.environ.get("HERMES_OPENWRT_APPROVALS")
+            if approvals is not None and approvals not in APPROVALS:
                 raise ValueError("HERMES_OPENWRT_APPROVALS must be off or on")
             mcp_on = len(sys.argv) >= 4 and bool(sys.argv[3])
             note = _note_for(profile, factor, packages_on, approvals if mcp_on else None)
