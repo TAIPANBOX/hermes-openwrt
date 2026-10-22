@@ -166,7 +166,17 @@ esac
 # package's own config is read with its secrets '<redacted>'; from one that does not, the narrow
 # list as before. The owner note says where each is read, and that a start is not confirmed until
 # rc list says the service runs.
-PKGREL=${PKGREL:-14}
+#
+# 0.21.5-r15: the agent's own tools read no router secret. A router keeps secrets in files every
+# user may read (/etc/config/wireless is 0644 from first boot and libuci keeps the mode on commit;
+# hostapd's runtime file in /var/run holds the passphrase too), and the owner profile's terminal,
+# file and search tools, running as hermes, opened them past openwrt-mcp's redaction (a Flint 2,
+# 2026-10-22, read-only). The gateway of the owner and assistant profiles now runs inside ujail,
+# OpenWrt's own sandbox, through /usr/libexec/hermes-jail: /bin, /sbin, /lib and /usr read-only, a
+# few files of /etc, the data directory and a /tmp of its own; no /etc/config, /overlay, /var or
+# ubus. The network is the router's, so diagnostics work as before, and the router is still read
+# and changed through openwrt-mcp. A sandbox that cannot be built stops the start.
+PKGREL=${PKGREL:-15}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -184,8 +194,10 @@ PKGREL=${PKGREL:-14}
 # 0.5.0.4, the first whose apk_add installs from the official feeds only and says so in `status`
 # (apk_add_official_feed_only), which the init asks for before it writes the package policy.
 #
-# iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above).
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 iputils-ping"
+# iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above). procd-ujail is
+# the sandbox the gateway runs in (r15, above); it is in OpenWrt's stock images, and named so an
+# image without it gets it rather than an agent that will not start.
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 iputils-ping procd-ujail"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

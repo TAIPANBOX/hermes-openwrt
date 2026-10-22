@@ -85,26 +85,31 @@ def verify(entry: pwd.struct_passwd) -> None:
     die("root can be taken back after the drop")
 
 
+def become(user: str) -> None:
+    """Everything above for a user other than root, then HOME, USER, LOGNAME and the current
+    directory as the docstring says. hermes-jail's first process inside the sandbox uses this
+    too, so there is one drop and not two copies of it."""
+    entry = drop(user)
+    verify(entry)
+    home = os.environ.get("HERMES_HOME", "")
+    os.environ["HOME"] = home if home and os.path.isdir(home) else entry.pw_dir
+    os.environ["USER"] = os.environ["LOGNAME"] = user
+    # os.access, not os.getcwd: a directory the new user cannot enter can still be
+    # named by a process that was in it before the drop.
+    if not os.access(".", os.X_OK) or not os.access(".", os.R_OK):
+        try:
+            os.chdir(os.environ["HOME"])
+        except OSError:
+            os.chdir("/")
+
+
 def main(argv) -> int:
     if len(argv) < 3:
         sys.stderr.write("usage: hermes-drop <user> <command> [argument ...]\n")
         return 2
     user, command = argv[1], argv[2:]
-    if user == "root":
-        entry = None
-    else:
-        entry = drop(user)
-        verify(entry)
-        home = os.environ.get("HERMES_HOME", "")
-        os.environ["HOME"] = home if home and os.path.isdir(home) else entry.pw_dir
-        os.environ["USER"] = os.environ["LOGNAME"] = user
-        # os.access, not os.getcwd: a directory the new user cannot enter can still be
-        # named by a process that was in it before the drop.
-        if not os.access(".", os.X_OK) or not os.access(".", os.R_OK):
-            try:
-                os.chdir(os.environ["HOME"])
-            except OSError:
-                os.chdir("/")
+    if user != "root":
+        become(user)
     try:
         os.execvp(command[0], command)
     except OSError as exc:

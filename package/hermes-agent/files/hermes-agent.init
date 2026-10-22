@@ -642,6 +642,11 @@ start_service() {
 	# of the tunnel's throughput while it ran, at nice 10 a quarter. Inherited by the
 	# gateway the wrapper execs and by every tool process it starts.
 	procd_set_param nice 10
+	# Since r15 the process procd stops is ujail, and the gateway is inside it: the sandbox's first
+	# process kills the gateway 5 s after the stop (procd's own default, which reached the gateway
+	# itself before), ujail kills the sandbox at 8 s, and procd kills ujail at 10, the sandbox then
+	# going with it. Equal timers raced, and a ujail killed first left the gateway running.
+	procd_set_param term_timeout 10
 
 	procd_set_param stdout 1
 	procd_set_param stderr 1

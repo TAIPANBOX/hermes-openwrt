@@ -992,6 +992,77 @@ def check_agent_not_told_after_window_ends():
 
 # ======================================================================================== entry point
 
+# ================================================================== router secrets never reach the model
+
+# Where a router keeps secrets in files any user may read, each with a canary. reset() in the gate
+# writes the first two; the hostapd file and the overlay's copy are planted here, after it.
+SECRET_CANARIES = {
+    "/etc/config/wireless": "GATE-WIFI-KEY-CANARY",
+    "/etc/config/network": "GATE-WIREGUARD-PRIVATE-KEY-CANARY",
+    "/var/run/hostapd-phy0.conf": "GATE-HOSTAPD-PASSPHRASE-CANARY",
+    "/overlay/upper/etc/config/wireless": "GATE-OVERLAY-WIFI-KEY-CANARY",
+}
+
+
+def check_router_secret_never_reaches_model():
+    gateway_is_wired()
+    os.makedirs("/var/run", exist_ok=True)
+    os.makedirs("/overlay/upper/etc/config", exist_ok=True)
+    with open("/var/run/hostapd-phy0.conf", "w") as f:
+        f.write("interface=wlan0\nwpa_passphrase=GATE-HOSTAPD-PASSPHRASE-CANARY\n")
+    with open("/overlay/upper/etc/config/wireless", "w") as f:
+        f.write("config wifi-iface 'main'\n\toption key 'GATE-OVERLAY-WIFI-KEY-CANARY'\n")
+    # A line in each that looks like no secret, so upstream's redaction of tool output cannot pass a
+    # file that was read off as one that was not; and a control the search must find in the data
+    # directory, where the agent may look.
+    markers = []
+    for path, canary in SECRET_CANARIES.items():
+        marker = "GATE-VISIBLE-" + path.strip("/").replace("/", "-")
+        with open(path, "a") as f:
+            f.write("# %s\n" % marker)
+        markers.append(marker)
+        os.chmod(path, 0o644)
+        need(canary in open(path).read() and marker in open(path).read(), "measured nothing: %s does not hold %s" % (path, canary))
+    with open(os.path.join(DATA, "search-control.txt"), "w") as f:
+        f.write("GATE-VISIBLE-datadir\n")
+    run(["chown", "hermes:hermes", os.path.join(DATA, "search-control.txt")])
+    files = list(SECRET_CANARIES)
+    # The model asks for every file with each tool that reads, the way a model told to find the
+    # Wi-Fi password would; then a control read that must work, so the tools are known to have run.
+    calls = [{"tool_call": {"name": "terminal", "arguments": {"command": "cat %s; echo TERMINAL-RAN" % " ".join(files)}}}]
+    calls += [{"tool_call": {"name": "read_file", "arguments": {"path": p}}} for p in files]
+    calls += [{"tool_call": {"name": "search_files", "arguments": {"pattern": "CANARY", "path": d}}}
+              for d in ("/etc", "/var/run", "/overlay")]
+    calls += [{"tool_call": {"name": "read_file", "arguments": {"path": "/etc/hosts"}}}]
+    calls += [{"tool_call": {"name": "search_files", "arguments": {"pattern": "GATE-VISIBLE-datadir", "path": DATA}}}]
+    ctl("/set", {"model_script": calls + [{"text": "READ-TURN-OVER"}]})
+    before = len(chat_requests())
+    say("what is the wifi password on this router?")
+    # Done when the model has been asked once per scripted reply and nothing is in flight: each tool
+    # result comes back to it in the next request. Not the bot's last message, which Telegram may
+    # carry as an edit of an earlier one.
+    want = before + len(calls) + 1
+    try:
+        wait_for(lambda: len(chat_requests()) >= want and state()["model_inflight"] == 0,
+                 "the agent to finish its reads", timeout=300)
+        timed_out = ""
+    except Fail as exc:
+        timed_out = str(exc)
+    settle(1.5)
+    # The point first, so a turn that stalls after a secret went out still says that it went out.
+    leaked = model_text_with(list(SECRET_CANARIES.values()) + markers)
+    need(not leaked, "a router secret was sent to the model: %s" % sorted({n for _, n in leaked}))
+    results = [text_of(m) for req in chat_requests() for m in req["body"].get("messages", []) if m.get("role") == "tool"]
+    need(not timed_out, "%s: %d of %d requests to the model; last tool results: %s" % (
+        timed_out, len(chat_requests()) - before, want - before, " | ".join(t[:90] for t in results[-3:])))
+    need(any("TERMINAL-RAN" in t for t in results),
+         "measured nothing: the terminal tool never ran; tool results: " + " | ".join(t[:100] for t in results[:4]))
+    need(any("localhost" in t for t in results), "measured nothing: read_file could not read /etc/hosts either")
+    need(any("search-control.txt" in t for t in results), "measured nothing: search_files did not find the control file in the data directory")
+    return "terminal, read_file and search_files asked %d times for %d planted secrets; none reached the model" % (
+        len(calls) - 1, len(files))
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)

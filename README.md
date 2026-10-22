@@ -205,8 +205,8 @@ lines, UCI and procd's service table.
 
 | profile | runs as | the router |
 |---|---|---|
-| `owner` (default) | `hermes`, unprivileged | read through openwrt-mcp; changed only through it, after an unlock |
-| `assistant` | `hermes`, with no terminal, code or file tools | only through an MCP server you set up |
+| `owner` (default) | `hermes`, unprivileged, in a sandbox | read through openwrt-mcp; changed only through it, after an unlock |
+| `assistant` | `hermes`, in a sandbox, with no terminal, code or file tools | only through an MCP server you set up |
 | `root` | root, with a warning at every start | directly, with no unlock |
 
 ![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, a change the agent does not confirm rolls back by itself](docs/unlock.svg)
@@ -229,13 +229,16 @@ code, such as a firewall include. It installs packages only if you opt in on the
 and only in a window, and the agent is told to do a dry run first and tell you what it would
 install; this needs openwrt-mcp 0.5.0.4 or later.
 
-The agent can read every UCI config, Wi-Fi and network included, so it can set up a guest
-network or check a package it installed, and it can see which services are running. openwrt-mcp
-answers Wi-Fi keys, WireGuard private keys and passwords as `<redacted>`, recognising them by
-option name, and the package grants these wider reads only when openwrt-mcp reports that it
-redacts. A secret kept under an option whose name does not say so (a token inside a DDNS update
-URL, say) is read as it is, and whatever the agent reads goes to your model provider. Everything,
-with the limits named: [docs/security.md](docs/security.md).
+The service's terminal, file and search tools run in a sandbox, OpenWrt's ujail: the router's
+configuration files, the overlay and other services' runtime files are simply not there, so none
+of them can read a Wi-Fi password or a VPN key from a file. Ping, DNS, routes and the agent's own
+data work as before. The agent reads every UCI config through openwrt-mcp instead, Wi-Fi and
+network included, so it can set up a guest network or check a package it installed, and it can
+see which services are running. openwrt-mcp answers Wi-Fi keys, WireGuard private keys and
+passwords as `<redacted>`, recognising them by option name, and the package grants these wider
+reads only when openwrt-mcp reports that it redacts. A secret kept under an option whose name
+does not say so (a token inside a DDNS update URL, say) is read as it is. Everything, with the
+limits named: [docs/security.md](docs/security.md).
 
 ## Measured on hardware
 

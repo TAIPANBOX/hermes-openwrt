@@ -712,6 +712,77 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     in CI's `scenarios` job, a stand-in apk plus a scan that every such script sources the helper;
     red-first against a helper that never retries and one that retries every failure).
 
+24. `@decided 2026-10-22`: the agent's own tools never read the router's secrets. `@measured`
+    2026-10-22 on a Flint 2 (25.12.5, 0.21.5-r14, owner profile), read-only, every file under /etc,
+    /var, /tmp, /srv, /root and /overlay/upper/etc opened as uid hermes: /etc/config/wireless,
+    firewall, luci, hermes and openwrt-mcp are 0644 and opened, and so are their copies under
+    /overlay/upper; network, dhcp, system, rpcd, dropbear and uhttpd are 0600. That router's
+    wireless held no key (radios off), so nothing was read there. `@claude` 2026-10-22, why a key
+    stays open: libuci's commit gives the new file the old one's mode before the rename (uci
+    file.c, uci_file_commit), so a wireless made 0644 at first boot keeps 0644 after a key is set
+    in LuCI, and the 25.12 wifi-scripts write the passphrase into /var/run/hostapd-<phy>.conf too.
+    `@measured` 2026-10-22 15:00-15:03 BST on a Flint 2 (25.12.5, owner profile, the r15 package CI built
+    from tree 2f6d5fb, installed over r14 and taken back to r14 from the feed afterwards, wireless and
+    /etc/apk/world byte for byte as before): procd's instance is `/sbin/ujail -n hermes-agent -E -p -s
+    -t 8 ...` (uid 0), its child `hermes-jail --init` and the gateway below it uid 32768 (hermes); in
+    /proc/<gateway>/root, /etc holds TZ group hosts openwrt_release openwrt_version os-release passwd
+    protocols resolv.conf services ssl and nothing else, /etc/config, /overlay, /var, /root and /rom are
+    not there, /srv/hermes (its USB stick) and /tmp are, and /usr/bin/ping is still -rwsr-xr-x. A
+    disabled wifi-iface with a canary key added by `uci set` and `uci commit wireless` left the file
+    -rw-r--r--, as before the commit (the libuci reading above, now run). Two one-off cron jobs on
+    anthropic/claude-haiku-5.5 through OpenRouter: asked to cat /etc/config/wireless and a hostapd file
+    holding the canary, the agent answered that its terminal has no /etc/config or /var and read
+    wireless through uci_get, the key `<redacted>`; no file under /srv/hermes held the canary. Asked to
+    diagnose, it pinged the gateway and 1.1.1.1, resolved openwrt.org and read the temperature from
+    /sys. Not run on hardware: a stop while the gateway ignores SIGTERM (the gate's check).
+    `@claude` 2026-10-22, how (0.21.5-r15): the wrapper's last line runs `/usr/libexec/hermes-jail`
+    for the owner and assistant profiles, which starts the gateway inside ujail (procd-ujail, in
+    the stock image, a dependency since r15; OpenWrt runs hostapd in it): /bin, /sbin, /lib and
+    /usr read-only; of /etc only passwd, group, hosts, /etc/ssl's certs, cert.pem and openssl.cnf
+    (not the rest of /etc/ssl, where acme keeps keys), the time zone and the release, each only
+    when it resolves to a file or directory root owns (/etc/TZ and /etc/localtime point into /tmp);
+    the data directory writable, refused when it would bring /etc, /overlay, /tmp/run, /var or a
+    system tree with it or holds a ':'; a /tmp of its own, emptied at each start, inside a root-only
+    0700 parent so nothing outside can swap it; a /proc of its own and the router's /sys, read-only;
+    and the router's resolv.conf, which ujail adds. No /etc/config, /overlay, /rom, /root, /var or
+    ubus, and the router's processes are in another pid namespace. The network is the router's.
+    ujail fails rather than run without the sandbox when it cannot build it, but skips a path it
+    cannot stage, so --init checks the data directory and /tmp are writable and the CA
+    certificates there. The environment goes by name (-e NAME), so no key reaches a command line;
+    at most 60 entries, refused above, since ujail drops what passes 64 without failing. Never -c
+    (no_new_privs), which would stop the setuid ping. ujail stays root outside the sandbox as its
+    supervisor and runs none of this package's code. Inside, hermes-jail --init is pid 1: it takes
+    the stop signals first, dies with ujail (PR_SET_PDEATHSIG, armed again after the drop, which
+    clears it), narrows the bounding set to CAP_NET_RAW (what setuid ping needs, and all a setuid
+    program can gain), gives up root through hermes-drop's own `become`, makes itself non-dumpable
+    (it holds the keys) and checks that it is, starts the gateway, passes the stop signals on and
+    SIGKILLs the gateway 5 s after the first, reaps, and exits with the gateway's status (128 plus
+    the signal for a killed one). Stopping: the init sets term_timeout 10 and hermes-jail gives
+    ujail -t 8, so the gateway gets procd's old 5 s, ujail ends the sandbox at 8, and procd's SIGKILL
+    to ujail at 10 takes the sandbox with it; with the default 5 s on both, procd killed ujail first
+    and the sandbox ran on unsupervised. The root profile runs without it, as an explicit choice.
+    Limits named and not fixed: `hermes` run by hand from a root shell (`hermes chat`, `hermes cron
+    run`) runs as hermes outside the sandbox, as the owner's own session; resolv.conf and the time
+    zone are the files present at the start, so a change reaches the sandbox at the next start; the
+    router's /proc/meminfo, loadavg and network state stay readable (the watch needs them); a
+    secret another package keeps under /usr or in a file of /etc on the list is not hidden.
+    hermes-usb's wait on the gateway's pid record reads a pid from inside the sandbox; its wait on
+    the service's cgroup, which ujail does not leave, is what holds (gate: `scripts/gate-unlock.sh`
+    `check_agent_tools_cannot_read_router_secrets` (a Wi-Fi key and a WireGuard private key in UCI,
+    hostapd's passphrase and the overlay's copy, all 0644 and each with a marker line no redaction
+    touches, read by upstream's terminal, read_file and search_files where the gateway runs, with a
+    search control in the data directory; and the bounding set read from inside),
+    `check_router_secret_never_reaches_model` (the same, asked for by the model through the real
+    gateway; no recorded model request holds one), `check_agent_diagnostics_still_work`
+    (docs/examples/router_check.sh, a ping with unprivileged ICMP closed as on a router, /tmp, the
+    data directory, sysfs, the resolver, no_new_privs off), `check_stop_leaves_nothing_running` (a
+    gateway that ignores SIGTERM gone within 7 s, by the sandbox's own 5 s and before ujail's 8; nothing left after SIGKILL to ujail or a
+    stop at the start), `check_gateway_runs_as_hermes_user` (every process of the service but
+    ujail); `scripts/gate-package.sh` `check_gateway_keys_hidden_from_its_user` (no process of the
+    service gives hermes the key); teeth: `scripts/teeth-unlock.sh` faults 63 to 73, which refuse a
+    red that is only "measured nothing", `scripts/teeth.sh` fault 13, `scripts/teeth-runtime.py`
+    (the owner note's sandbox sentence)).
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

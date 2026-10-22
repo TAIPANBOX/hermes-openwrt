@@ -42,6 +42,15 @@ ip link set eth0 down
 # Move the harness out of the parent before enabling a domain controller.
 mkdir /sys/fs/cgroup/harness
 echo $$ > /sys/fs/cgroup/harness/cgroup.procs
+# ujail, which the gateway starts in since 0.21.5-r15, connects to ubus before anything else; a router
+# always has ubusd. Started here, inside the harness's cgroup, so the parent stays free of processes.
+mkdir -p /var/run/ubus
+ubusd >/tmp/ubusd.log 2>&1 &
+i=0
+until ubus list >/dev/null 2>&1; do
+    i=$((i + 1)); [ "$i" -lt 20 ] || { cat /tmp/ubusd.log; echo "ubusd did not start"; exit 1; }
+    sleep 1
+done
 export PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1
 # Assert tests use precisely the code installed from the archive.
 mkdir /tmp/product

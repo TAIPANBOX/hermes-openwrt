@@ -19,7 +19,9 @@ for t in $TARGETS; do
 done
 if nslookup openwrt.org >/dev/null 2>&1; then echo "dns: openwrt.org resolves"; else echo "dns: openwrt.org does NOT resolve"; fi
 awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2} END {printf "memory: %d MB available of %d MB\n", a/1024, t/1024}' /proc/meminfo
-df -m / | awk 'NR==2 {print "flash: " $4 " MB free of " $2 " MB"}'
+# The agent's sandbox has no / of the router's to ask, so this asks the data directory, which is on
+# the router's flash unless hermes-usb moved it to a stick.
+df -m "${HERMES_HOME:-/srv/hermes}" | awk 'NR==2 {print "flash: " $4 " MB free of " $2 " MB"}'
 for z in /sys/class/thermal/thermal_zone*/temp; do
 	[ -r "$z" ] && awk '{printf "temperature: %.1f C\n", $1/1000}' "$z" && break
 done

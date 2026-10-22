@@ -50,7 +50,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
+IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -96,7 +96,9 @@ echo "PASS: artefacts $(basename "$APK"), $(basename "$MCP")${TGAPK:+, $(basenam
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 
 OVERLAY_ARGS=""
-[ -n "${OVERLAY:-}" ] && OVERLAY_ARGS="-v $OVERLAY:/overlay:ro"
+# Mounted at /teeth-overlay, not /overlay: since r15 the checks plant a router's own /overlay/upper,
+# which the agent's sandbox must not show, and a read-only mount there left nothing to plant.
+[ -n "${OVERLAY:-}" ] && OVERLAY_ARGS="-v $OVERLAY:/teeth-overlay:ro"
 # -i is load-bearing, as in every gate here: without it `sh -s` reads an empty stdin and
 # the container exits 0 having run nothing. --privileged and a private cgroup namespace
 # for the memory ceiling, exactly as gate-runtime.sh has them: the root cgroup in here is
@@ -106,7 +108,7 @@ docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$AP
 	-e ONLY="${ONLY:-}" -e IMPLEMENTED="$IMPLEMENTED" -e STAGE4="$STAGE4" -e STAGE5="${STAGE5:-}${NOT_BUILT:+ $NOT_BUILT}" \
 	-v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" -v "$LUCI:/luci.apk:ro" $TG_ARGS -v "$HARNESS:/harness.py:ro" \
 	-v "$ROOT/scripts/security-harness.py:/sec/security-harness.py:ro" -v "$ROOT/scripts/qr_decode.py:/sec/qr_decode.py:ro" \
-	-v "$ROOT/README.md:/README.md:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
+	-v "$ROOT/README.md:/README.md:ro" -v "$ROOT/docs/examples/router_check.sh:/router_check.sh:ro" $OVERLAY_ARGS "$IMAGE" /bin/sh -s <<'CONTAINER'
 . /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -u
 mkdir -p /var/lock /var/run /var/state /stubs /tmp/pristine
@@ -121,9 +123,9 @@ ip link set eth0 down 2>/dev/null || true
 mkdir -p /sys/fs/cgroup/harness
 echo $$ > /sys/fs/cgroup/harness/cgroup.procs
 
-if [ -d /overlay ]; then
-	cp -R /overlay/. /
-	echo "overlay applied: $(cd /overlay && find . -type f | sed 's|^\./||' | tr '\n' ' ')"
+if [ -d /teeth-overlay ]; then
+	cp -R /teeth-overlay/. /
+	echo "overlay applied: $(cd /teeth-overlay && find . -type f | sed 's|^\./||' | tr '\n' ' ')"
 fi
 cp /etc/config/hermes /tmp/pristine/hermes.config
 cp /etc/config/openwrt-mcp /tmp/pristine/mcp.config
@@ -200,13 +202,46 @@ owner_of() { set -- $(ls -ldn "$1"); echo "$3"; }
 group_of() { set -- $(ls -ldn "$1"); echo "$4"; }
 mode_of()  { set -- $(ls -ld "$1"); echo "$1"; }
 
+# The processes a service is made of, read from /proc (busybox has no pstree): the process
+# procd started and every descendant, one pid per line. A pid in a sandbox's own pid namespace
+# is still listed here under its pid outside it.
+cmd_of()  { tr '\0' ' ' 2>/dev/null < "/proc/$1/cmdline"; }
+ppid_of() { sed -n 's/^.*) [A-Za-z] \([0-9][0-9]*\) .*/\1/p' "/proc/$1/stat" 2>/dev/null; }
+is_ujail() { case "$(cmd_of "$1")" in /sbin/ujail\ *|ujail\ *) return 0 ;; esac; return 1; }
+service_tree() {
+	echo "$1"; front=" $1 "
+	while :; do
+		added=""
+		for d in /proc/[0-9]*; do
+			p=${d#/proc/}
+			case "$front" in *" $p "*) continue ;; esac
+			case "$front" in *" $(ppid_of "$p") "*) added="$added $p" ;; esac
+		done
+		[ -n "$added" ] || break
+		for p in $added; do echo "$p"; done
+		front="$front$added "
+	done
+}
+# The real gateway among them (upstream's own entry point), once it runs; or why not.
+wait_gateway() {
+	i=0
+	while [ "$i" -lt 180 ]; do
+		kill -0 "$1" 2>/dev/null || { echo "the wrapper exited before the gateway started"; return 1; }
+		for p in $(service_tree "$1"); do
+			case "$(cmd_of "$p")" in *"hermes_cli/main.py gateway run"*) echo "$p"; return 0 ;; esac
+		done
+		i=$((i + 1)); sleep 1
+	done
+	echo "the gateway did not start in 180 s"; return 1
+}
+
 # Back to the state right after install, so no check depends on another.
 reset() {
 	daemon_stop
 	# The state directory is emptied, not removed: a symlink put there (a state directory on
 	# RAM, which teeth-unlock.sh plants) is part of the system under test and must survive.
 	mkdir -p /etc/openwrt-mcp && chmod 700 /etc/openwrt-mcp
-	rm -rf /etc/openwrt-mcp/* /etc/openwrt-mcp/.[!.]* /srv/hermes /tmp/argv /tmp/envv /tmp/probe.out /tmp/start.log /tmp/openwrt-mcp-rollback-* /tmp/h /tmp/totp.secret /tmp/totp.pending /tmp/mcp-shim.log /tmp/sec.png /tmp/rpcd.log /tmp/ubusd.log
+	rm -rf /etc/openwrt-mcp/* /etc/openwrt-mcp/.[!.]* /srv/hermes /tmp/argv /tmp/envv /var/run/hostapd-phy0.conf /overlay/upper /tmp/start.log /tmp/openwrt-mcp-rollback-* /tmp/h /tmp/totp.secret /tmp/totp.pending /tmp/mcp-shim.log /tmp/sec.png /tmp/rpcd.log /tmp/ubusd.log
 	cp /tmp/pristine/hermes.config /etc/config/hermes
 	cp /tmp/pristine/mcp.config /etc/config/openwrt-mcp
 	cp /tmp/pristine/hermes.bin /usr/bin/hermes
@@ -255,7 +290,21 @@ configure() {
 # The init's own start_service, under the same stubbed procd functions gate-package.sh
 # uses. What procd would have been handed lands in /tmp/argv and /tmp/envv, what the init
 # said in /tmp/start.log, and the status is the init's.
+# ujail, which the gateway has started in since 0.21.5-r15, connects to ubus before anything else,
+# as a router's programs may: a router always has ubusd, this container has it once it is started.
+# unlock_down stops it with the rest after every check, so each check starts its own.
+ubus_up() {
+	ubus list >/dev/null 2>&1 && return 0
+	mkdir -p /var/run/ubus
+	ubusd >/tmp/ubusd.log 2>&1 &
+	i=0
+	until ubus list >/dev/null 2>&1; do
+		i=$((i + 1)); [ "$i" -lt 20 ] || { cat /tmp/ubusd.log; fail "ubusd did not start, so the sandbox cannot either"; }
+		sleep 1
+	done
+}
 start_instance() {
+	ubus_up
 	rm -f /tmp/argv /tmp/envv
 	cat > /tmp/fakeprocd.sh <<'STUB'
 . /lib/functions.sh
@@ -317,7 +366,7 @@ probe_tools() {
 	cat > /usr/bin/hermes <<'EOF'
 #!/bin/sh
 cd /tmp 2>/dev/null
-python3 - > "$PROBE_OUT" 2>/tmp/probe.err <<'PY'
+python3 - > "$PROBE_OUT" 2>/srv/hermes/probe.err <<'PY'
 import json, yaml
 from hermes_cli.config import get_config_path
 from hermes_cli.tools_config import _get_platform_tools
@@ -409,23 +458,29 @@ except OSError:
 	# so that $! is the very process that becomes the wrapper and then the gateway.
 	sh -c 'exec env $(cat /tmp/envv) "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
 	SVC=$!
-	i=0
-	until tr '\0' ' ' < "/proc/$SVC/cmdline" 2>/dev/null | grep -q 'gateway run'; do
-		kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the wrapper exited before the gateway started"; }
-		i=$((i + 1)); [ "$i" -lt 180 ] || { tail -n 5 /tmp/svc.log; fail "the gateway did not start in 180 s"; }
-		sleep 1
-	done
+	GW=$(wait_gateway "$SVC") || { tail -n 5 /tmp/svc.log; fail "$GW"; }
 	sleep 3
-	kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the gateway died right after starting"; }
-	ids=$(grep -E '^(Uid|Gid|Groups):' "/proc/$SVC/status" | tr -s '\t ' ' ')
-	kill "$SVC" 2>/dev/null; sleep 1
-	echo "$ids" | grep -qx "Uid: $HU $HU $HU $HU" || fail "the gateway's uids are not hermes ($HU): $ids"
-	echo "$ids" | grep -qx "Gid: $HG $HG $HG $HG" || fail "the gateway's gids are not hermes ($HG): $ids"
-	echo "$ids" | grep -q '^Groups: *$' || fail "the gateway keeps supplementary groups: $ids"
+	kill -0 "$GW" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the gateway died right after starting"; }
+	# Every process of the service, not only the one procd started: since 0.21.5-r15 that one is
+	# ujail, OpenWrt's jail supervisor, which stays root outside the sandbox and runs none of the
+	# package's code; everything it starts inside is the package's, and runs as hermes.
+	ids_bad=""; seen=0
+	for p in $(service_tree "$SVC"); do
+		[ "$p" = "$SVC" ] && is_ujail "$p" && continue
+		ids=$(grep -E '^(Uid|Gid|Groups):' "/proc/$p/status" 2>/dev/null | tr -s '\t ' ' ')
+		[ -n "$ids" ] || continue
+		seen=$((seen + 1))
+		echo "$ids" | grep -qx "Uid: $HU $HU $HU $HU" || ids_bad="$ids_bad [$p $(cmd_of "$p" | cut -c1-60): $ids]"
+		echo "$ids" | grep -qx "Gid: $HG $HG $HG $HG" || ids_bad="$ids_bad [$p gid: $ids]"
+		echo "$ids" | grep -q '^Groups: *$' || ids_bad="$ids_bad [$p keeps supplementary groups: $ids]"
+	done
+	kill "$SVC" 2>/dev/null; kill "$GW" 2>/dev/null; sleep 1
+	[ "$seen" -gt 0 ] || fail "measured nothing: no process of the service was read"
+	[ -z "$ids_bad" ] || fail "a process of the service is not hermes ($HU/$HG):$ids_bad"
 	# A process the agent's own terminal tool starts.
 	probe_terminal
-	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { tail -n 5 /tmp/svc.log; fail "the wrapper failed under the terminal probe"; }
-	child=$(tr -s '\t ' ' ' < /tmp/probe.out)
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { tail -n 5 /tmp/svc.log; fail "the wrapper failed under the terminal probe"; }
+	child=$(tr -s '\t ' ' ' < /srv/hermes/probe.out)
 	echo "$child" | grep -qx "Uid: $HU $HU $HU $HU" || fail "a tool child's uids are not hermes ($HU): $child"
 	echo "$child" | grep -qx "Gid: $HG $HG $HG $HG" || fail "a tool child's gids are not hermes ($HG): $child"
 	pass "hermes uid $HU gid $HG; gateway and tool child both"
@@ -461,18 +516,18 @@ check_memory_ceiling_non_root() {
 	mkdir -p "$group"
 	for n in memory.max memory.swap.max; do [ ! -e "$group/$n" ] || echo max > "$group/$n"; done
 	probe_ids
-	rm -f /tmp/probe.out
+	rm -f /srv/hermes/probe.out
 	# The wrapper joins its cgroup the way procd places it there, then runs.
 	set -- $(cat /tmp/argv)
-	sh -c 'echo $$ > "$1"/cgroup.procs; shift; exec env $(cat /tmp/envv) PROBE_OUT=/tmp/probe.out "$@"' sh "$group" "$@" >/tmp/svc.log 2>&1 \
+	sh -c 'echo $$ > "$1"/cgroup.procs; shift; exec env $(cat /tmp/envv) PROBE_OUT=/srv/hermes/probe.out "$@"' sh "$group" "$@" >/tmp/svc.log 2>&1 \
 		|| { cat /tmp/svc.log; fail "the wrapper did not run in its cgroup"; }
-	[ -s /tmp/probe.out ] || { cat /tmp/svc.log; fail "the agent never started"; }
-	uid=$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' /tmp/probe.out)
+	[ -s /srv/hermes/probe.out ] || { cat /tmp/svc.log; fail "the agent never started"; }
+	uid=$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' /srv/hermes/probe.out)
 	[ "$uid" != 0 ] || fail "the agent runs as root"
 	[ "$(cat "$group/memory.max")" = 268435456 ] || fail "memory.max is $(cat "$group/memory.max"), not 256 MB"
 	[ "$(cat "$group/memory.swap.max")" = 0 ] || fail "memory.swap.max is $(cat "$group/memory.swap.max")"
 	[ "$(cat "$group/memory.oom.group")" = 1 ] || fail "memory.oom.group is $(cat "$group/memory.oom.group")"
-	grep -q "^CGROUP=/services/hermes-agent/instance1$" /tmp/probe.out || fail "the agent left its cgroup: $(grep ^CGROUP /tmp/probe.out)"
+	grep -q "^CGROUP=/services/hermes-agent/instance1$" /srv/hermes/probe.out || fail "the agent left its cgroup: $(grep ^CGROUP /srv/hermes/probe.out)"
 	# The agent cannot lift the ceiling it runs under.
 	[ -x /usr/libexec/hermes-drop ] || fail "no /usr/libexec/hermes-drop to run a command as the agent"
 	if /usr/libexec/hermes-drop hermes sh -c "echo max > $group/memory.max" 2>/dev/null; then fail "a command run as hermes lifted the memory ceiling"; fi
@@ -518,16 +573,16 @@ check_root_profile_is_opt_in_and_warned() {
 	configure - -
 	started
 	grep -q "profile 'owner'" /tmp/start.log || { cat /tmp/start.log; fail "an unset profile did not say it is the owner profile"; }
-	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
-	grep -q '^Uid:[[:space:]]*0[[:space:]]' /tmp/probe.out && fail "an unset profile ran the agent as root"
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
+	grep -q '^Uid:[[:space:]]*0[[:space:]]' /srv/hermes/probe.out && fail "an unset profile ran the agent as root"
 	# root, and its old name admin: as root, with a warning that says what that allows.
 	for p in root admin; do
 		reset; probe_ids; configure "$p" -
 		started
 		grep -qi "as root" /tmp/start.log || { cat /tmp/start.log; fail "profile $p started without a warning that the agent runs as root"; }
 		grep -qi "unlock" /tmp/start.log || { cat /tmp/start.log; fail "the warning for profile $p does not say no unlock applies"; }
-		run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed in profile $p"; }
-		grep -q '^Uid:[[:space:]]*0[[:space:]]0[[:space:]]0[[:space:]]0$' /tmp/probe.out || fail "profile $p did not run the agent as root: $(grep ^Uid /tmp/probe.out)"
+		run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed in profile $p"; }
+		grep -q '^Uid:[[:space:]]*0[[:space:]]0[[:space:]]0[[:space:]]0$' /srv/hermes/probe.out || fail "profile $p did not run the agent as root: $(grep ^Uid /srv/hermes/probe.out)"
 	done
 	# Anything else still refuses.
 	reset; configure superuser -
@@ -557,16 +612,12 @@ check_fresh_router_without_srv_starts() {
 	# The real gateway, started the way procd starts it, under the same umask.
 	sh -c 'exec env $(cat /tmp/envv) "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
 	SVC=$!
-	i=0
-	until tr '\0' ' ' < "/proc/$SVC/cmdline" 2>/dev/null | grep -q 'gateway run'; do
-		kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the wrapper exited before the gateway started"; }
-		i=$((i + 1)); [ "$i" -lt 180 ] || { tail -n 5 /tmp/svc.log; fail "the gateway did not start in 180 s"; }
-		sleep 1
-	done
+	# the gateway itself, not the process procd started (since r15 that is ujail, root, outside)
+	GW=$(wait_gateway "$SVC") || { tail -n 5 /tmp/svc.log; fail "$GW"; }
 	sleep 3
-	kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the gateway died right after starting"; }
-	ids=$(grep -E '^Uid:' "/proc/$SVC/status" | tr -s '\t ' ' ')
-	kill "$SVC" 2>/dev/null; sleep 1
+	kill -0 "$GW" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the gateway died right after starting"; }
+	ids=$(grep -E '^Uid:' "/proc/$GW/status" | tr -s '\t ' ' ')
+	kill "$SVC" "$GW" 2>/dev/null; sleep 1
 	echo "$ids" | grep -qx "Uid: $HU $HU $HU $HU" || fail "the gateway's uids are not hermes ($HU): $ids"
 	pass "no /srv before the start: created $(mode_of /srv) root, the data directory drwx------ hermes, and the gateway ran as uid $HU"
 }
@@ -585,6 +636,188 @@ check_unreachable_parent_is_named() {
 	chmod 755 /srv
 	started
 	pass "refused naming /srv and its mode, /srv left as it was; started once /srv was opened"
+}
+
+# ---- The agent's own tools see no router secrets ----
+# A router keeps secrets in files any user may read: /etc/config/wireless is 0644 where first
+# boot made it so, and libuci keeps a file's mode on every commit, so a Wi-Fi key the owner sets
+# in LuCI stays readable by everyone; hostapd's runtime file in /var/run holds the same passphrase.
+# The owner profile's terminal, file and search tools run as hermes, so until 0.21.5-r15 they read
+# all of it past openwrt-mcp's redaction. reset() plants a Wi-Fi key and a WireGuard private key in
+# UCI; plant_runtime_secrets adds hostapd's file and a copy under /overlay/upper, where the overlay
+# keeps the same files, each in the open mode a router can have them in.
+SECRETS="GATE-WIFI-KEY-CANARY GATE-WIREGUARD-PRIVATE-KEY-CANARY GATE-HOSTAPD-PASSPHRASE-CANARY GATE-OVERLAY-WIFI-KEY-CANARY"
+SECRET_FILES="/etc/config/wireless /etc/config/network /var/run/hostapd-phy0.conf /overlay/upper/etc/config/wireless"
+# Each file also carries a line that looks like no secret, so upstream's redaction of tool output,
+# which masks what looks like a key, cannot make a file that was read look like one that was not.
+MARKERS="GATE-VISIBLE-wireless GATE-VISIBLE-network GATE-VISIBLE-hostapd GATE-VISIBLE-overlay"
+plant_runtime_secrets() {
+	mkdir -p /var/run /overlay/upper/etc/config
+	printf 'interface=wlan0\nwpa_passphrase=GATE-HOSTAPD-PASSPHRASE-CANARY\n' > /var/run/hostapd-phy0.conf
+	printf "config wifi-iface 'main'\n\toption key 'GATE-OVERLAY-WIFI-KEY-CANARY'\n" > /overlay/upper/etc/config/wireless
+	printf '# GATE-VISIBLE-wireless\n' >> /etc/config/wireless
+	printf '# GATE-VISIBLE-network\n' >> /etc/config/network
+	printf '# GATE-VISIBLE-hostapd\n' >> /var/run/hostapd-phy0.conf
+	printf '# GATE-VISIBLE-overlay\n' >> /overlay/upper/etc/config/wireless
+	chmod 644 $SECRET_FILES
+	for s in $SECRETS $MARKERS; do
+		cat $SECRET_FILES | grep -q "$s" || fail "measured nothing: $s is in no planted file"
+	done
+	# and one the search must find where the agent may look, so a search that finds nothing ran
+	mkdir -p /srv/hermes && printf 'GATE-VISIBLE-datadir\n' > /srv/hermes/search-control.txt && chown -R hermes:hermes /srv/hermes
+}
+# The agent's terminal, read_file and search_files, upstream's own code, run where the gateway
+# runs (the wrapper's last line), each pointed at every planted file. The marker the terminal
+# prints and a read of /etc/hosts prove the tools ran, so a clean result is never a tool that
+# did not start.
+probe_reads() {
+	cat > /usr/bin/hermes <<'EOF'
+#!/bin/sh
+cd /tmp 2>/dev/null
+python3 - > "$PROBE_OUT" 2>&1 <<'PY'
+import json
+from tools.terminal_tool import terminal_tool
+from tools.file_tools import read_file_tool, _handle_search_files
+files = "/etc/config/wireless /etc/config/network /var/run/hostapd-phy0.conf /overlay/upper/etc/config/wireless".split()
+r = json.loads(terminal_tool(command="cat %s 2>&1; grep -rs -e CANARY -e GATE-VISIBLE /etc /var/run /overlay 2>&1 | head -n 20; grep -E '^(CapBnd|NoNewPrivs):' /proc/self/status; echo TERMINAL-RAN" % " ".join(files), timeout=60))
+print("TERMINAL:", r.get("output", ""))
+for f in files + ["/etc/hosts"]:
+    print("READ", f, ":", read_file_tool(path=f))
+for d in ("/etc", "/var/run", "/overlay"):
+    print("SEARCH", d, ":", _handle_search_files({"pattern": "CANARY|GATE-VISIBLE", "target": "content", "path": d}))
+print("SEARCH-CONTROL :", _handle_search_files({"pattern": "GATE-VISIBLE-datadir", "target": "content", "path": "/srv/hermes"}))
+PY
+EOF
+	chmod 755 /usr/bin/hermes
+}
+
+check_agent_tools_cannot_read_router_secrets() {
+	reset; configure - -
+	plant_runtime_secrets
+	started
+	probe_reads
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { tail -n 5 /tmp/svc.log; fail "the wrapper failed under the read probe"; }
+	out=/srv/hermes/probe.out
+	[ -s "$out" ] || { tail -n 5 /tmp/svc.log; fail "measured nothing: the probe wrote nothing"; }
+	grep -q 'TERMINAL-RAN' "$out" || { head -c 600 "$out"; fail "measured nothing: the terminal tool did not run"; }
+	grep '^READ /etc/hosts :' "$out" | grep -q localhost || { grep '^READ /etc/hosts' "$out" | cut -c1-200; fail "measured nothing: read_file could not read /etc/hosts either"; }
+	grep '^SEARCH-CONTROL :' "$out" | grep -q 'search-control.txt' || { grep '^SEARCH' "$out" | cut -c1-200; fail "measured nothing: search_files did not find the control file in the data directory"; }
+	leaked=""
+	for s in $SECRETS $MARKERS; do grep -q "$s" "$out" && leaked="$leaked $s"; done
+	[ -z "$leaked" ] || { grep -m 3 -E "$(echo $SECRETS $MARKERS | tr ' ' '|')" "$out" | cut -c1-160; fail "the agent's own tools read:$leaked"; }
+	# what a setuid program in there could gain: ping's CAP_NET_RAW and nothing else
+	grep -q 'CapBnd:[[:space:]]*0000000000002000' "$out" || { grep -E 'CapBnd|NoNewPrivs' "$out"; fail "the sandbox's bounding set is not CAP_NET_RAW alone"; }
+	pass "terminal, read_file and search_files ran; none of the $(echo $SECRETS | wc -w) planted secrets or their markers was readable, /etc/hosts and the data directory were; bounding set CAP_NET_RAW"
+}
+
+# What the agent needs its terminal for still works where it runs: the hourly watch script from
+# docs/examples, as docs/use.md installs it, plus a ping, a temporary file, a write in its data
+# directory and a read of sysfs (the watch's temperature comes from there).
+probe_diagnostics() {
+	cat > /usr/bin/hermes <<'EOF'
+#!/bin/sh
+cd /tmp 2>/dev/null
+python3 - > "$PROBE_OUT" 2>&1 <<'PY'
+import json
+from tools.terminal_tool import terminal_tool
+cmd = ("TARGETS=127.0.0.1 sh /srv/hermes/scripts/router_check.sh; "
+       "ping -c 1 -W 2 127.0.0.1 >/dev/null 2>&1 && echo PING-OK; "
+       "echo probe > /tmp/hermes-probe && cat /tmp/hermes-probe >/dev/null && echo TMP-OK; "
+       "echo probe > /srv/hermes/probe.write && echo DATA-OK; "
+       "echo lo-state: $(cat /sys/class/net/lo/operstate 2>/dev/null); "
+       "grep -q '^nameserver' /etc/resolv.conf && echo RESOLVER-OK; "
+       "grep '^NoNewPrivs:' /proc/self/status")
+print(json.loads(terminal_tool(command=cmd, timeout=90)).get("output", ""))
+PY
+EOF
+	chmod 755 /usr/bin/hermes
+}
+
+check_agent_diagnostics_still_work() {
+	reset; configure - -
+	# As on a router (a Flint 2 reads "1 0"): no unprivileged ICMP, so the agent's ping works only
+	# through iputils' setuid bit, as it does on the router. Docker opens the range to every group,
+	# under which a sandbox that dropped setuid (no_new_privs) would still ping and pass.
+	echo "1 0" > /proc/sys/net/ipv4/ping_group_range || fail "measured nothing: could not close unprivileged ICMP as a router has it"
+	started
+	[ -r /router_check.sh ] || fail "measured nothing: docs/examples/router_check.sh is not in the container"
+	mkdir -p /srv/hermes/scripts && cp /router_check.sh /srv/hermes/scripts/router_check.sh && chown -R hermes:hermes /srv/hermes
+	probe_diagnostics
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { tail -n 5 /tmp/svc.log; fail "the wrapper failed under the diagnostics probe"; }
+	out=/srv/hermes/probe.out
+	[ -s "$out" ] || { tail -n 5 /tmp/svc.log; fail "measured nothing: the probe wrote nothing"; }
+	missing=""
+	for want in 'ping 127.0.0.1: loss 0%' 'dns: openwrt.org' 'memory: [0-9][0-9]* MB available of [1-9][0-9]* MB' \
+		'flash: [0-9][0-9]* MB free of [1-9][0-9]* MB' 'uptime: .*load average' 'PING-OK' 'TMP-OK' 'DATA-OK' 'lo-state: [a-z]' \
+		'RESOLVER-OK' 'NoNewPrivs:[[:space:]]*0'; do
+		grep -q "$want" "$out" || missing="$missing [$want]"
+	done
+	[ -z "$missing" ] || { cut -c1-160 "$out" | head -n 20; fail "the agent's terminal lost:$missing"; }
+	pass "the hourly watch, ping, a temporary file, the data directory and sysfs all work for the agent"
+}
+
+# ---- stopping leaves nothing running ----
+# procd stops an instance with SIGTERM and, term_timeout later, SIGKILL to the process it started.
+# Since r15 that process is ujail and the gateway is inside it, so a stop has to reach the gateway
+# through two processes, and a ujail killed first must not leave the gateway running beside the
+# next start's. A stand-in gateway that ignores SIGTERM, as a busy one may:
+probe_stubborn() {
+	cat > /usr/bin/hermes <<'EOF'
+#!/bin/sh
+trap '' TERM INT QUIT
+echo started > "$PROBE_OUT"
+while :; do sleep 1; done
+EOF
+	chmod 755 /usr/bin/hermes
+}
+# Whatever of the service still runs, found by command line: a process left behind is no longer a
+# descendant of the one procd started.
+leftovers() {
+	for d in /proc/[0-9]*; do
+		grep -q '^State:[[:space:]]*Z' "$d/status" 2>/dev/null && continue
+		case "$(tr '\0' ' ' 2>/dev/null < "$d/cmdline")" in
+			*"hermes-jail --init"*|*"/usr/bin/hermes gateway run"*) echo "${d#/proc/}" ;;
+		esac
+	done
+}
+gone_within() {
+	i=0
+	while [ -n "$(leftovers)" ]; do i=$((i + 1)); [ "$i" -le "$1" ] || return 1; sleep 1; done
+}
+svc_spawn() {
+	rm -f /srv/hermes/probe.out
+	sh -c 'exec env $(cat /tmp/envv) PROBE_OUT=/srv/hermes/probe.out "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
+	SVC=$!
+}
+svc_start() {
+	svc_spawn
+	i=0
+	until [ -s /srv/hermes/probe.out ]; do
+		i=$((i + 1)); [ "$i" -lt 120 ] || { tail -n 5 /tmp/svc.log; fail "measured nothing: the stand-in gateway did not start"; }
+		sleep 1
+	done
+	[ -n "$(leftovers)" ] || fail "measured nothing: no process of the service was found running"
+}
+
+check_stop_leaves_nothing_running() {
+	reset; configure - -
+	started
+	probe_stubborn
+	# 1. procd's SIGTERM alone: the gateway killed from inside 5 s later, so all of it is gone by 7,
+	# before ujail's own SIGKILL at 8 and procd's at 10, which only back it up
+	svc_start
+	kill -TERM "$SVC"
+	gone_within 7 || fail "7 s after SIGTERM a gateway that ignores it still ran, so the sandbox's own 5 s did not end it: $(leftovers | tr '\n' ' ')"
+	# 2. procd's SIGKILL to the process it started: the sandbox goes with it
+	svc_start
+	kill -KILL "$SVC"
+	gone_within 3 || fail "with the process procd started killed, the gateway ran on unsupervised: $(leftovers | tr '\n' ' ')"
+	# 3. a stop the moment after the start, which may land before anything in there can take it,
+	# then procd's SIGKILL at term_timeout
+	svc_spawn
+	kill -TERM "$SVC" 2>/dev/null
+	gone_within 10 || { kill -KILL "$SVC" 2>/dev/null; gone_within 3 || fail "a stop right after the start, then SIGKILL at term_timeout, left the gateway running: $(leftovers | tr '\n' ' ')"; }
+	pass "a gateway that ignores SIGTERM gone within 7 s of a stop; nothing left after SIGKILL to the supervisor, or after a stop at the start"
 }
 
 check_reads_need_no_unlock() {
@@ -625,7 +858,7 @@ check_change_refused_while_locked() {
 	[ "$(desc)" = baseline-gate ] || fail "the change was applied anyway"
 	# The agent is told what to do about it: the owner sends /unlock in the private chat.
 	probe_ids
-	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
 	prompt=$(/usr/libexec/hermes-drop hermes env HERMES_HOME=/srv/hermes python3 -c 'from gateway.run import GatewayRunner; print(GatewayRunner._load_ephemeral_system_prompt())' 2>&1) || fail "could not load the gateway's system prompt: $prompt"
 	echo "$prompt" | grep -q '/unlock' || fail "the agent is not told to ask for /unlock"
 	echo "$prompt" | grep -qi 'private chat' || fail "the agent is not told to use the private chat"
@@ -645,7 +878,7 @@ check_no_factor_means_no_changes() {
 	[ "$(desc)" = baseline-gate ] || fail "the change was applied anyway"
 	mcp "$TOKEN" ubus_call '{"object":"system","method":"board"}' >/dev/null || fail "reads stopped working with no factor"
 	probe_ids
-	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
 	prompt=$(/usr/libexec/hermes-drop hermes env HERMES_HOME=/srv/hermes python3 -c 'from gateway.run import GatewayRunner; print(GatewayRunner._load_ephemeral_system_prompt())' 2>&1) || fail "could not load the gateway's system prompt: $prompt"
 	echo "$prompt" | grep -q 'LuCI' || fail "the agent is not told a factor has to be set up in LuCI first"
 	pass "factor unset: no change policy, every change refused for want of one, reads fine, and the agent says to set a factor up first"
@@ -688,10 +921,10 @@ names = {t["name"] for t in post({"jsonrpc": "2.0", "id": 2, "method": "tools/li
 sys.exit(0 if {"mfa_unlock", "mfa_lock"} <= names else 1)
 PY
 	probe_tools
-	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
-	[ -s /tmp/probe.out ] || { cat /tmp/probe.err /tmp/svc.log; fail "upstream registered nothing"; }
-	names=$(cat /tmp/probe.out)
-	echo "$names" | grep -q 'mcp__openwrt__ubus_call' || { echo "$names"; cat /tmp/probe.err; fail "upstream offers the model no openwrt tools at all, so absence proves nothing"; }
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
+	[ -s /srv/hermes/probe.out ] || { cat /srv/hermes/probe.err /tmp/svc.log; fail "upstream registered nothing"; }
+	names=$(cat /srv/hermes/probe.out)
+	echo "$names" | grep -q 'mcp__openwrt__ubus_call' || { echo "$names"; cat /srv/hermes/probe.err; fail "upstream offers the model no openwrt tools at all, so absence proves nothing"; }
 	echo "$names" | grep -q 'mfa_unlock' && fail "the model is offered mfa_unlock: $names"
 	echo "$names" | grep -q 'mfa_lock' && fail "the model is offered mfa_lock: $names"
 	pass "upstream's registry offers the model $(echo "$names" | grep -o 'mcp__' | wc -l) openwrt tools, neither mfa_unlock nor mfa_lock"
@@ -1094,8 +1327,8 @@ check_package_install_needs_the_unlock() {
 	apk info -e "$PKG" >/dev/null 2>&1 && fail "$PKG is installed after only refusals"
 	# The model is offered apk_add, through upstream's own registry.
 	probe_tools
-	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
-	grep -q 'mcp__openwrt__apk_add' /tmp/probe.out || fail "granted, and the model is not offered apk_add: $(cat /tmp/probe.out)"
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed"; }
+	grep -q 'mcp__openwrt__apk_add' /srv/hermes/probe.out || fail "granted, and the model is not offered apk_add: $(cat /srv/hermes/probe.out)"
 	# Off: no policy, refused after an unlock for want of one, and hidden from the model.
 	daemon_stop
 	uci set hermes.security.packages=off; uci commit hermes
@@ -1107,9 +1340,9 @@ check_package_install_needs_the_unlock() {
 	if out=$(mcp "$TOKEN" apk_add "$DRY"); then fail "apk_add answered with packages off: $out"; fi
 	echo "$out" | grep -q 'no policy grants apk_add' || fail "with packages off apk_add was refused, but not for want of a policy: $out"
 	probe_tools
-	run_wrapper PROBE_OUT=/tmp/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed with packages off"; }
-	grep -q 'mcp__openwrt__uci_get' /tmp/probe.out || fail "with packages off upstream offers no openwrt tools at all, so the absence below proves nothing"
-	grep -q 'mcp__openwrt__apk_add' /tmp/probe.out && fail "packages off and the model is offered apk_add"
+	run_wrapper PROBE_OUT=/srv/hermes/probe.out >/tmp/svc.log 2>&1 || { cat /tmp/svc.log; fail "the wrapper failed with packages off"; }
+	grep -q 'mcp__openwrt__uci_get' /srv/hermes/probe.out || fail "with packages off upstream offers no openwrt tools at all, so the absence below proves nothing"
+	grep -q 'mcp__openwrt__apk_add' /srv/hermes/probe.out && fail "packages off and the model is offered apk_add"
 	pass "opted in with a factor: apk_add refused for the factor while locked; in an open window past the policy to apk_add's own rules (a version, a file, an option, a tag refused, a link refused), nothing installed; offered to the model; off: no policy, refused after an unlock, hidden"
 }
 
@@ -1343,7 +1576,7 @@ unlock_down() {
 		[ "$p" != "$$" ] || continue
 		cmd=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null) || continue
 		case "$cmd" in
-			*"hermes_cli/main.py gateway run"*|*"/harness.py fakes"*|*"run-cron-job"*|*"rpcd"*|*"ubusd"*) kill -9 "$p" 2>/dev/null || true ;;
+			*"hermes_cli/main.py gateway run"*|*"/usr/bin/hermes gateway run"*|*"hermes-jail --init"*|"/sbin/ujail "*|*"/harness.py fakes"*|*"run-cron-job"*|*"rpcd"*|*"ubusd"*) kill -9 "$p" 2>/dev/null || true ;;
 		esac
 	done
 	rm -f /tmp/svc.pid /tmp/fakes.pid
@@ -1378,6 +1611,7 @@ check_unlock_refused_in_group()                           { scenario "$CUR_NAME"
 check_unlock_only_from_allowlist()                        { scenario "$CUR_NAME" pin; }
 check_agent_told_window_is_open()                        { scenario "$CUR_NAME" pin; }
 check_agent_not_told_after_window_ends()                  { scenario "$CUR_NAME" pin 20s; }
+check_router_secret_never_reaches_model()                 { scenario "$CUR_NAME" pin; }
 check_scheduled_job_cannot_change()                       { scenario "$CUR_NAME" pin; }
 
 # ======================================================= the LuCI Security page, and the SSH enrolment

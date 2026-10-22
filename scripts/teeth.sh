@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 iputils-ping"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 iputils-ping procd-ujail"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -42,6 +42,7 @@ cleanup() {
 	[ -f /tmp/wrap.bak ] && cp /tmp/wrap.bak "$W/tree/usr/sbin/hermes-gateway" 2>/dev/null
 	[ -f /tmp/env.bak ] && cp /tmp/env.bak "$W/tree/usr/lib/hermes-agent/hermes-env" 2>/dev/null
 	[ -f /tmp/boot.bak ] && cp /tmp/boot.bak "$W/tree/usr/lib/hermes-agent/gateway-boot/sitecustomize.py" 2>/dev/null
+	[ -f /tmp/jail.bak ] && cp /tmp/jail.bak "$W/tree/usr/libexec/hermes-jail" 2>/dev/null
 	chmod 0755 "$W/post-install" 2>/dev/null || true
 	# The init is restored from the repository rather than from a backup: a backup taken
 	# at the top of a run that had already been poisoned by an earlier crashed run would
@@ -53,7 +54,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 # a backup is taken by the fault that changes its file; one left by an earlier run that
 # stopped half way would otherwise be restored over a fresh build's file
-rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak /tmp/env.bak /tmp/boot.bak
+rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak /tmp/env.bak /tmp/boot.bak /tmp/jail.bak
 
 repack() {
 	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
@@ -93,7 +94,7 @@ cp /tmp/shim.bak "$SITE/webbrowser.py"
 # ---- fault 2: an undeclared runtime dependency ----
 # apk would not complain: the package installs fine without ffmpeg declared, and the
 # gap only shows the first time someone sends a voice message.
-repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp>=0.5.0.4 iputils-ping"
+repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp>=0.5.0.4 iputils-ping procd-ujail"
 expect_red "ffmpeg undeclared" check_deps_resolve
 
 # ---- fault 3: a post-install that does not enable the service ----
@@ -185,7 +186,7 @@ cp /tmp/postinstall.bak "$W/post-install"; chmod 0755 "$W/post-install"
 # ---- fault 9: the package without iputils-ping ----
 # The shape r3 to r8 shipped in: the agent runs as `hermes`, BusyBox's ping needs root, and every
 # ping the agent ran answered "permission denied". Everything else installs and starts.
-repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4"
+repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.4 procd-ujail"
 expect_red "iputils-ping undeclared" check_agent_can_ping
 
 # ---- fault 10: hermes from a shell allowed to pip-install ----
@@ -215,8 +216,23 @@ cp /tmp/boot.bak "$BOOT"
 # The shape every release up to r10 had. With r11's init that is a router where an upgrade of
 # hermes-agent leaves an openwrt-mcp from before 0.5.0.3 (0.5.0.4 since r13) in place; the init would then keep the
 # narrow reads, and a guest Wi-Fi would stay out of reach with nothing in apk to say why.
-repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping"
+repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping procd-ujail"
 expect_red "openwrt-mcp with no version floor" check_needs_an_openwrt_mcp_that_redacts
+
+# ---- fault 13: the sandbox's first process left dumpable ----
+# Since r15 the gateway's parent is the sandbox's pid 1, which holds the same keys in its
+# environment and runs as the same user as the agent's terminal. Made dumpable, its /proc entries
+# are that user's, and check 15, which reads every process of the service as hermes, must say so.
+JAILF="$W/tree/usr/libexec/hermes-jail"
+[ -f "$JAILF" ] || { echo "teeth: fault 13 planted nothing; no hermes-jail in the tree" >&2; exit 1; }
+cp "$JAILF" /tmp/jail.bak
+sed -i.tmp -e 's/prctl(PR_SET_DUMPABLE, 0, "making/prctl(PR_SET_DUMPABLE, 1, "making/' \
+	-e 's/"reading back that it is non-dumpable") != 0:/"reading back that it is non-dumpable") != 1:/' "$JAILF" && rm -f "$JAILF.tmp"
+grep -q 'prctl(PR_SET_DUMPABLE, 1, "making' "$JAILF" && grep -q 'non-dumpable") != 1:' "$JAILF" \
+	|| { echo "teeth: fault 13 planted nothing; hermes-jail no longer makes itself non-dumpable that way" >&2; exit 1; }
+repack "$DEPS_OK"
+expect_red "the sandbox's first process left dumpable" check_gateway_keys_hidden_from_its_user
+cp /tmp/jail.bak "$JAILF"
 
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
@@ -224,4 +240,4 @@ APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 12 faults, 12 distinct checks, green restored"
+echo "teeth: 13 faults, 12 distinct checks, green restored"

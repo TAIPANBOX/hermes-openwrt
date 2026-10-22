@@ -79,10 +79,11 @@ echo "-- container checks: $IMAGE ($PLATFORM) --"
 # -i is load-bearing. Without it docker hands `sh -s` an empty stdin, the script never
 # runs, the container exits 0, and this gate reports every check passed having measured
 # nothing at all.
-# --cap-add SYS_PTRACE: a router's root has it, Docker's default root does not, and without it root
-# cannot read /proc/<pid>/environ of another user's process at all, so check 15 could not tell
-# a gateway that hides its keys from one that does not.
-docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --cap-add SYS_PTRACE ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" -v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
+# --privileged: since 0.21.5-r15 the gateway starts inside ujail, OpenWrt's sandbox, which makes
+# namespaces and mounts as a router's root may and Docker's default root may not. It also carries
+# SYS_PTRACE, without which root cannot read /proc/<pid>/environ of another user's process at all,
+# so check 15 could not tell a gateway that hides its keys from one that does not.
+docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" --privileged ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" -v "$APK:/pkg.apk:ro" -v "$MCP:/mcp.apk:ro" "$IMAGE" /bin/sh -s <<'CONTAINER'
 . /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
 fail() { echo "FAIL $1: $2"; exit 1; }
@@ -211,24 +212,62 @@ svc_fail() {
 	sed 's/\x1b\[[0-9;]*m//g' /tmp/svc.log | tail -8
 	fail "[6/16] check_service_command_runs" "$1"
 }
-until tr '\0' ' ' < "/proc/$SVC/cmdline" 2>/dev/null | grep -q 'gateway run'; do
+# ujail connects to ubus before anything else; a router always has ubusd, this container has it
+# once it is started here.
+mkdir -p /var/run/ubus
+ubusd >/tmp/ubusd.log 2>&1 &
+i=0
+until ubus list >/dev/null 2>&1; do
+	i=$((i + 1)); [ "$i" -lt 20 ] || { cat /tmp/ubusd.log; fail "[6/16] check_service_command_runs" "ubusd did not start, so the sandbox cannot either"; }
+	sleep 1
+done
+# Since 0.21.5-r15 the process procd started is ujail, OpenWrt's sandbox, and the gateway is a
+# descendant of it, so the gateway is found among the service's processes by upstream's own entry
+# point, not taken to be the process procd started.
+ppid_of() { sed -n 's/^.*) [A-Za-z] \([0-9][0-9]*\) .*/\1/p' "/proc/$1/stat" 2>/dev/null; }
+service_tree() {
+	echo "$1"; front=" $1 "
+	while :; do
+		added=""
+		for d in /proc/[0-9]*; do
+			p=${d#/proc/}
+			case "$front" in *" $p "*) continue ;; esac
+			case "$front" in *" $(ppid_of "$p") "*) added="$added $p" ;; esac
+		done
+		[ -n "$added" ] || break
+		for p in $added; do echo "$p"; done
+		front="$front$added "
+	done
+}
+GW=""
+until [ -n "$GW" ]; do
 	alive "$SVC" || svc_fail "the command exited before this check saw it start the gateway"
 	[ $(($(date +%s) - t0)) -lt 180 ] || svc_fail "the wrapper did not reach the gateway within 180 s"
-	sleep 1
+	for p in $(service_tree "$SVC"); do
+		tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q 'hermes_cli/main.py gateway run' && { GW=$p; break; }
+	done
+	[ -n "$GW" ] || sleep 1
 done
 t1=$(date +%s)
 while [ $(($(date +%s) - t1)) -lt 30 ]; do
 	sleep 1
-	alive "$SVC" || svc_fail "the gateway exited $(($(date +%s) - t1)) s after the wrapper started it"
+	alive "$SVC" || svc_fail "the service exited $(($(date +%s) - t1)) s after the wrapper started the gateway"
+	alive "$GW" || svc_fail "the gateway exited $(($(date +%s) - t1)) s after the wrapper started it"
 done
-# what the running gateway's own command line holds, for check 7
-tr '\0' '\n' < "/proc/$SVC/cmdline" > /tmp/svc.cmdline 2>/dev/null
-# who can read the keys the wrapper exported into that running gateway, for check 15
-GW_UID=$(awk '/^Uid/ {print $2}' "/proc/$SVC/status")
-ROOT_SEES=$(tr '\0' '\n' < "/proc/$SVC/environ" 2>/dev/null | grep -c "^OPENAI_API_KEY=$SECRET\$" || true)
-USER_SEES=$(/usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes /bin/sh -c \
-	"tr '\\0' '\\n' < /proc/$SVC/environ 2>/dev/null | grep -c '^OPENAI_API_KEY=$SECRET\$'; true" 2>/dev/null | tail -n 1)
-kill "$SVC" 2>/dev/null || true
+TREE=$(service_tree "$SVC")
+# what every process of the running service has on its command line, for check 7
+for p in $TREE; do tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null; echo; done > /tmp/svc.cmdline
+# who can read the keys the wrapper exported into that running service, for check 15: root in the
+# gateway's own environment (or this measured nothing), hermes in the environment of any process
+GW_UID=$(awk '/^Uid/ {print $2}' "/proc/$GW/status")
+ROOT_SEES=$(tr '\0' '\n' < "/proc/$GW/environ" 2>/dev/null | grep -c "^OPENAI_API_KEY=$SECRET\$" || true)
+USER_SEES=0; USER_SEES_IN=""
+for p in $TREE; do
+	n=$(/usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes /bin/sh -c \
+		"tr '\\0' '\\n' < /proc/$p/environ 2>/dev/null | grep -c '^OPENAI_API_KEY=$SECRET\$'; true" 2>/dev/null | tail -n 1)
+	[ "${n:-0}" = 0 ] || { USER_SEES=$((USER_SEES + n)); USER_SEES_IN="$USER_SEES_IN $p($(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | cut -c1-50))"; }
+done
+kill "$SVC" "$GW" 2>/dev/null || true
 echo "PASS [6/16] check_service_command_runs ($(wc -l < /tmp/argv | tr -d ' ') argv words, $(wc -l < /tmp/envv | tr -d ' ') env entries; gateway after $((t1 - t0)) s, up 30 s)"
 
 # ---- 7 and 8. the key reaches neither argv nor uci ----
@@ -394,8 +433,8 @@ echo "PASS [14/16] check_shell_never_lazy_installs (root and hermes branches bot
 [ "${ROOT_SEES:-0}" = 1 ] \
 	|| fail "[15/16] check_gateway_keys_hidden_from_its_user" "measured nothing: root did not find the key in the gateway's environment"
 [ "${USER_SEES:-x}" = 0 ] \
-	|| fail "[15/16] check_gateway_keys_hidden_from_its_user" "the agent's own user can read the model key in /proc/<gateway>/environ ('${USER_SEES:-}')"
-echo "PASS [15/16] check_gateway_keys_hidden_from_its_user (root reads the key, hermes is refused)"
+	|| fail "[15/16] check_gateway_keys_hidden_from_its_user" "the agent's own user can read the model key in /proc/<pid>/environ of:${USER_SEES_IN}"
+echo "PASS [15/16] check_gateway_keys_hidden_from_its_user (root reads the key, hermes is refused by all $(echo $TREE | wc -w) processes of the service)"
 
 # ---- 16. the agent never pairs its wide reads with an openwrt-mcp that does not redact ----
 # From r11 the init grants uci_get on wireless and the whole of network when openwrt-mcp reports

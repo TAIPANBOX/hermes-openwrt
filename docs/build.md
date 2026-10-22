@@ -119,6 +119,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] A scheduled job is told what its profile is, as a chat is, and a chat is told it once (0.21.5-r12)
 - [x] The owner may let the agent install packages from the official OpenWrt feed, an opt-in on the Security page, with a factor in force and an openwrt-mcp whose `apk_add` installs official packages only (0.21.5-r13, LuCI 0.21.5-r3, openwrt-mcp 0.5.0.4)
 - [x] The agent reads whether a service runs (rpcd's `rc.list`, never procd's `service.list`) and, from an openwrt-mcp that redacts, the config of a package it installed, its secrets `<redacted>` (0.21.5-r14)
+- [x] The agent's terminal, file and search tools run in ujail, OpenWrt's own sandbox, with no `/etc/config`, `/overlay`, `/var` or ubus, so no tool reads a router secret from a file; diagnostics work as before (0.21.5-r15)
 
 ## Prior art, and what is not ours
 

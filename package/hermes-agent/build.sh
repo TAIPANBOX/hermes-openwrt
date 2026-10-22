@@ -143,6 +143,9 @@ chmod 0755 "$OUT/usr/libexec/hermes-runtime-check"
 # its two helpers, and the launcher's re-exec all go through it (see its own header).
 cp "$SRC/files/hermes-drop.py" "$OUT/usr/libexec/hermes-drop"
 chmod 0755 "$OUT/usr/libexec/hermes-drop"
+# The sandbox the gateway of the owner and assistant profiles runs in, since r15 (see the file).
+cp "$SRC/files/hermes-jail.py" "$OUT/usr/libexec/hermes-jail"
+chmod 0755 "$OUT/usr/libexec/hermes-jail"
 # Which profile is which account; sourced by the init and the wrapper, so it is said once.
 cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
 cp "$SRC/files/hermes-usb-check" "$OUT/usr/lib/hermes-agent/hermes-usb-check" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-usb-check"
