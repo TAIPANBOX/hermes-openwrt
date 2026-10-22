@@ -783,6 +783,21 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     red that is only "measured nothing", `scripts/teeth.sh` fault 13, `scripts/teeth-runtime.py`
     (the owner note's sandbox sentence)).
 
+25. `@decided 2026-10-22`: a pull request's CI does the work only of the legs its files touch, so a
+    change to the documentation does not wait half an hour. `@measured` 2026-10-22 from CI run
+    39793095858: 31 min wall, every leg built whatever changed, README-only PR #60 took 27 min, and
+    usb-teeth-0 spent 910 s on one fault in which hermes-login, going ahead, waited for a ChatGPT
+    device code to expire. `@claude` 2026-10-22, how: the `subjects` job runs
+    `scripts/ci-subjects.sh` on the pull request's changed files; every package leg stays a required
+    check and one not needed passes in seconds, saying why. Conservative: a file no rule names, the
+    workflow, the build scripts, the upstream pin and apk-retry take every leg; only the LuCI teeth
+    are left out of a hermes-agent change (they plant faults in luci-app-hermes alone). A push to
+    main and a run by hand take every leg; a newer push to a pull request cancels the older run;
+    usb-teeth-0 no longer repeats the usb leg's clean run; gate-usb gives hermes-login 30 s (gate:
+    `scripts/test-ci-subjects.sh`, fifteen cases, in the scenarios job, which fails a selector that
+    runs nothing or everything). Limits named: which legs a file needs is a list kept by hand, and a
+    rule that leaves a leg out wrongly is caught only on main, where every leg runs.
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.
