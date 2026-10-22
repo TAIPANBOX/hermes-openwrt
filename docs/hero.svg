@@ -90,7 +90,7 @@
 <rect x="1154" y="259" width="52" height="22" rx="11" ry="11" fill="#141a23" stroke="#3fb950" stroke-width="1"/>
 <text x="1180" y="274" font-size="12.5" fill="#3fb950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="middle">ubus</text>
 <line x1="926" y1="297" x2="1194" y2="297" stroke="#222b38" stroke-width="1"/>
-<text x="926" y="327" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">openwrt-mcp, 9 tools</text>
+<text x="926" y="327" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">openwrt-mcp, 11 tools</text>
 <text x="926" y="349" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">policy-checked, audited</text>
 <text x="926" y="371" font-size="15" fill="#9aa7b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" text-anchor="start">rollback timer on changes</text>
 

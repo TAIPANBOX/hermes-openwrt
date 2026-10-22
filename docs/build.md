@@ -53,7 +53,7 @@ private half until a person logs in and deletes the file. So CI builds and gates
 ![Upstream, built inside the target release, one shim, packaged, signed locally](build.svg)
 
 ```sh
-# 25.12, Python 3.13. EXTRA_ARCHES relabels the same tree for the Flint 2 and Brume 2.
+# 25.12, Python 3.13. EXTRA_ARCHES relabels the same tree for the Flint 2, Brume 2 and Beryl AX.
 EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aarch64_generic
 ```
 
@@ -82,11 +82,11 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 
 - [x] Native package for OpenWrt 25.12 (apk); 24.10 was served until 2026-09-25 and is not any more
 - [x] Hermes 0.21.5 from a pinned upstream commit, libraries at upstream's locked versions
-- [x] `aarch64_cortex-a53` for the Flint 2 and Brume 2, plus `aarch64_generic`
+- [x] `aarch64_cortex-a53` for the Flint 2, Brume 2 and Beryl AX, plus `aarch64_generic`
 - [x] LuCI interface with write-only key handling
 - [x] Signed feed, signed on a workstation
-- [x] Every gate runs on OpenWrt's own rootfs images in CI
-- [x] **Run on real hardware.** Two GL.iNet routers on vanilla OpenWrt 25.12.5; see the figures above
+- [x] Every gate that tests the product runs on OpenWrt's own rootfs images in CI
+- [x] **Run on real hardware.** Three GL.iNet routers, the Flint 2, Brume 2 and Beryl AX, on vanilla OpenWrt 25.12.5; see [measured.md](measured.md)
 - [x] **Service controls on real procd**: bounded respawn, the memory ceiling and its removal, UCI back in place after a crash (Flint 2 and Brume 2, 25.12.5)
 - [x] **A full agent turn on a router**, model calling a tool and answering from what it read
 - [x] **Measured under load** on 0.21.5: concurrent conversations, thermals, throughput through the router
