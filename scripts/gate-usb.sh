@@ -324,7 +324,18 @@ check_missing_stick_stops_the_start() {
 	echo "$out" | grep -q "that stick is not mounted" || fail "the start without the stick did not say so: $out"
 	out=$(HERMES_HOME=$D /usr/sbin/hermes-gateway /etc/hermes-agent/provider.key 2>&1) && fail "the gateway wrapper (what procd respawns) went ahead without the stick: $out"
 	echo "$out" | grep -q "that stick is not mounted" || fail "the gateway wrapper did not say the stick is missing: $out"
-	out=$(hermes-login chatgpt 2>&1) && fail "hermes-login went ahead without the stick: $out"
+	# Bounded: hermes-login refuses at once without the stick, and one that goes ahead starts a real
+	# ChatGPT device sign-in that waits a quarter of an hour for its code (teeth-usb's "hermes-login
+	# does not ask" took 910 s of CI that way). Still running after 30 s is going ahead.
+	setsid hermes-login chatgpt >/tmp/login.out 2>&1 &
+	lp=$!; i=0
+	while kill -0 "$lp" 2>/dev/null; do
+		i=$((i + 1))
+		[ "$i" -le 30 ] || { kill -KILL -- "-$lp" 2>/dev/null; fail "hermes-login went ahead without the stick: still running after 30 s: $(tail -c 300 /tmp/login.out)"; }
+		sleep 1
+	done
+	wait "$lp" && fail "hermes-login went ahead without the stick: $(cat /tmp/login.out)"
+	out=$(cat /tmp/login.out)
 	echo "$out" | grep -q "that stick is not mounted" || fail "hermes-login did not say the stick is missing: $out"
 	out=$(HERMES_HOME=$D hermes cron list 2>&1) && fail "the hermes launcher went ahead on $D without the stick: $out"
 	echo "$out" | grep -q "that stick is not mounted" || fail "the hermes launcher did not say the stick is missing: $out"
