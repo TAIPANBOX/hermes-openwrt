@@ -19,8 +19,10 @@ routers rather than in a container.
 
 ![The agent runs on the router, the model runs elsewhere, and the router itself is reached through a narrow audited window](docs/hero.svg)
 
-**Current release**, in the feed since 2026-10-09: `hermes-agent` 0.21.5-r14, `openwrt-mcp`
-0.5.0.4-r1, `luci-app-hermes` 0.21.5-r3 and `hermes-agent-telegram` 0.21.5-r1.
+**Current release**, in the feed since 2026-10-22: `hermes-agent` 0.21.5-r16, `openwrt-mcp`
+0.5.0.5-r1, `luci-app-hermes` 0.21.5-r4 and `hermes-agent-telegram` 0.21.5-r1. The feed has a
+new signing key since that day; a router set up earlier runs the `wget` line of
+[step 1](#install) once more before it upgrades.
 
 ## What it is, and what it is not
 
@@ -176,7 +178,12 @@ During the window the agent can change network, Wi-Fi, firewall, DHCP and system
 install official packages, if you turned that on). It cannot run its own commands as root:
 [how it keeps the router yours](#how-it-keeps-the-router-yours).
 
-**Upgrading.** Run `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (plus
+**Upgrading.** A router set up before 2026-10-22 first runs the `wget` line of step 1 again:
+the feed is signed with a new key since then, and apk refuses it while the router holds only the
+old one. The line overwrites the old public key. The old private key was lost when the signing
+workstation was reinstalled, and nothing suggests it leaked.
+
+Run `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (plus
 `hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`. An upgrade
 does not restart a running gateway, and it leaves the start at boot as you set it. Do not
 install a fixed version with `apk add hermes-agent=<version>`: that pins it in
