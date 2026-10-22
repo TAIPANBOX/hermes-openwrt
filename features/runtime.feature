@@ -317,6 +317,8 @@ Feature: What is set on the router is what the gateway runs with
   Scenario: the owner's token goes to the gateway alone
     When the wrapper starts the gateway with the owner's token file named
     Then the gateway is handed the owner's token and the agent's, and neither helper run before it is handed the owner's, nor the gateway its path
+    And the gateway takes it out of its environment before upstream runs, so nothing it starts inherits it, and gives it to the plugin once
+    And a gateway of another profile, which has no unlock plugin, is not handed it, though the file is there
     And a missing owner's token leaves the gateway starting, with one line, and without it
     # -> check_wrapper_hands_the_owner_token_to_the_gateway_alone
 
@@ -326,6 +328,13 @@ Feature: What is set on the router is what the gateway runs with
     And the plugin asks openwrt-mcp with the owner's token, never the agent's
     And /approve, /reject and an approval's PIN and code are told apart from an unlock, and what the owner and the agent are told comes from the daemon's answer, the confirm token included
     # -> check_plugin_takes_the_owner_token_and_answers_from_the_daemons_words
+
+  Scenario: a held change's card stays one that can be approved while an approval runs
+    Given a held change whose card the approver was sent
+    When openwrt-mcp lists it as approving while an approval runs, and as held again when that try is refused
+    Then the card can still be approved, and only the outcome edits it
+    And the agent is told the outcome once, in the chat the change was proposed from
+    # -> check_card_waits_through_an_approval_in_progress
 
   Scenario: the model is offered the package install tool only when the owner's opt-in is in force, and told how to use it
     Given the owner profile with a factor, the router MCP connection, and the package policy written at the start

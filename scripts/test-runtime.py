@@ -105,12 +105,13 @@ class RuntimeTests(unittest.TestCase):
 
     def test_mcp_identical_manual_entry_is_adopted(self):
         url = "http://127.0.0.1:8730/mcp"
-        # The entry as the package writes it since r13 with no package policy granted: the unlock
-        # tools, exec, wg_new_client and apk_add hidden from the model; the earlier shapes are adopted
-        # too (see test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape).
+        # The entry as the package writes it since r16 with no package policy granted: the unlock
+        # tools, exec, wg_new_client, the approver's tools and apk_add hidden from the model; the
+        # earlier shapes are adopted too (see test_mcp_entry_hides_the_unlock_tools_and_adopts_the_earlier_shape).
         manual = {"mcp_servers": {"openwrt": {"url": url,
                   "headers": {"Authorization": "Bearer ${OPENWRT_MCP_TOKEN}"},
-                  "tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "apk_add"]}}}}
+                  "tools": {"exclude": ["mfa_unlock", "mfa_lock", "exec", "wg_new_client", "action_list",
+                                        "action_approve", "action_reject", "apk_add"]}}}}
         (self.home / "config.yaml").write_text(yaml.safe_dump(manual))
         result = self.configure(mcp=url)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1467,7 +1468,8 @@ procd_close_service
         cli = Path("/usr/bin/hermes")
         original = cli.read_bytes()
         self.addCleanup(cli.write_bytes, original)
-        cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        # -S: what the wrapper hands over, before the gateway's own sitecustomize takes the owner's token.
+        cli.write_text("#!/bin/sh\nexec python3 -S -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
         key, mcp, owner = self.home / "key", self.home / "mcp", self.home / "owner"
         key.write_text("provider-runtime-canary")
         mcp.write_text("agent-runtime-canary")
@@ -1484,6 +1486,26 @@ procd_close_service
         self.assertNotIn("HERMES_MCP_OWNER_TOKEN_FILE", child)
         for name, marker in seen.items():
             self.assertNotIn("OPENWRT_MCP_OWNER_TOKEN", marker.read_text(), f"{name} was handed the owner's token")
+        # The gateway's sitecustomize takes it out of the environment before upstream runs, so nothing
+        # the gateway starts inherits it, and gives it to the plugin once.
+        boot = subprocess.run(["python3", "-c", "import json, os, subprocess, sitecustomize as s; print(json.dumps({"
+                               "'env': 'OPENWRT_MCP_OWNER_TOKEN' in os.environ, 'child': subprocess.run(['sh', '-c', 'env'], "
+                               "capture_output=True, text=True).stdout.count('owner-runtime-canary'), "
+                               "'first': s.take_owner_token(), 'second': s.take_owner_token()}))"],
+                              env=dict(self.env, PYTHONPATH="/usr/lib/hermes-agent/gateway-boot",
+                                       OPENWRT_MCP_OWNER_TOKEN="owner-runtime-canary"),
+                              check=False, capture_output=True, text=True)
+        self.assertEqual(boot.returncode, 0, boot.stderr)
+        self.assertEqual(json.loads(boot.stdout.strip().splitlines()[-1]),
+                         {"env": False, "child": 0, "first": "owner-runtime-canary", "second": ""})
+        # Another profile has no unlock plugin, so its gateway is not handed the token, though the
+        # file a router keeps from the owner profile is there.
+        other = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
+                               env=dict(env, HERMES_OPENWRT_PROFILE="assistant"), check=False,
+                               capture_output=True, text=True)
+        self.assertEqual(other.returncode, 0, other.stderr)
+        self.assertNotIn("OPENWRT_MCP_OWNER_TOKEN", gateway_json(other.stdout))
+        self.assertNotIn("owner MCP token file", other.stderr)
         # Missing, the gateway still starts, with one line, and no owner's token.
         owner.unlink()
         result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)], env=env, check=False,
@@ -1538,6 +1560,44 @@ print(json.dumps(u._turn_for({"id": "KQWPT", "status": "rejected"})))
         self.assertIn("uci_confirm with token TOKEN123", lines[4])
         self.assertIn("2026-10-22T12:41:00Z", lines[4])
         self.assertIn("rejected KQWPT", lines[5])
+
+    def test_card_waits_through_an_approval_in_progress(self):
+        # openwrt-mcp lists a change as approving while an approval runs and as held again when the try
+        # is refused. Neither is an outcome: the card stays one that can be approved, and the agent is
+        # told only the outcome, once, in the session the change was proposed from.
+        probe = r"""
+import asyncio, json, openwrt_unlock as u
+class Msg:
+    chat_id, message_id = 1, 7
+class Bot:
+    edits = []
+    async def send_message(self, **k):
+        return Msg()
+    async def edit_message_text(self, **k):
+        Bot.edits.append(k["text"].split("\n\n")[-1])
+told = []
+class Ctx:
+    def inject_message(self, text, session_key=None):
+        told.append([session_key, text[:40]])
+        return True
+u._BOT, u._CTX, u._approver, u._keyboard = Bot(), Ctx(), (lambda: "1"), (lambda a: None)
+u._sessions["KQWPT"] = "chat-session"
+rec = {"id": "KQWPT", "hash": "a" * 64, "card": "CARD", "headline": "OPENS THE ROUTER TO THE INTERNET: tcp 2222"}
+seen = []
+async def run():
+    for status in ("held", "approving", "held", "approving", "applied"):
+        extra = {"result": 'Applied.\n  uci_confirm {"token": "T1"}'} if status == "applied" else {}
+        await u._show(dict(rec, status=status, **extra))
+        seen.append(u._cards["KQWPT"]["shown"])
+asyncio.run(run())
+print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told}))
+"""
+        result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True, env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        got = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(got["seen"], ["held", "held", "held", "held", "applied"])
+        self.assertEqual(got["edits"], ["Approved and applied."])
+        self.assertEqual(got["told"], [["chat-session", "[The owner approved KQWPT and it was app"]])
 
     def test_tool_search_is_off_unless_the_operator_set_it(self):
         # Upstream defers every MCP tool behind tool_search by default, and on routers on
@@ -2050,7 +2110,8 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
         for missing in (None, "uci_get_redacts_credentials"):
             with self.subTest(missing=missing):
                 policies, stderr = self.r14_policies("pin", missing)
-                self.assertEqual(list(policies), ["read_ubus", "read_uci", "read_log", "change", "change_ubus"])
+                # (and, since r16, the approval section the change policies name, which is not a policy)
+                self.assertEqual(list(policies), ["read_ubus", "read_uci", "read_log", "approval", "change", "change_ubus"])
                 read_ubus, read_uci = policies["read_ubus"], policies["read_uci"]
                 self.assertEqual(read_ubus["tools"], ["ubus_call"])
                 self.assertEqual(read_uci["tools"], ["uci_get"])
