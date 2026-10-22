@@ -918,8 +918,10 @@ async def _show(a: dict) -> None:
             log.warning("the card of %s could not be edited (%s)", aid, type(exc).__name__)
     await asyncio.to_thread(_tell_agent, a)
     # Decided, so nothing waits on the card any more: a later poll that still lists the change finds
-    # no card and leaves it, and a press on the old buttons is answered as no longer waiting.
-    _cards.pop(aid, None)
+    # no card and leaves it, and a press on the old buttons is answered as no longer waiting. A status
+    # that is not an outcome keeps the card, so its outcome is still shown and told.
+    if status in OUTCOME_LINE:
+        _cards.pop(aid, None)
 
 
 async def _poll_forever() -> None:

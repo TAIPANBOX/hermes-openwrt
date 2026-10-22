@@ -1594,6 +1594,12 @@ async def run():
     u._sessions["WTHDR"] = "other-session"
     for status in ("held", "withdrawn"):
         await u._show(dict(rec, id="WTHDR", status=status))
+    # A status that is neither held nor an outcome (one a later openwrt-mcp might add) keeps the card
+    # and the session, so the outcome after it is still shown and told.
+    u._sessions["LATER"] = "third-session"
+    for status in ("held", "paused", "rejected"):
+        extra = {}
+        await u._show(dict(rec, id="LATER", status=status))
 asyncio.run(run())
 print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told, "kept": sorted(u._cards) + sorted(u._sessions)}))
 """
@@ -1601,9 +1607,11 @@ print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told, "kept": sorted
         self.assertEqual(result.returncode, 0, result.stderr)
         got = json.loads(result.stdout.strip().splitlines()[-1])
         self.assertEqual(got["seen"], ["held", "held", "held", "held", "gone"])
-        self.assertEqual(got["edits"], ["Approved and applied.", "Withdrawn by the agent. Nothing was applied."])
+        self.assertEqual(got["edits"], ["Approved and applied.", "Withdrawn by the agent. Nothing was applied.",
+                                        "Rejected. Nothing was applied."])
         self.assertEqual(got["kept"], [])
-        self.assertEqual(got["told"], [["chat-session", "[The owner approved KQWPT and it was app"]])
+        self.assertEqual(got["told"], [["chat-session", "[The owner approved KQWPT and it was app"],
+                                       ["third-session", "[The owner rejected LATER; it was not ap"]])
 
     def test_tool_search_is_off_unless_the_operator_set_it(self):
         # Upstream defers every MCP tool behind tool_search by default, and on routers on
