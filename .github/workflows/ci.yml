@@ -157,13 +157,15 @@ jobs:
       # before it writes the package policy. Since 0.21.5-r16 it is 6e7ee27, the merge of the fork's
       # PR #9 (version 0.5.0.5): high-impact changes of a client with an approval section are held
       # for the owner's approval of that one change, and `status` reports actions_held_for_approval,
-      # which the init asks for before it writes any change policy. Before them, baf6669
+      # which the init asks for before it writes any change policy. Since then it is 2075e0b, the
+      # merge of the fork's PR #10 (version 0.5.0.6): a code from the authenticator app keeps
+      # working for 60 s after it leaves the app's screen. Before them, baf6669
       # (v0.5.0-taipanbox.1).
       - uses: actions/checkout@v4
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: 6e7ee27d78c5afd1c37488b1a42fcd0b968fa383
+          ref: 2075e0b3563ac8adf713c4660abae528d87d8ca5
           path: openwrt-mcp-src
       - uses: actions/setup-go@v5
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
