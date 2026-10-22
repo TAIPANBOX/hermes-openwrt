@@ -18,9 +18,9 @@ routers.
 
 ![The agent runs on the router, the model runs elsewhere, and the router itself is reached through a narrow audited window](docs/hero.svg)
 
-**Current release**, in the feed since 2026-10-22: `hermes-agent` 0.21.5-r16, `openwrt-mcp`
-0.5.0.5-r1, `luci-app-hermes` 0.21.5-r4. A router set up before that day runs the `wget` line of
-[step 1](#install) once more: the feed has a new signing key.
+**Current release**, in the feed since 2026-10-23: `hermes-agent` 0.21.5-r17, `openwrt-mcp`
+0.5.0.6-r1, `luci-app-hermes` 0.21.5-r4. A router set up before 2026-10-22 runs the `wget` line of
+[step 1](#install) once more: the feed has a new signing key since then.
 
 ## What it does
 
