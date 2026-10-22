@@ -96,7 +96,9 @@ echo "PASS: artefacts $(basename "$APK"), $(basename "$MCP")${TGAPK:+, $(basenam
 echo "-- container checks: $IMAGE ($PLATFORM) --"
 
 OVERLAY_ARGS=""
-[ -n "${OVERLAY:-}" ] && OVERLAY_ARGS="-v $OVERLAY:/overlay:ro"
+# Mounted at /teeth-overlay, not /overlay: since r15 the checks plant a router's own /overlay/upper,
+# which the agent's sandbox must not show, and a read-only mount there left nothing to plant.
+[ -n "${OVERLAY:-}" ] && OVERLAY_ARGS="-v $OVERLAY:/teeth-overlay:ro"
 # -i is load-bearing, as in every gate here: without it `sh -s` reads an empty stdin and
 # the container exits 0 having run nothing. --privileged and a private cgroup namespace
 # for the memory ceiling, exactly as gate-runtime.sh has them: the root cgroup in here is
@@ -121,9 +123,9 @@ ip link set eth0 down 2>/dev/null || true
 mkdir -p /sys/fs/cgroup/harness
 echo $$ > /sys/fs/cgroup/harness/cgroup.procs
 
-if [ -d /overlay ]; then
-	cp -R /overlay/. /
-	echo "overlay applied: $(cd /overlay && find . -type f | sed 's|^\./||' | tr '\n' ' ')"
+if [ -d /teeth-overlay ]; then
+	cp -R /teeth-overlay/. /
+	echo "overlay applied: $(cd /teeth-overlay && find . -type f | sed 's|^\./||' | tr '\n' ' ')"
 fi
 cp /etc/config/hermes /tmp/pristine/hermes.config
 cp /etc/config/openwrt-mcp /tmp/pristine/mcp.config
@@ -712,7 +714,7 @@ import json
 from tools.terminal_tool import terminal_tool
 cmd = ("TARGETS=127.0.0.1 sh /srv/hermes/scripts/router_check.sh; "
        "ping -c 1 -W 2 127.0.0.1 >/dev/null 2>&1 && echo PING-OK; "
-       "python3 -c 'import tempfile; tempfile.NamedTemporaryFile(); print(\"TMP-OK\")'; "
+       "echo probe > /tmp/hermes-probe && cat /tmp/hermes-probe >/dev/null && echo TMP-OK; "
        "echo probe > /srv/hermes/probe.write && echo DATA-OK; "
        "echo lo-state: $(cat /sys/class/net/lo/operstate 2>/dev/null)")
 print(json.loads(terminal_tool(command=cmd, timeout=90)).get("output", ""))
@@ -723,6 +725,10 @@ EOF
 
 check_agent_diagnostics_still_work() {
 	reset; configure - -
+	# As on a router (a Flint 2 reads "1 0"): no unprivileged ICMP, so the agent's ping works only
+	# through iputils' setuid bit, as it does on the router. Docker opens the range to every group,
+	# under which a sandbox that dropped setuid (no_new_privs) would still ping and pass.
+	echo "1 0" > /proc/sys/net/ipv4/ping_group_range || fail "measured nothing: could not close unprivileged ICMP as a router has it"
 	started
 	[ -r /router_check.sh ] || fail "measured nothing: docs/examples/router_check.sh is not in the container"
 	mkdir -p /srv/hermes/scripts && cp /router_check.sh /srv/hermes/scripts/router_check.sh && chown -R hermes:hermes /srv/hermes

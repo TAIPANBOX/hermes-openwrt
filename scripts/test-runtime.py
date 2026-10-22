@@ -28,6 +28,13 @@ FILES = Path(os.environ.get("PRODUCT_FILES", str(ROOT / "package/hermes-agent/fi
 DROP = ["python3", "-I", "-B", "/usr/libexec/hermes-drop"]
 
 
+def gateway_json(stdout):
+    """What a stand-in gateway the wrapper started printed, as JSON. Since r15 the wrapper starts it
+    inside ujail, which prints lines of its own, "jail: ...", to the same output (procd logs them on a
+    router); they are dropped here and nothing else is."""
+    return json.loads("\n".join(line for line in stdout.splitlines() if not line.startswith("jail: ")))
+
+
 class RuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -203,7 +210,7 @@ class RuntimeTests(unittest.TestCase):
             result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(files["provider"])],
                                     env=env, check=False, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            child = json.loads(result.stdout)
+            child = gateway_json(result.stdout)
             for name, key in (("provider", "OPENAI_API_KEY"), ("telegram", "TELEGRAM_BOT_TOKEN"),
                               ("mcp", "OPENWRT_MCP_TOKEN")):
                 self.assertEqual(child[key], values[name])
@@ -213,7 +220,7 @@ class RuntimeTests(unittest.TestCase):
         result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(files["provider"])],
                                 env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        child = json.loads(result.stdout)
+        child = gateway_json(result.stdout)
         self.assertNotIn("TELEGRAM_BOT_TOKEN", child)
         self.assertNotIn("OPENWRT_MCP_TOKEN", child)
 
@@ -259,7 +266,7 @@ class RuntimeTests(unittest.TestCase):
         result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
                                 env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        child = json.loads(result.stdout)
+        child = gateway_json(result.stdout)
         self.assertNotIn("OPENWRT_MCP_TOKEN", child)
         self.assertNotIn("openwrt", self.config().get("mcp_servers", {}))
         self.assertIn(str(mcp_token_file), result.stderr)
@@ -624,7 +631,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.configure(endpoint=url).returncode, 0)
         started = self.wrapper_env(url)
         self.assertEqual(started.returncode, 0, started.stderr)
-        gateway = json.loads(started.stdout)
+        gateway = gateway_json(started.stdout)
         # Both routes the gateway resolves, the main model and bare custom, land on that
         # endpoint with the main key ...
         code = ("from hermes_cli.runtime_provider import resolve_runtime_provider as r\n"
@@ -676,7 +683,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.configure(endpoint=url).returncode, 0)
         started = self.wrapper_env(url, key="main-key-canary")
         self.assertEqual(started.returncode, 0, started.stderr)
-        gateway = dict(json.loads(started.stdout), OPENROUTER_API_KEY="openrouter-key-canary")
+        gateway = dict(gateway_json(started.stdout), OPENROUTER_API_KEY="openrouter-key-canary")
         code = ("from hermes_cli.runtime_provider import resolve_runtime_provider as r\n"
                 "for name in ('openrouter', 'ollama', 'custom'):\n"
                 "    x = r(requested=name)\n"
@@ -933,7 +940,7 @@ procd_close_service
                                 env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["code_execution", "file", "terminal"])
-        self.assertEqual(json.loads(result.stdout)["GATE_UID"], hermes_uid)
+        self.assertEqual(gateway_json(result.stdout)["GATE_UID"], hermes_uid)
 
         # Unset entirely -- an older procd env, or a service-list edge case --
         # must default to owner here too, the same as the init's own default: the
@@ -955,7 +962,7 @@ procd_close_service
                                         env=dict(env, HERMES_OPENWRT_PROFILE=name), check=False,
                                         capture_output=True, text=True)
                 self.assertEqual(rooted.returncode, 0, rooted.stderr)
-                child = json.loads(rooted.stdout)
+                child = gateway_json(rooted.stdout)
                 self.assertEqual(child["GATE_UID"], "0")
                 self.assertEqual(child["HERMES_OPENWRT_AS_ROOT"], "1")
         # A profile that is not one stops the wrapper rather than guess.
@@ -2193,7 +2200,7 @@ procd_close_service
         result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)],
                                 env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        child = json.loads(result.stdout)
+        child = gateway_json(result.stdout)
         self.assertEqual(child["HERMES_PROVIDER_CLAUDE_KEY"], "claude-key-canary")
         self.assertNotIn("HERMES_PROVIDER_LOCAL_KEY", child)
         self.assertNotIn("HERMES_PROVIDER_STALE_KEY", child)
@@ -2326,7 +2333,7 @@ start_service; echo "start=$?"
             self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
             started = self.wrapper_env(endpoint, key="main-key-canary")
             self.assertEqual(started.returncode, 0, started.stderr)
-            gateway = json.loads(started.stdout)
+            gateway = gateway_json(started.stdout)
             for how in ("button", "typed"):
                 with self.subTest(endpoint=endpoint, how=how):
                     check = subprocess.run(["python3", "-c", self.SWITCH_CHECK, endpoint, how], check=False,
