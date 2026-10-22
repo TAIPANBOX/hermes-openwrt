@@ -498,6 +498,8 @@ What this does not do, named:
 
 ### Unlocking from Telegram
 
+![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, a change the agent does not confirm rolls back by itself](unlock.svg)
+
 The owner unlocks in the same private chat the agent answers in. With the factor set,
 any of these opens the window (the first, `/unlock`, always works; the others are for
 whoever finds typing the command a nuisance):
@@ -601,6 +603,8 @@ What this does not do, measured and named:
   `/proc` entries belong to root (invariant 7 in CLAUDE.md).
 
 ### High-impact changes wait for your approval
+
+Setting it up and approving, step by step with pictures: [approval.md](approval.md).
 
 Since 0.21.5-r16, with openwrt-mcp 0.5.0.5, some changes are too consequential for the unlock
 window: a rollback does not undo what they let happen while they stood. openwrt-mcp holds them,

@@ -47,6 +47,8 @@ average) and the gateway (0.38 ms) with no loss, and answered in 9 s: two model 
 
 ## Re-run on the published release, 2026-10-04
 
+![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](rerun.svg)
+
 The same two routers, with the package, Python, ffmpeg and their configuration removed first
 and earlier data moved aside, then the README's install block of that day (now step 1 of [Install](../README.md#install), with the Telegram add-on) run as written
 against the published feed (agent 0.21.5-r5, LuCI 0.21.5-r1, openwrt-mcp from the fork).

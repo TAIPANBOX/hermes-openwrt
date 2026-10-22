@@ -155,6 +155,143 @@ def unlock():
     return "\n".join(out) + "\n"
 
 
+def approve():
+    w, h = 1280, 420
+    out = frame(w, h, "Approving a high-impact change: the agent asks and openwrt-mcp holds it; the bot sends a card; Approve restates what changes; your PIN and a code from your phone approve it; the change runs, the agent checks and confirms it")
+    n, period = 5, 10
+    css = [f"@keyframes lit{{0%,{100 / n * 0.15:.1f}%{{opacity:.28}}{100 / n * 0.35:.1f}%,{100 / n * 1.25:.1f}%{{opacity:1}}{100 / n * 1.6:.1f}%,100%{{opacity:.28}}}}",
+           f".st{{animation:lit {period}s ease-in-out infinite}}"]
+    for i in range(n):
+        css.append(f".s{i}{{animation-delay:{i * period / n:.1f}s}}")
+    css.append("@media (prefers-reduced-motion:reduce){.st{animation:none}}")
+    out.append("<style>" + "".join(css) + "</style>")
+    out.append(text(48, 58, "Approving a high-impact change", 26, weight="600"))
+    out.append(text(48, 84, "A port opened to the internet, the firewall weakened, VPN, DNS, a reboot: held even in an unlock window, until you approve that one change.", 14, MUTED))
+    stages = [
+        ("The agent asks", ["a port forward, say", "openwrt-mcp holds it"], "nothing applied yet", AMBER),
+        ("A card arrives", ["written by openwrt-mcp,", "not by the agent"], "what changes, exactly", BLUE),
+        ("You press Approve", ["the bot repeats the", "change before the code"], "a fake card cannot pass", TEAL),
+        ("PIN, then code", ["4821 503917", "deleted at once"], "the model never sees it", TEAL),
+        ("Applied", ["the agent checks the", "router and confirms"], "undone if unconfirmed", GREEN),
+    ]
+    bw, gap, x0, y0 = 220, 20, 48, 120
+    for i, (title, lines, foot, col) in enumerate(stages):
+        x = x0 + i * (bw + gap)
+        out.append(f'<g class="st s{i}">')
+        out.append(f'<rect x="{x}" y="{y0}" width="{bw}" height="170" rx="10" fill="{PANEL}" stroke="{col}"/>')
+        out.append(f'<circle cx="{x + 30}" cy="{y0 + 34}" r="14" fill="none" stroke="{col}" stroke-width="2"/>')
+        out.append(text(x + 30, y0 + 39, i + 1, 13, col, weight="600", anchor="middle"))
+        out.append(text(x + 54, y0 + 40, title, 16, weight="600"))
+        for k, line in enumerate(lines):
+            out.append(text(x + 18, y0 + 82 + k * 22, line, 13, LABEL, MONO))
+        out.append(text(x + 18, y0 + 148, foot, 12, col, MONO))
+        out.append("</g>")
+    out.append(text(48, 340, "Why both: the PIN is something you know, the code comes from your phone. A stolen Telegram session has neither,", 14, LABEL))
+    out.append(text(48, 362, "a lost phone lacks the PIN, and the agent, whatever it was told, has no way to either.", 14, LABEL))
+    out.append(text(48, 392, "Reject is one tap. A change waits ten minutes; five wrong answers block approving and unlocking for fifteen.", 14, MUTED))
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
+def levels():
+    w, h = 1280, 440
+    out = frame(w, h, "What the agent may do with the router: read it always; change settings after you unlock it, with a rollback; make a high-impact change only once you approve that one change with a PIN and a code; never run its own commands as root, flash firmware or read your Wi-Fi or VPN keys")
+    out.append(text(48, 58, "What the agent may do with your router", 26, weight="600"))
+    out.append(text(48, 84, "Reading is free. Every change goes through openwrt-mcp, which asks you first, and the riskier the change, the more it asks.", 14, MUTED))
+    cols = [
+        ("Read", "always", ["status, logs, settings", "ping, DNS, routes", "secrets shown as <redacted>"], "no step for you", GREEN),
+        ("Change settings", "after you /unlock", ["network, Wi-Fi, firewall, DHCP,", "start or stop a service", "for 15 minutes, then locked"], "settings undone unless confirmed", TEAL),
+        ("High-impact change", "you approve each one", ["a port open to the internet,", "firewall weakened, VPN routing,", "DNS, time servers, a reboot"], "Approve + PIN + code", AMBER),
+    ]
+    bw, gap, x0, y0 = 381, 20, 48, 112
+    for i, (title, when, lines, foot, col) in enumerate(cols):
+        x = x0 + i * (bw + gap)
+        out.append(f'<rect x="{x}" y="{y0}" width="{bw}" height="196" rx="10" fill="{PANEL}" stroke="{col}"/>')
+        out.append(f'<rect x="{x}" y="{y0}" width="{bw}" height="6" rx="3" fill="{col}"/>')
+        out.append(text(x + 22, y0 + 42, title, 19, weight="600"))
+        out.append(text(x + 22, y0 + 66, when, 13, col, MONO))
+        for k, line in enumerate(lines):
+            out.append(text(x + 22, y0 + 100 + k * 22, line, 13, LABEL, MONO))
+        out.append(text(x + 22, y0 + 178, foot, 12, col, MONO, weight="600"))
+    out.append(f'<rect x="48" y="328" width="1183" height="52" rx="10" fill="{PANEL}" stroke="#f85149" stroke-dasharray="5 4"/>')
+    out.append(text(70, 360, "Never", 16, "#f85149", weight="600"))
+    out.append(text(140, 360, "run its own commands as root, flash firmware, or read your Wi-Fi password or VPN keys from a file", 14, LABEL))
+    out.append(text(48, 412, "The PIN and the code never reach the model: the message that carries them is deleted before anything else happens.", 14, MUTED))
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
+def bubble(x, y, w, lines, fill, fg=FG, font=SANS, size=14, pad=14, step=21, stamp=None):
+    """A chat bubble: a rounded panel with one text line per entry, and the time in its corner as
+    Telegram puts it; returns (svg, height)."""
+    hgt = pad * 2 + step * len(lines) - (step - size) + (10 if stamp else 0)
+    parts = [f'<rect x="{x}" y="{y}" width="{w}" height="{hgt}" rx="14" fill="{fill}"/>']
+    for k, line in enumerate(lines):
+        col, txt = (line if isinstance(line, tuple) else (fg, line))
+        parts.append(text(x + pad, y + pad + size + k * step - 2, txt, size, col, font))
+    if stamp:
+        parts.append(text(x + w - 12, y + hgt - 9, stamp, 11, "#6d8296", anchor="end"))
+    return "".join(parts), hgt
+
+
+def approve_chat():
+    """The approval as it reads in Telegram, one message after another, from the card's real text,
+    in Telegram's own dark colours."""
+    w, h = 760, 900
+    out = frame(w, h, "The approval in Telegram: the card from the bot with Approve and Reject; Approve has the bot repeat the change and ask for the PIN and a code; your message with them is deleted at once; the bot answers Approved and applied, and the agent confirms")
+    period = 12
+    beats = [0.0, 0.14, 0.30, 0.46, 0.60, 0.74]
+    css = [f".m{{opacity:0;animation:show {period}s ease-in-out infinite}}",
+           "@keyframes show{0%{opacity:0}4%,92%{opacity:1}97%,100%{opacity:0}}",
+           f"@keyframes gone{{0%,{beats[4]*100:.0f}%{{opacity:1}}{beats[4]*100+4:.0f}%,100%{{opacity:0}}}}"]
+    for i, b in enumerate(beats):
+        css.append(f".b{i}{{animation-delay:{b * period:.2f}s}}")
+    css.append(f".del{{animation:gone {period}s ease-in-out infinite}}")
+    css.append("@media (prefers-reduced-motion:reduce){.m{opacity:1;animation:none}.del{animation:none}}")
+    out.append("<style>" + "".join(css) + "</style>")
+    chat, inbound, outbound, keys = "#0e1621", "#182533", "#2b5278", "#22303f"
+    out.append(f'<rect x="0" y="4" width="{w}" height="{h - 4}" fill="{chat}"/>')
+    out.append(f'<rect x="0" y="4" width="{w}" height="74" fill="#17212b"/>')
+    out.append(f'<circle cx="52" cy="41" r="22" fill="#5288c1"/>' + text(52, 48, "T", 20, FG, weight="600", anchor="middle"))
+    out.append(text(88, 37, "TestBot", 17, FG, weight="600") + text(88, 58, "bot", 13, "#6d8296"))
+    y = 104
+    card = ["Router change waiting for you (YWPYP, expires in 10 min)", "Asked by hermes-main:",
+            "OPENS THE ROUTER TO THE INTERNET:", "tcp 2224 from any address to 192.168.1.250:22", "",
+            (LABEL, "firewall.ssh_wan_2224, new redirect"), (LABEL, "+ dest_ip '192.168.1.250'"), (LABEL, "+ src_dport '2224'  + target 'DNAT'")]
+    svg, ch = bubble(28, y, 560, card, inbound, font=MONO, size=13, stamp="22:52")
+    out.append(f'<g class="m b0">{svg}')
+    by = y + ch + 6
+    out.append(f'<rect x="28" y="{by}" width="277" height="40" rx="10" fill="{keys}"/>' + text(166, by + 26, "Approve", 15, FG, anchor="middle"))
+    out.append(f'<rect x="311" y="{by}" width="277" height="40" rx="10" fill="{keys}"/>' + text(449, by + 26, "Reject", 15, FG, anchor="middle"))
+    out.append("</g>")
+    # Pressing a button sends no message: the tap is shown on the button itself.
+    out.append(f'<g class="m b1"><circle cx="166" cy="{by + 20}" r="24" fill="none" stroke="{TEAL}" stroke-width="2"/>'
+               + text(166 + 40, by + 62, "you tap Approve", 12, TEAL) + "</g>")
+    y = by + 84
+    restate = ["To approve YWPYP, the change openwrt-mcp holds is:", "OPENS THE ROUTER TO THE INTERNET:", "tcp 2224 from any address to 192.168.1.250:22", "",
+               "If that is what you want, send your PIN and then", "the 6-digit code from your app, with a space between."]
+    svg, rh = bubble(28, y, 560, restate, inbound, size=13, stamp="22:52")
+    out.append(f'<g class="m b2">{svg}</g>')
+    y += rh + 16
+    # Where the code comes from: the app on the phone, a new code every 30 s.
+    app = ['<g class="m b3">', f'<rect x="28" y="{y}" width="300" height="84" rx="12" fill="{PANEL}" stroke="{EDGE}"/>',
+           text(44, y + 24, "authenticator app on your phone", 12, MUTED),
+           text(44, y + 56, "Flint 2", 15, LABEL), text(312, y + 58, "503 917", 24, FG, MONO, weight="600", anchor="end"),
+           text(44, y + 76, "a new code every 30 s", 11, MUTED), "</g>"]
+    out.append("".join(app))
+    svg, _ = bubble(w - 28 - 200, y + 18, 200, ["4821 503917"], outbound, font=MONO, size=16, stamp="22:52 \u2713\u2713")
+    out.append(f'<g class="m b3"><g class="del">{svg}</g>')
+    out.append(text(w - 28, y + 94, "deleted at once, never shown to the model", 12, TEAL, anchor="end") + "</g>")
+    y += 118
+    svg, ah = bubble(28, y, 300, ["Approved and applied."], inbound, size=15, stamp="22:52")
+    out.append(f'<g class="m b4">{svg}</g>')
+    y += ah + 14
+    svg, gh = bubble(28, y, 560, ["The port forward is in place. I read it back and", "confirmed it, so it will not roll back."], inbound, size=13, stamp="22:53")
+    out.append(f'<g class="m b5">{svg}' + text(28, y + gh + 18, "the agent, told the outcome in the same chat", 12, MUTED) + "</g>")
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
 def draw_flint(x, y):
     """Rear view of a GL-MT6000 as in GL.iNet's photos: a dark wedge body with four tall
     antennas standing behind it, the ports along the back."""
@@ -287,7 +424,7 @@ def usb_choice(d):
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs")
     data = json.load(open(os.path.join(ROOT, "docs", "measurements", "figures.json"), encoding="utf-8"))
-    figures = {"usb-choice.svg": usb_choice(data["usb_choice"]), "boxes.svg": routers(data["routers"]), "rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock()}
+    figures = {"usb-choice.svg": usb_choice(data["usb_choice"]), "boxes.svg": routers(data["routers"]), "rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock(), "approve.svg": approve(), "approve-chat.svg": approve_chat(), "levels.svg": levels()}
     for name, svg in figures.items():
         with open(os.path.join(outdir, name), "w", encoding="utf-8") as f:
             f.write(svg)

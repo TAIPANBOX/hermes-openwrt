@@ -164,9 +164,14 @@ In the default `owner` profile the agent can read the router and cannot change i
 owner sets a second factor and unlocks. **You do not set the factor.** Tell the person:
 
 - in the browser: **Services -> Hermes Agent -> Security** (set a PIN, add a phone by QR code,
-  choose the factor); or
+  choose the factor), step by step with pictures in [approval.md](approval.md#set-it-up-once); or
 - over SSH, typing the PIN themselves where it is not echoed: the block under step 4 of the
   [README's install](../README.md#install).
+
+If the page stops at "Unable to load Lua runtime", the router image has no LuCI of its own: with
+the person's yes, `apk add luci-light`. LuCI logs in as `root` with the router's password. A router
+set up only with SSH keys may never have had one; the person sets it with `passwd` in their own SSH
+session. Never set it, type it or ask for it yourself.
 
 Then `/unlock` in the private Telegram chat opens a 15-minute window, and `/lock` closes it.
 Tell the person to put the PIN in the same message: `/unlock 4821` with the factor `pin`,
@@ -181,7 +186,17 @@ command, a firmware or a reboot, with the one gap security.md names
 
 ```sh
 uci get hermes.security.factor     # none until the owner sets one
+ubus call hermes security_status   # facts only: pin_set, totp_enrolled, approver, approvals_ready
 ```
+
+**High-impact changes** (a port opened to the internet, the firewall weakened, VPN, DNS or the time
+servers changed, a reboot) wait for the owner's approval of that one change, even inside a window.
+`approvals_ready` is `true` once a PIN and a phone exist and Telegram is set up with one allowed
+user, or with an approver chosen on the Security page. Tell the person how to approve, in these
+words: tap **Approve** under the card the bot sends (or send `/approve` and its five-letter id),
+then send the PIN, a space and the six digits the app shows now, as one message: `4821 503917`.
+`/unlock` does not approve anything, and a PIN sent without tapping Approve is answered with what
+waits and opens nothing. You never approve, and you never ask for the PIN or a code.
 
 ## 7. USB stick (only if asked)
 
