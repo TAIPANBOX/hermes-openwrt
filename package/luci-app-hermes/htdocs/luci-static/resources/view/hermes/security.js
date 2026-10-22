@@ -30,6 +30,12 @@
  * unlock; and on, it is still the agent's start that decides whether openwrt-mcp is one that
  * installs official packages only, so the page says what the switch asks for, not what the agent
  * was given.
+ *
+ * And who approves a high-impact change (0.21.5-r16): openwrt-mcp holds such a change (a port opened
+ * to the internet, the firewall weakened, the ports or VLANs rewired, VPN routing, DNS, the time
+ * servers, an open Wi-Fi into a trusted network, a guard stopped, a reboot) until that one change is
+ * approved in Telegram with the PIN and an app code. The approver is one of the Telegram ids allowed to talk to the agent, and the
+ * page offers only those; with exactly one allowed, that one approves unless another is chosen.
  */
 
 var callStatus   = rpc.declare({ object: 'hermes', method: 'security_status' });
@@ -39,6 +45,7 @@ var callEnrol    = rpc.declare({ object: 'hermes', method: 'enrol_start' });
 var callActivate = rpc.declare({ object: 'hermes', method: 'enrol_activate', params: ['code'] });
 var callFactor   = rpc.declare({ object: 'hermes', method: 'set_factor', params: ['factor', 'window', 'max_failures', 'lockout'] });
 var callPackages = rpc.declare({ object: 'hermes', method: 'set_packages', params: ['packages'] });
+var callApprover = rpc.declare({ object: 'hermes', method: 'set_approver', params: ['approver_id'] });
 
 /* The same shapes the backend and the init accept, so nothing is sent that would be refused. */
 var PIN = /^[0-9]{4,8}$/;
@@ -158,7 +165,10 @@ return view.extend({
 			[_('Unlock window'), E('span', {}, st.window)],
 			[_('Wrong tries before a lockout'), E('span', {}, String(st.max_failures))],
 			[_('Lockout'), E('span', {}, st.lockout)],
-			[_('Package installs'), E('span', {}, st.packages === 'official' ? _('on: the official OpenWrt feed only') : (st.packages === 'invalid' ? _('not a value the service accepts') : _('off')))]
+			[_('Package installs'), E('span', {}, st.packages === 'official' ? _('on: the official OpenWrt feed only') : (st.packages === 'invalid' ? _('not a value the service accepts') : _('off')))],
+			[_('Who approves high-impact changes'), st.approver
+				? E('span', {}, [ _('Telegram id %s').format(st.approver), ' ', pill(!!st.approvals_ready, _('ready'), _('needs a PIN and a phone')) ])
+				: pill(false, '', _('nobody: they are refused'))]
 		];
 		var table = E('table', { 'class': 'table' }, facts.map(function (r) {
 			return E('tr', { 'class': 'tr' }, [
@@ -400,6 +410,47 @@ return view.extend({
 			E('div', { 'class': 'cbi-page-actions' }, [ pkgSave ])
 		]);
 
+		/* ---- who approves a high-impact change ---- */
+		var choices = (st.approver_choices || []).filter(function (id) { return /^[0-9]+$/.test(id); });
+		var auto = choices.length === 1
+			? _('The one Telegram user allowed (%s), chosen automatically').format(choices[0])
+			: _('Nobody: high-impact changes are refused');
+		var apSel = E('select', { 'id': 'hermes-sec-approver', 'class': 'cbi-input-select' },
+			[ E('option', { 'value': '' }, auto) ].concat(choices.map(function (id) {
+				var attrs = { 'value': id };
+				if (st.approver_id === id) attrs.selected = 'selected';
+				return E('option', attrs, _('Telegram id %s').format(id));
+			})));
+		if (!choices.length) apSel.disabled = 'disabled';
+		var apSave = E('button', { 'class': 'cbi-button cbi-button-save', 'id': 'hermes-sec-approver-save',
+			'click': ui.createHandlerFn(this, function () {
+				var want = apSel.value || '';
+				/* A stale tab or a script can put anything in the select; only an allowed id or none goes. */
+				if (want !== '' && choices.indexOf(want) < 0)
+					return fail(_('Only a Telegram user allowed to talk to the agent can approve; add the id on the Settings tab first.'));
+				return callApprover(want).then(function (r) {
+					if (!r || r.ok === false)
+						return fail((r && r.error) || _('The choice was not saved.'));
+					flash.keep(_('Saved. The agent restarts to apply it.'), 'info');
+					window.location.reload();
+				}, function () { fail(_('The choice was not saved: the router did not answer.')); });
+			}) }, _('Save'));
+		if (!choices.length) apSave.disabled = 'disabled';
+		var apWhy = '';
+		if (!choices.length)
+			apWhy = E('div', { 'class': 'alert-message warning' }, _('Approvals are given in the private Telegram chat with the agent. Turn Telegram on and allow your Telegram id on the Settings tab first; until then high-impact changes are refused.'));
+		else if (st.approver && !st.approvals_ready)
+			apWhy = E('div', { 'class': 'alert-message warning' }, _('Approving takes both your PIN and a code from your phone, and one of them is not set up yet, so a high-impact change is refused until it is. Set up what is missing above.'));
+		else if (st.approver_id === 'invalid')
+			apWhy = E('div', { 'class': 'alert-message warning' }, _('hermes.security.approver_id holds a value the service does not accept, so it will not start. Save here to choose again.'));
+		var approverSection = E('div', { 'class': 'cbi-section', 'id': 'hermes-sec-approver-section' }, [
+			E('h3', {}, _('High-impact changes')),
+			E('p', { 'class': 'cbi-section-descr' }, _('Some changes wait for your approval of that one change, even while changes are unlocked: opening a port to the internet, weakening the firewall, rewiring ports or VLANs, changing VPN routing, DNS or the time servers, opening a Wi-Fi without a password into a trusted network, stopping a service that guards the router, a reboot. The agent cannot make them alone: the bot sends you the change, and you approve it with your PIN and a code from your phone, or reject it with one tap.')),
+			row(_('Who approves'), apSel, _('One of the Telegram users allowed to talk to the agent.')),
+			apWhy,
+			E('div', { 'class': 'cbi-page-actions' }, [ apSave ])
+		]);
+
 		var note = E('p', { 'class': 'cbi-section-descr' }, _('The unlock window that is open right now cannot be shown here: openwrt-mcp keeps it in memory only. /lock in the Telegram chat closes it at once.'));
 		var plain = window.location.protocol === 'http:'
 			? E('div', { 'class': 'alert-message warning' }, _('This page is not served over HTTPS, so a PIN or a QR code sent from here crosses your network unencrypted. On a network you do not trust, use the SSH way in the README instead.'))
@@ -414,6 +465,7 @@ return view.extend({
 			pinSection,
 			phoneSection,
 			factorSection,
+			approverSection,
 			packagesSection
 		]);
 	},

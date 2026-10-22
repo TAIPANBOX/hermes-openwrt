@@ -33,6 +33,24 @@ an agent that asked for /unlock sees nothing after it and goes on asking. While 
 plugin saw opened is still open, ``pre_llm_call`` adds one line to the owner's next message saying
 so (never the PIN or the code, which this file does not keep), and the line is taken out of every
 request again once the window is over, in the history the request replays too.
+
+@decided 2026-10-22 (the owner's, paraphrased): a high-impact change (a port opened to the
+internet, the firewall weakened, VPN routing, DNS or the time servers changed, an open Wi-Fi into a
+trusted network, a guard service stopped, a reboot) waits in openwrt-mcp for the owner's approval
+of that one change, given in the same chat with the PIN and a code; the card comes from the same
+bot, and before the code is asked for, this plugin restates the headline openwrt-mcp wrote, so a
+card the agent wrote itself cannot be approved by mistake; one approver; /unlock and approvals go
+through a client of the owner's own, whose token only this plugin holds.
+
+How (0.21.5-r16): the wrapper hands the owner's token to the gateway, and ``register`` takes it out
+of the environment before any tool can start a process that inherits it. Every 5 s a task asks
+openwrt-mcp for the held changes (``action_list``) and sends each new one's card, as openwrt-mcp
+wrote it, to the approver's private chat with Approve and Reject buttons. Reject is one tap.
+Approve, or /approve <id>, restates the headline and asks for the PIN and the code, which the next
+fitting message from the approver carries on the same path as an unlock: deleted first, never
+shown to the model, sent once to ``action_approve`` against the hash of that card. The outcome
+edits the card and starts a turn for the agent in the chat the change was proposed from, saying
+what happened and, for an applied setting, to check the router and confirm it.
 """
 from __future__ import annotations
 
@@ -62,6 +80,10 @@ BARE = re.compile(r"^\s*(" + _D + r"{4,8})(?:[ \t,]+(" + _D + r"{6}))?\s*$")
 # One line that is, or starts, an /unlock; the optional @botname is Telegram's own form.
 UNLOCK_LINE = re.compile(r"^[ \t]*/unlock(?:@\w+)?(?=\s|$)[ \t]*(.*)$", re.IGNORECASE)
 LOCK_WHOLE = re.compile(r"^\s*/lock(?:@\w+)?(?=\s|$)", re.IGNORECASE)
+# The owner's answer to a held change, by its five-letter id; anything after the id is not read,
+# so a PIN typed there by mistake goes nowhere (the message is deleted all the same).
+APPROVE_CMD = re.compile(r"^\s*/approve(?:@\w+)?(?=\s|$)[ \t]*([A-Za-z]{5})?", re.IGNORECASE)
+REJECT_CMD = re.compile(r"^\s*/reject(?:@\w+)?(?=\s|$)[ \t]*([A-Za-z]{5})?", re.IGNORECASE)
 # An /unlock with digits after it, anywhere in a line: what is removed from text that is not
 # the owner's own message (a tool's output, an assistant's echo). "/unlock in the private chat",
 # which the agent is told to say, has no digits after it and is left alone.
@@ -79,16 +101,27 @@ def _ascii_digits(text: str) -> str:
 
 # ---------------------------------------------------------------------------------- shapes
 
-def classify(text, factor: str):
+def classify(text, factor: str, approving: bool = False):
     """What a message is, as far as the secret path cares.
 
-    ``("lock", "")``, ``("unlock", <what follows /unlock>)``, ``("bare", <digits>)`` or None.
-    Never raises on a str; anything that is not one is the caller's to treat as a secret.
+    ``("lock", "")``, ``("unlock", <what follows /unlock>)``, ``("bare", <digits>)``,
+    ``("approve", <id>)``, ``("reject", <id>)``, ``("approve_factor", <digits>)`` or None.
+    ``approving`` says that the sender was just asked for the PIN and the code of an approval, so a
+    bare PIN and code is that answer, whatever the window's factor is. Never raises on a str;
+    anything that is not one is the caller's to treat as a secret.
     """
     if not isinstance(text, str):
         raise TypeError("message text is not a string")
     if LOCK_WHOLE.match(text):
         return ("lock", "")
+    m = APPROVE_CMD.match(text)
+    if m:
+        return ("approve", (m.group(1) or "").upper())
+    m = REJECT_CMD.match(text)
+    if m:
+        return ("reject", (m.group(1) or "").upper())
+    if approving and BARE.match(text):
+        return ("approve_factor", text.strip())
     for line in text.splitlines() or [text]:
         m = UNLOCK_LINE.match(line)
         if m:
@@ -157,7 +190,7 @@ _TEXT_BLOCKS = ("text", "input_text")
 
 
 def _scrub_user_content(content, factor: str):
-    bare = factor in FACTORS
+    bare = factor in FACTORS or _approvals_on()
     if isinstance(content, str):
         return scrub_text(content, bare=bare)
     if isinstance(content, list):
@@ -202,7 +235,7 @@ def _walk(node, factor: str):
                     value = node[key]
                     if key == "parts" and isinstance(value, list):
                         # Gemini-style parts: {"text": ...}
-                        fixed = [dict(p, text=scrub_text(p["text"], bare=factor in FACTORS))
+                        fixed = [dict(p, text=scrub_text(p["text"], bare=factor in FACTORS or _approvals_on()))
                                  if isinstance(p, dict) and isinstance(p.get("text"), str) else p for p in value]
                         replaced = fixed if any(a != b for a, b in zip(fixed, value)) else value
                     else:
@@ -265,6 +298,34 @@ def _factor() -> str:
     return value if value in FACTORS else "none"
 
 
+def _approvals_on() -> bool:
+    """Whether a held change can be approved here: the init found someone to approve it."""
+    return os.environ.get("HERMES_OPENWRT_APPROVALS", "off").strip() == "on" and _approver() is not None
+
+
+def _approver():
+    """The one Telegram id that approves held changes (hermes.security.approver_id), or None."""
+    raw = os.environ.get("HERMES_OPENWRT_APPROVER_ID", "").strip()
+    return raw if raw.isdigit() else None
+
+
+def _client() -> str:
+    """The openwrt-mcp client whose window this gateway's owner opens: one gateway, one agent."""
+    return os.environ.get("HERMES_OPENWRT_CLIENT", "hermes-main").strip() or "hermes-main"
+
+
+# The owner's client's token (0.21.5-r16). Taken out of the environment by register(), so a process
+# a tool starts later cannot inherit it, and kept here for the calls that are the owner's.
+_OWNER_TOKEN = ""
+
+
+def _take_owner_token() -> None:
+    global _OWNER_TOKEN
+    token = os.environ.pop("OPENWRT_MCP_OWNER_TOKEN", "").strip()
+    if token:
+        _OWNER_TOKEN = token
+
+
 def _allowed_ids() -> set:
     raw = os.environ.get("TELEGRAM_ALLOWED_USERS", "")
     return {part.strip() for part in raw.split(",") if part.strip() and part.strip() != "*"}
@@ -296,20 +357,38 @@ def _post(url: str, token: str, body: dict, session=None, timeout: float = 25.0)
     return (json.loads(raw) if raw.strip() else None), sid
 
 
-def call_tool(tool: str, arguments: dict):
-    """(answered, text, is_error): one tool of openwrt-mcp, over the HTTP address and with the
-    token the gateway already has. ``answered`` is False when the daemon could not be asked at
-    all; an answer that says no is ``(True, text, True)``. Blocking: run it off the event loop."""
+def _close(url: str, token: str, session) -> None:
+    """Ends the session at the daemon, which otherwise keeps every one it was ever asked to open:
+    the held changes are asked for every few seconds. Best effort; nothing here holds a secret."""
+    if not session:
+        return
+    try:
+        req = urllib.request.Request(url, None, {"Authorization": "Bearer " + token, "Mcp-Session-Id": session},
+                                     method="DELETE")
+        with _OPENER.open(req, timeout=5) as resp:
+            resp.read()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def call_tool(tool: str, arguments: dict, token=None):
+    """(answered, text, is_error): one tool of openwrt-mcp, over the HTTP address the gateway
+    found it at, as the owner's client: what this plugin asks is the owner's to ask, never the
+    agent's. ``answered`` is False when the daemon could not be asked at all; an answer that says
+    no is ``(True, text, True)``. Blocking: run it off the event loop."""
     url = os.environ.get("HERMES_OPENWRT_UNLOCK_URL", "").strip()
-    token = os.environ.get("OPENWRT_MCP_TOKEN", "").strip()
+    token = (token if token is not None else _OWNER_TOKEN).strip()
     if not url or not token:
         return False, "", False
     try:
         _, sid = _post(url, token, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
             "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "hermes-unlock", "version": "1"}}})
         _post(url, token, {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
-        res, _ = _post(url, token, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                                    "params": {"name": tool, "arguments": arguments}}, sid)
+        try:
+            res, _ = _post(url, token, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                        "params": {"name": tool, "arguments": arguments}}, sid)
+        finally:
+            _close(url, token, sid)
         result = res["result"]
         text = "".join(c.get("text", "") for c in result.get("content", []))
         return True, text, bool(result.get("isError"))
@@ -346,8 +425,12 @@ def answer_for(tool: str, answered: bool, text: str, is_error: bool, factor: str
         return "I could not reach the router's unlock service. Nothing was changed."
     low = text.lower()
     if tool == "mfa_lock":
-        return ("Locked. Changes need an unlock again." if not low.startswith("already")
-                else "Already locked.")
+        rejected = re.search(r"(\d+) held change", low)
+        tail = (" %s waiting change(s) were rejected." % rejected.group(1)
+                if rejected and rejected.group(1) != "0" else "")
+        if low.startswith("already") or "was not open" in low:
+            return "Already locked." + tail
+        return "Locked. Changes need an unlock again." + tail
     if not is_error and low.startswith("unlocked until"):
         until = _clock(text)
         return ("Changes are open until " + until + ". Send /lock to close them sooner."
@@ -389,12 +472,13 @@ async def process(kind: str, args: str, *, user_id, chat_id, private: bool, fact
                        + note)
             return
         if kind == "lock":
-            tool, arguments = "mfa_lock", {}
+            tool, arguments = "mfa_lock", {"client": _client()}
         else:
             arguments = attempt_for(factor, args)
             if arguments is None:
                 await send("That does not look like what this router asks for. " + hint_for(factor) + note)
                 return
+            arguments["client"] = _client()
             tool = "mfa_unlock"
         answered, text, is_error = await asyncio.to_thread(call_tool, tool, arguments)
         arguments = None  # the secret leaves scope here
@@ -428,10 +512,12 @@ async def pre_gateway_dispatch(event=None, gateway=None, session_store=None, **_
         platform = getattr(getattr(source, "platform", None), "value", None)
         if platform != "telegram":
             return None
+        if (getattr(event, "metadata", None) or {}).get("hermes_plugin_injection"):
+            return None  # this plugin's own turn for the agent: it holds no secret
         text = getattr(event, "text", None)
         if not text:
             return None  # a photo, a sticker: there is no text to be a secret
-        kind = classify(text, _factor())
+        kind = classify(text, _factor(), _approving(getattr(source, "user_id", None)))
     except BaseException:  # noqa: BLE001 - the text could not even be read: it is not let through
         return SKIP
     if kind is None:
@@ -446,13 +532,22 @@ async def pre_gateway_dispatch(event=None, gateway=None, session_store=None, **_
         async def send(text):
             return await adapter.send(chat_id, text)
 
-        await process(kind[0], kind[1], user_id=getattr(source, "user_id", None), chat_id=chat_id,
-                      private=getattr(source, "chat_type", "") == "dm", factor=_factor(), delete=delete, send=send)
+        await dispatch(kind, user_id=getattr(source, "user_id", None), chat_id=chat_id,
+                       private=getattr(source, "chat_type", "") == "dm", delete=delete, send=send)
     except BaseException as exc:  # noqa: BLE001
         if isinstance(exc, asyncio.CancelledError):
             raise
         log.warning("the unlock hook failed (%s); the message was dropped", type(exc).__name__)
     return SKIP
+
+
+async def dispatch(kind, *, user_id, chat_id, private: bool, delete, send) -> None:
+    """A message the secret path took, to the part of this file that answers it."""
+    if kind[0] in ("lock", "unlock", "bare"):
+        await process(kind[0], kind[1], user_id=user_id, chat_id=chat_id, private=private,
+                      factor=_factor(), delete=delete, send=send)
+    else:
+        await process_approval(kind[0], kind[1], user_id=user_id, private=private, delete=delete, send=send)
 
 
 # ------------------------------------------------------- line 1: Telegram's own handler chain
@@ -471,7 +566,7 @@ def telegram_handler(app, adapter):
                 msg = update.message if isinstance(update, Update) else None
                 if msg is None or msg.text is None:
                     return False
-                return classify(msg.text, _factor()) is not None
+                return classify(msg.text, _factor(), _approving(getattr(msg.from_user, "id", None))) is not None
             except BaseException:  # noqa: BLE001
                 return True
 
@@ -480,7 +575,7 @@ def telegram_handler(app, adapter):
             msg = update.message
             chat, user = msg.chat, msg.from_user
             try:
-                kind = classify(msg.text, _factor()) or ("unlock", "")
+                kind = classify(msg.text, _factor(), _approving(getattr(user, "id", None))) or ("unlock", "")
             except Exception:  # noqa: BLE001
                 kind = ("unlock", "")  # unreadable: dropped, and fits no factor, so nothing is tried
 
@@ -491,8 +586,8 @@ def telegram_handler(app, adapter):
             async def send(text):
                 await context.bot.send_message(chat_id=chat.id, text=text)
 
-            await process(kind[0], kind[1], user_id=getattr(user, "id", None), chat_id=chat.id,
-                          private=getattr(chat, "type", "") == "private", factor=_factor(), delete=delete, send=send)
+            await dispatch(kind, user_id=getattr(user, "id", None), chat_id=chat.id,
+                           private=getattr(chat, "type", "") == "private", delete=delete, send=send)
         except asyncio.CancelledError:
             raise
         except BaseException as exc:  # noqa: BLE001
@@ -503,6 +598,14 @@ def telegram_handler(app, adapter):
     # A group below the adapter's own (0), so this runs before every handler it registers, and
     # the stop above keeps the later groups, the observer included, from seeing the update.
     app.add_handler(SecretHandler(on_secret), group=-1)
+    # The card's buttons, scoped by pattern: the adapter has a catch-all for its own buttons, and
+    # a handler that matched every button would swallow them (upstream's register_telegram_handler).
+    from telegram.ext import CallbackQueryHandler
+    app.add_handler(CallbackQueryHandler(on_card_button, pattern=CARD_BUTTON.pattern), group=-1)
+    global _BOT
+    _BOT = app.bot
+    if _approvals_on():
+        _start_poller()
     log.info("openwrt-unlock: the Telegram handler is in place")
 
 
@@ -585,7 +688,7 @@ def _drop_stale_notes(text: str) -> str:
 
 # What a read-only caller may do through openwrt-mcp: the tools that read, and ubus_call only
 # for the methods the init lists as reads. Everything else is a change, and an unknown tool is one.
-_READ_TOOLS = {"ubus_list", "uci_get", "logread", "status"}
+_READ_TOOLS = {"ubus_list", "uci_get", "logread", "status", "action_status"}
 _BRIDGE = "tool_call"
 _PREFIX = "mcp__openwrt__"
 
@@ -674,8 +777,323 @@ REDACTION_PATTERNS = (
 )
 
 
+# ============================================================== held changes: the owner approves
+
+# A card's buttons: owa approves, owr rejects, then the id and the first 16 hex of the card's hash.
+CARD_BUTTON = re.compile(r"^ow([ar]):([A-Z]{5}):([0-9a-f]{16})$")
+HELD_RE = re.compile(r"\bHELD ([A-Z]{5}) until (\S+)")
+POLL_SECONDS = 5.0
+PROMPT_SECONDS = 180.0
+# The approval's own factor, which openwrt-mcp's approval section names (the init writes pin+totp).
+APPROVAL_FACTOR = "pin+totp"
+
+_CTX = None
+_BOT = None
+_POLLER = None
+# id -> what this gateway knows of a held change: its hash, headline and tool from action_list, the
+# card message it sent (chat id, message id), and the status it last showed.
+_cards = {}
+# id -> the session the change was proposed from, learned from the tool's own answer.
+_sessions = {}
+_sessions_lock = threading.Lock()
+# approver id -> the change whose PIN and code they were just asked for, and until when.
+_prompts = {}
+
+
+def _approving(user_id) -> bool:
+    p = _prompts.get(str(user_id)) if user_id is not None else None
+    return bool(p) and time.time() < p["until"]
+
+
+def post_tool_call(tool_name=None, args=None, result=None, **_ctx):
+    """Remembers which chat a held change came from, so the owner's answer can be told to it."""
+    try:
+        if not isinstance(result, str) or "HELD " not in result:
+            return None
+        m = HELD_RE.search(result)
+        if not m:
+            return None
+        from gateway.session_context import get_session_env
+        key = str(get_session_env("HERMES_SESSION_KEY", "") or "").strip()
+        if key:
+            with _sessions_lock:
+                _sessions[m.group(1)] = key
+    except Exception:  # noqa: BLE001 - an observer: it never changes what the agent sees
+        pass
+    return None
+
+
+def _actions():
+    """The held changes of this gateway's agent, as openwrt-mcp lists them to the owner's client."""
+    answered, text, is_error = call_tool("action_list", {})
+    if not answered or is_error:
+        return None
+    try:
+        return [a for a in json.loads(text).get("actions", []) if a.get("client") == _client()]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+OUTCOME_LINE = {
+    "applied": "Approved and applied.",
+    "failed": "Approved, but it failed.",
+    "rejected": "Rejected. Nothing was applied.",
+    "expired": "Expired without an answer. Nothing was applied.",
+    "withdrawn": "Withdrawn by the agent. Nothing was applied.",
+}
+
+
+def _turn_for(a: dict):
+    """The turn the agent is told the outcome in, or None when there is nothing to tell."""
+    aid, status, head = a.get("id", ""), a.get("status", ""), (a.get("headline") or "").split("\n")[0]
+    result = a.get("result") or ""
+    if status == "applied":
+        token = re.search(r'uci_confirm \{"token": "([^"]+)"\}', result)
+        until = re.search(r"reverts automatically at (\S+)", result)
+        if token:
+            return ("[The owner approved %s and it was applied: %s. It rolls back at %s unless it is confirmed: "
+                    "check that the router still answers and behaves as asked, then call uci_confirm with token %s.]"
+                    % (aid, head, until.group(1) if until else "a few minutes from now", token.group(1)))
+        return "[The owner approved %s and it ran: %s.]" % (aid, head)
+    if status == "failed":
+        return "[The owner approved %s, but it failed: %s]" % (aid, result.split("\n")[0][:300])
+    if status == "rejected":
+        return "[The owner rejected %s; it was not applied. Do not propose it again unless the owner asks for it.]" % aid
+    if status == "expired":
+        return "[%s expired without an answer from the owner; it was not applied.]" % aid
+    return None
+
+
+def _tell_agent(a: dict) -> None:
+    text = _turn_for(a)
+    with _sessions_lock:
+        key = _sessions.pop(a.get("id", ""), None)
+    if not text or not key or _CTX is None:
+        return
+    try:
+        if not _CTX.inject_message(text, session_key=key):
+            log.warning("the outcome of %s could not be given to the agent", a.get("id"))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the outcome of %s could not be given to the agent (%s)", a.get("id"), type(exc).__name__)
+
+
+def _keyboard(a: dict):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    tail = "%s:%s" % (a["id"], a["hash"][:16])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("Approve", callback_data="owa:" + tail),
+                                  InlineKeyboardButton("Reject", callback_data="owr:" + tail)]])
+
+
+async def _show(a: dict) -> None:
+    """Sends a newly held change's card to the approver, or edits a card whose change was decided."""
+    aid, status = a.get("id"), a.get("status")
+    card = _cards.get(aid)
+    if status == "held":
+        if card is None and _BOT is not None and a.get("card") and len(a.get("hash", "")) == 64:
+            msg = await _BOT.send_message(chat_id=int(_approver()), text=a["card"], reply_markup=_keyboard(a))
+            _cards[aid] = {"hash": a["hash"], "headline": a.get("headline", ""), "tool": a.get("tool"),
+                           "chat": msg.chat_id, "message": msg.message_id, "shown": "held", "card": a["card"]}
+        return
+    if card is None or card.get("shown") == status:
+        return
+    card["shown"] = status
+    if status in OUTCOME_LINE and _BOT is not None:
+        try:
+            await _BOT.edit_message_text(chat_id=card["chat"], message_id=card["message"],
+                                         text=card["card"] + "\n\n" + OUTCOME_LINE[status], reply_markup=None)
+        except Exception as exc:  # noqa: BLE001 - the card stays as it was; the outcome is still told
+            log.warning("the card of %s could not be edited (%s)", aid, type(exc).__name__)
+    await asyncio.to_thread(_tell_agent, a)
+
+
+async def _poll_forever() -> None:
+    while True:
+        try:
+            for a in (await asyncio.to_thread(_actions)) or []:
+                await _show(a)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the next round tries again
+            log.warning("could not read the held changes (%s)", type(exc).__name__)
+        await asyncio.sleep(POLL_SECONDS)
+
+
+def _start_poller() -> None:
+    global _POLLER
+    if _POLLER is not None and not _POLLER.done():
+        return
+    coro = _poll_forever()
+    try:
+        _POLLER = _CTX.spawn_task(coro, name="openwrt-unlock:held") if _CTX is not None else asyncio.get_running_loop().create_task(coro)
+    except Exception:  # noqa: BLE001
+        coro.close()
+        log.error("the task that shows held changes could not start; approve with /approve <id>")
+
+
+APPROVE_ANSWERS = (
+    ("hash is not", "That card is no longer the change that waits, so nothing was approved."),
+    ("changed since", "The router's configuration changed since this was asked for, so nothing was approved. "
+                      "Reject it, and let the agent ask again if it is still wanted."),
+    ("waits for confirmation", "Another change still waits for the agent to confirm it. Approve this one again "
+                               "in a few minutes."),
+    ("expired", "It expired before it was approved. Nothing was applied."),
+    ("locked out", None),
+    ("no held change", "That change is no longer waiting."),
+)
+
+
+def approve_answer(answered: bool, text: str, is_error: bool) -> str:
+    """What the owner is told of an approval. Built from the daemon's outcome and nothing typed."""
+    if not answered:
+        return "I could not reach the router's approval service. Nothing was approved."
+    low = (text or "").lower()
+    if not is_error and low.startswith("applied"):
+        return "Approved and applied."
+    if "approved, but" in low:
+        return "Approved, but it failed. The agent is told why."
+    for fragment, answer in APPROVE_ANSWERS:
+        if fragment in low:
+            if answer is None:
+                until = _clock(text)
+                return ("Too many wrong tries. Approving and unlocking are closed until " + until + "."
+                        if until else "Too many wrong tries. Approving and unlocking are closed for a while.")
+            return answer
+    if "already used" in low:
+        return "That code was already used. Wait for the next one, and send /approve again."
+    return "Refused. Nothing was approved."
+
+
+async def _ask_factor(user_id, aid: str, send) -> None:
+    card = _cards.get(aid)
+    if card is None:
+        for a in (await asyncio.to_thread(_actions)) or []:
+            if a.get("id") == aid and a.get("status") == "held":
+                await _show(a)
+                card = _cards.get(aid)
+    if card is None or card.get("shown") != "held":
+        await send("No change %s is waiting." % aid if aid else "No change is waiting.")
+        return
+    _prompts[str(user_id)] = {"id": aid, "hash": card["hash"], "until": time.time() + PROMPT_SECONDS}
+    await send("To approve %s, the change openwrt-mcp holds is:\n%s\n\nIf that is what you want, send your PIN "
+               "and then the 6-digit code from your app, with a space between. Otherwise press Reject or send "
+               "/reject %s." % (aid, card["headline"], aid))
+
+
+async def _decided(aid: str) -> None:
+    """Shows a decision at once, without waiting for the next poll."""
+    for a in (await asyncio.to_thread(_actions)) or []:
+        if a.get("id") == aid:
+            await _show(a)
+
+
+async def process_approval(kind: str, arg: str, *, user_id, private: bool, delete, send) -> None:
+    """/approve, /reject and the PIN and code of an approval. Like process(): never raises, and a
+    message that may hold a secret is deleted before anything is asked."""
+    try:
+        if str(user_id) != _approver() or not _approvals_on():
+            if kind == "approve_factor":
+                return  # not reachable: only the approver is ever asked
+            if authorized(user_id) and private:
+                with _quiet():
+                    await delete()
+                await send("Only the owner chosen to approve changes can approve or reject them.")
+            return
+        in_group = not private
+        if in_group:
+            with _quiet():
+                await delete()
+            await send("Approvals work only in the private chat with me, where I can delete your message.")
+            return
+        removed = False
+        try:
+            removed = bool(await delete())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not delete an approval message (%s)", type(exc).__name__)
+        note = "" if removed else " I could not delete your message from the chat. Delete it yourself."
+        if kind == "approve":
+            if not arg:
+                waiting = [a for a in (await asyncio.to_thread(_actions)) or [] if a.get("status") == "held"]
+                await send(("Waiting for you: " + ", ".join(a["id"] for a in waiting) + ". Send /approve <id>.")
+                           if waiting else "No change is waiting.")
+                return
+            await _ask_factor(user_id, arg, send)
+            return
+        if kind == "reject":
+            answered, text, is_error = await asyncio.to_thread(call_tool, "action_reject", {"id": arg})
+            await send("Rejected. Nothing was applied." if answered and not is_error
+                       else "That change is no longer waiting." if answered else
+                       "I could not reach the router's approval service.")
+            await _decided(arg)
+            return
+        prompt = _prompts.pop(str(user_id), None)
+        if not prompt or time.time() >= prompt["until"]:
+            await send("Nothing is waiting for a PIN and a code from you. Send /approve <id> first." + note)
+            return
+        arguments = attempt_for(APPROVAL_FACTOR, arg)
+        if arguments is None:
+            _prompts[str(user_id)] = prompt  # a typo is not a try: ask again
+            await send("That does not look like a PIN and a code. " + hint_for(APPROVAL_FACTOR).replace("/unlock", "your answer") + note)
+            return
+        arguments.update(id=prompt["id"], hash=prompt["hash"])
+        answered, text, is_error = await asyncio.to_thread(call_tool, "action_approve", arguments)
+        arguments = None  # the secret leaves scope here
+        await send(approve_answer(answered, text, is_error) + note)
+        await _decided(prompt["id"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the approval path failed (%s); the message was dropped", type(exc).__name__)
+        try:
+            await send("Something went wrong. Your message was dropped and nothing was approved.")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def on_card_button(update, context):
+    """Approve or Reject under a card. Reject is the decision; Approve asks for the PIN and the code."""
+    from telegram.ext import ApplicationHandlerStop
+    try:
+        q = update.callback_query
+        user = getattr(q.from_user, "id", None)
+        chat = getattr(getattr(q, "message", None), "chat", None)
+        m = CARD_BUTTON.match(q.data or "")
+        if not m or str(user) != _approver() or getattr(chat, "type", "") != "private" or not _approvals_on():
+            with _quiet():
+                await q.answer("Only the owner chosen to approve changes can use these buttons.")
+            raise ApplicationHandlerStop()
+        verb, aid, h16 = m.groups()
+        card = _cards.get(aid)
+        if card is None or not card["hash"].startswith(h16) or card.get("shown") != "held":
+            with _quiet():
+                await q.answer("This change is no longer waiting.")
+            raise ApplicationHandlerStop()
+
+        async def send(text):
+            await context.bot.send_message(chat_id=chat.id, text=text)
+
+        with _quiet():
+            await q.answer()
+        if verb == "r":
+            answered, text, is_error = await asyncio.to_thread(call_tool, "action_reject", {"id": aid})
+            if not (answered and not is_error):
+                await send("That change is no longer waiting." if answered else "I could not reach the router's approval service.")
+            await _decided(aid)
+        else:
+            await _ask_factor(user, aid, send)
+    except ApplicationHandlerStop:
+        raise
+    except asyncio.CancelledError:
+        raise
+    except BaseException as exc:  # noqa: BLE001
+        log.warning("a card's button failed (%s)", type(exc).__name__)
+    raise ApplicationHandlerStop()
+
+
 def register(ctx):
+    global _CTX
+    _CTX = ctx
+    # First: no tool has run yet, so no process has inherited it.
+    _take_owner_token()
     ctx.register_hook("pre_gateway_dispatch", pre_gateway_dispatch)
+    ctx.register_hook("post_tool_call", post_tool_call)
     ctx.register_middleware("llm_request", llm_request)
     ctx.register_hook("pre_tool_call", pre_tool_call)
     ctx.register_hook("pre_llm_call", pre_llm_call)

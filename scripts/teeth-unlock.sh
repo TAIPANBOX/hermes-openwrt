@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (seventy-three in all, over fifty checks). Each is a change a
+# or have several ways to go wrong (eighty-six in all, over fifty checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -153,7 +153,7 @@ expect_red "mfa_unlock and mfa_lock not excluded" check_unlock_tools_hidden_from
 
 # ---- 10. every agent paired under one client name ----
 # Unlocking is per client, so agents that share a name share an unlock.
-plant "$INIT" 'local client="hermes-$agent" tmp tok' 'local client="hermes-main" tmp tok'
+plant "$INIT" 'local client="hermes-$agent" read_uci caps may_change may_packages' 'local client="hermes-main" read_uci caps may_change may_packages'
 expect_red "every agent paired as hermes-main" check_unlock_is_per_agent
 
 # ---- 11. the state directory moved into RAM ----
@@ -224,7 +224,7 @@ plant "$INIT" '"$prefix" "$sect" "$window" "$prefix" "$sect" "$max_failures"' '"
 expect_red "a window of a day" check_unlock_window_ends
 
 # ---- 21. /lock that asks for nothing ----
-plant "$PLUGIN" '            tool, arguments = "mfa_lock", {}' '            tool, arguments = "ubus_list", {}'
+plant "$PLUGIN" '            tool, arguments = "mfa_lock", {"client": _client()}' '            tool, arguments = "ubus_list", {}'
 expect_red "/lock that does not lock" check_lock_closes_at_once
 
 # ---- 22. the message left in the chat ----
@@ -421,7 +421,7 @@ expect_red "openwrt-mcp among the window's configs" check_window_cannot_reach_th
 # ---- 55. the daemon that is running not asked about apk_add ----
 # The installed binary's word taken for the daemon's when apk_add is the only capability it reports:
 # a daemon from before the upgrade, which has no official-feed check, would then serve the policy.
-plant "$INIT" '|| [ "$noexec" = true ] || [ "$apk" = true ]; }; then' '|| [ "$noexec" = true ]; }; then'
+plant "$INIT" '|| [ "$apk" = true ] || [ "$held" = true ]; }; then' '|| [ "$held" = true ]; }; then'
 expect_red "a daemon from before the upgrade not asked before a package policy" check_no_package_policy_from_a_daemon_from_before_the_upgrade
 
 # ---- 56. a package policy that asks for no factor ----
@@ -524,6 +524,69 @@ plant "$JAIL" '    narrow_bounding_set()
 '
 expect_red "the bounding set left whole" check_agent_tools_cannot_read_router_secrets
 
+# ---- the owner's client and held changes (0.21.5-r16) ----
+
+# ---- 74. the owner's token left in the gateway's environment ----
+# Read and kept by the plugin, but not taken out: every process a tool starts would inherit it.
+plant "$PLUGIN" '    token = os.environ.pop("OPENWRT_MCP_OWNER_TOKEN", "").strip()' \
+	'    token = os.environ.get("OPENWRT_MCP_OWNER_TOKEN", "").strip()'
+expect_red "the owner's token left in the environment" check_owner_token_never_reaches_the_agent
+
+# ---- 75. no owner's client paired ----
+plant "$INIT" '	mcp_pair "$client-owner" "$(mcp_owner_token_file "$token_file")" || return 1' '	:'
+expect_red "no owner's client paired" check_agent_cannot_unlock_itself
+
+# ---- 76. /unlock sent with the agent's own token ----
+# What the plugin did until r15, and what openwrt-mcp 0.5.0.5 refuses a client with an approval section.
+plant "$PLUGIN" '    token = (token if token is not None else _OWNER_TOKEN).strip()' \
+	'    token = os.environ.get("OPENWRT_MCP_TOKEN", "").strip()'
+expect_red "the plugin asks with the agent's token" check_pin_alone_unlocks
+
+# ---- 77. a change policy from a daemon that does not hold high-impact changes ----
+plant "$INIT" '	case "$caps" in *" noexec "*" held "*|*" held "*" noexec "*) may_change=yes ;; *) may_change=no ;; esac' \
+	'	case "$caps" in *" noexec "*) may_change=yes ;; *) may_change=no ;; esac'
+expect_red "a change policy without the held capability" check_no_change_policy_without_held_capability
+
+# ---- 78. nobody ever chosen to approve ----
+plant "$INIT" '			approvals=on' '			approvals=off'
+expect_red "approvals always off" check_high_impact_change_held_in_window
+
+# ---- 79. the owner's PIN and code read as an unlock, not as the approval asked for ----
+plant "$PLUGIN" '    if approving and BARE.match(text):' '    if False and approving and BARE.match(text):'
+expect_red "the approval's factor taken as an unlock" check_held_change_approved_from_the_chat
+
+# ---- 80. the card sent without its buttons ----
+plant "$PLUGIN" 'text=a["card"], reply_markup=_keyboard(a))' 'text=a["card"])'
+expect_red "a card with no buttons" check_held_change_approved_from_the_chat
+
+# ---- 81. Approve asks for the code without restating what is held ----
+plant "$PLUGIN" '"/reject %s." % (aid, card["headline"], aid))' '"/reject %s." % (aid, "the change", aid))'
+expect_red "Approve without the headline" check_held_change_approved_from_the_chat
+
+# ---- 82. Reject that rejects nothing ----
+plant "$PLUGIN" '            answered, text, is_error = await asyncio.to_thread(call_tool, "action_reject", {"id": aid})' \
+	'            answered, text, is_error = await asyncio.to_thread(call_tool, "action_status", {})'
+expect_red "Reject that rejects nothing" check_held_change_rejected_from_the_chat
+
+# ---- 83. the agent never told the owner's answer ----
+plant "$PLUGIN" '    await asyncio.to_thread(_tell_agent, a)' '    pass'
+expect_red "the agent not told the outcome" check_held_change_approved_from_the_chat
+
+# ---- 84. the approver's tools offered to the model ----
+plant usr/libexec/hermes-set-toolsets \
+	'MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client", "action_list", "action_approve", "action_reject")' \
+	'MCP_HIDDEN = ("mfa_unlock", "mfa_lock", "exec", "wg_new_client")'
+expect_red "action_approve offered to the model" check_unlock_tools_hidden_from_model
+
+# ---- 85. no consent for the plugin to start the agent's turn ----
+plant usr/libexec/hermes-set-toolsets '            entry[INJECTION_KEY] = True' '            entry[INJECTION_KEY] = False'
+expect_red "the plugin not allowed to tell the agent" check_held_change_rejected_from_the_chat
+
+# ---- 86. a button anyone may press ----
+plant "$PLUGIN" '        if not m or str(user) != _approver() or getattr(chat, "type", "") != "private" or not _approvals_on():' \
+	'        if not m or getattr(chat, "type", "") != "private" or not _approvals_on():'
+expect_red "a stranger's Reject taken" check_held_change_rejected_from_the_chat
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -558,6 +621,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 73 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 73 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 86 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 86 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 73 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 86 faults (shard $SHARD), $N distinct checks, controls green"

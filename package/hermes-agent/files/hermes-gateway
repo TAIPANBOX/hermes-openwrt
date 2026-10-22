@@ -36,7 +36,7 @@ read_required() {
 	printf '%s' "$value"
 }
 
-unset OPENAI_API_KEY TELEGRAM_BOT_TOKEN OPENWRT_MCP_TOKEN
+unset OPENAI_API_KEY TELEGRAM_BOT_TOKEN OPENWRT_MCP_TOKEN OPENWRT_MCP_OWNER_TOKEN
 key=$(read_required "$KEY_FILE" "provider key file")
 export OPENAI_API_KEY="$key"
 if [ -n "${HERMES_TELEGRAM_TOKEN_FILE:-}" ]; then
@@ -58,6 +58,17 @@ if [ -n "${HERMES_OPENWRT_MCP_URL:-}" ]; then
 		mcp_effective="$HERMES_OPENWRT_MCP_URL"
 	else
 		echo "hermes-gateway: router MCP token file ${HERMES_MCP_TOKEN_FILE:-} is missing or empty; starting without the MCP connection" >&2
+	fi
+	# The owner's client (0.21.5-r16): the token that opens the agent's window and approves its held
+	# changes. Read here and exported only for the gateway's own exec below, so neither helper the
+	# wrapper runs as the agent's user carries it; the unlock plugin takes it out of the gateway's
+	# environment as it loads, before any tool can start a process that would inherit it, and the
+	# bridge never names it, so the model's MCP connection carries only the agent's own token.
+	# Missing, /unlock and approvals say they cannot reach the router; the agent still reads.
+	owner=""
+	if [ -n "$mcp_effective" ] && ! owner=$(read_required "${HERMES_MCP_OWNER_TOKEN_FILE:-}" "owner MCP token file" 2>/dev/null); then
+		owner=""
+		echo "hermes-gateway: owner MCP token file ${HERMES_MCP_OWNER_TOKEN_FILE:-} is missing or empty; /unlock and approvals cannot reach the router" >&2
 	fi
 fi
 
@@ -115,10 +126,11 @@ PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 	$DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-runtime-check
 # The unlock plugin, which runs inside the gateway, asks openwrt-mcp at the address this wrapper
 # found it usable at (empty when the token was missing: the plugin then says it cannot reach it).
-# HERMES_OPENWRT_FACTOR and HERMES_OPENWRT_READ_UBUS stay in the environment for it too; neither
-# is a secret.
+# HERMES_OPENWRT_FACTOR, HERMES_OPENWRT_READ_UBUS, HERMES_OPENWRT_APPROVALS and
+# HERMES_OPENWRT_APPROVER_ID stay in the environment for it too; none is a secret.
 export HERMES_OPENWRT_UNLOCK_URL="$mcp_effective"
-unset key token value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_PACKAGES providers_ready entry p_name p_label p_url p_key_file p_model
+[ -z "${owner:-}" ] || export OPENWRT_MCP_OWNER_TOKEN="$owner"
+unset key token owner value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_MCP_OWNER_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_PACKAGES providers_ready entry p_name p_label p_url p_key_file p_model
 # The root profile asks for root, so the launcher must not second-guess it from who owns
 # the data directory (see /usr/bin/hermes).
 [ "$run_user" != root ] || export HERMES_OPENWRT_AS_ROOT=1

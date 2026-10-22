@@ -103,17 +103,29 @@ mcp_live_version() {
 	wget -q -T 3 -O - "http://$1/health" 2>/dev/null | sed -n '1s/^openwrt-mcp \([^ ]*\) ok$/\1/p'
 }
 
+# What a held change asks the owner for when it is approved, and how long it waits (openwrt-mcp's
+# approval section, 0.5.0.5 on). @decided 2026-10-22: a PIN and a code from the app, both; one
+# change waiting at a time, six an hour, none for an hour after three rejections; one approver.
+MCP_APPROVAL_FACTOR=pin+totp
+MCP_APPROVAL_TTL=10m
+# What a change policy cannot undo is granted only so that it waits for the owner's approval of
+# each call (a policy with hold 1): a reboot, which no rollback brings back.
+MCP_HOLD_UBUS='system.reboot'
+
 # What the openwrt-mcp that will answer this agent guarantees, printed on stdout as words:
 # `redacts` when its status reports uci_get_redacts_credentials (every config may then be read,
 # wireless and the whole of network included), `noexec` when it reports uci_apply_refuses_code_exec (a change policy may then
 # be written: an apply that would make the router run code as root, a firewall include or a
 # dnsmasq dhcpscript among them, is refused for every client), `apk` when it reports
 # apk_add_official_feed_only (a package policy may then be written: apk_add installs only from the
-# official OpenWrt feeds in distfeeds.list and refuses a URL, a path, a flag or an .apk file), and
+# official OpenWrt feeds in distfeeds.list and refuses a URL, a path, a flag or an .apk file),
+# `held` when it reports actions_held_for_approval (a change policy may then be written at all: a
+# high-impact change waits for the owner's approval of that one change, what only a person may do
+# is refused, and the agent's own client cannot open its window; see hermes_mcp_agent), and
 # `stale` when the daemon serving is not the installed one (no guarantee holds, and its line says
 # so). One line on stderr for each that is missing and matters. Fail closed: a status that does not
-# answer, does not parse or lacks a key (a binary from before 0.5.0.2, 0.5.0.3 or 0.5.0.4 has none)
-# is a guarantee not given.
+# answer, does not parse or lacks a key (a binary from before 0.5.0.2, 0.5.0.3, 0.5.0.4 or 0.5.0.5
+# has none) is a guarantee not given.
 #
 # `openwrt-mcp status` is the INSTALLED binary speaking: it reports its own capabilities and
 # whether something at its listen address answers /health as openwrt-mcp. apk replaces the binary
@@ -124,14 +136,15 @@ mcp_live_version() {
 # guarantee holds. A daemon that is not running is started from the installed binary further down.
 #   mcp_daemon_caps <factor> [<packages>]
 mcp_daemon_caps() {
-	local factor=$1 packages=${2:-off} st redacts noexec apk ver running listen live i caps=""
+	local factor=$1 packages=${2:-off} st redacts noexec apk held ver running listen live i caps=""
 	st=$("$MCP_BIN" status --json --audit 0 2>/dev/null)
 	redacts=$(printf '%s' "$st" | jsonfilter -e '@.capabilities.uci_get_redacts_credentials' 2>/dev/null)
 	noexec=$(printf '%s' "$st" | jsonfilter -e '@.capabilities.uci_apply_refuses_code_exec' 2>/dev/null)
 	apk=$(printf '%s' "$st" | jsonfilter -e '@.capabilities.apk_add_official_feed_only' 2>/dev/null)
+	held=$(printf '%s' "$st" | jsonfilter -e '@.capabilities.actions_held_for_approval' 2>/dev/null)
 	ver=$(printf '%s' "$st" | jsonfilter -e '@.version' 2>/dev/null)
 	running=$(printf '%s' "$st" | jsonfilter -e '@.running' 2>/dev/null)
-	if [ "$running" = true ] && { [ "$redacts" = true ] || [ "$noexec" = true ] || [ "$apk" = true ]; }; then
+	if [ "$running" = true ] && { [ "$redacts" = true ] || [ "$noexec" = true ] || [ "$apk" = true ] || [ "$held" = true ]; }; then
 		listen=$(printf '%s' "$st" | jsonfilter -e '@.listen' 2>/dev/null)
 		listen=${listen:-127.0.0.1:8730}
 		live=$(mcp_live_version "$listen")
@@ -164,6 +177,11 @@ mcp_daemon_caps() {
 		caps="$caps apk"
 	elif [ "$packages" = official ] && [ "$factor" != none ]; then
 		echo "$NAME: hermes.security.packages is official, but openwrt-mcp ${ver:-(no status)} does not report that apk_add installs from the official feed only, so the agent is given no apk_add and cannot install a package; openwrt-mcp 0.5.0.4 or later does" >&2
+	fi
+	if [ "$held" = true ]; then
+		caps="$caps held"
+	elif [ "$factor" != none ]; then
+		echo "$NAME: openwrt-mcp ${ver:-(no status)} does not report that it holds high-impact changes for the owner's approval, so no change policy is written and nothing can change the router through the agent, whatever the factor; openwrt-mcp 0.5.0.5 or later does" >&2
 	fi
 	echo $caps
 }
@@ -228,9 +246,15 @@ hand_over_data_dir() {
 # disagree. Its scope is '*' because what may be installed is the daemon's to decide, and it
 # decides official packages only. It covers apk_add alone, so where it sits among the others
 # changes no other tool's answer.
-#   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout> <uci scopes> <may change> [<may packages>]
+# The change policies, and the package policy, name the approval section, which openwrt-mcp needs
+# to exist and to be this client's or it loads no configuration at all; the approval section names
+# the owner's client <client>-owner as the one that approves a held change and opens the window.
+# approvals is on only when there is someone to approve (see start_service); off, a high-impact
+# change is refused rather than held, and the hold policy for a reboot is not written; none, from a
+# daemon that does not hold high-impact changes, writes no approval section (nor a change policy).
+#   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout> <uci scopes> <may change> [<may packages> [<approvals>]]
 mcp_policy_batch() {
-	local client=$1 prefix=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7 may_change=$8 may_packages=${9:-no} scope
+	local client=$1 prefix=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7 may_change=$8 may_packages=${9:-no} approvals=${10:-off} scope
 	set -f
 	printf 'set openwrt-mcp.%sread_ubus=policy\nset openwrt-mcp.%sread_ubus.client=%s\nadd_list openwrt-mcp.%sread_ubus.tools=ubus_call\n' "$prefix" "$prefix" "$client" "$prefix"
 	for scope in $MCP_READ_UBUS; do printf "add_list openwrt-mcp.%sread_ubus.scopes='%s'\n" "$prefix" "$scope"; done
@@ -238,11 +262,19 @@ mcp_policy_batch() {
 	for scope in $read_uci; do printf "add_list openwrt-mcp.%sread_uci.scopes='%s'\n" "$prefix" "$scope"; done
 	printf 'set openwrt-mcp.%sread_log=policy\nset openwrt-mcp.%sread_log.client=%s\nadd_list openwrt-mcp.%sread_log.tools=logread\n' "$prefix" "$prefix" "$client" "$prefix"
 	set +f
+	# The approval section goes in whenever the daemon holds high-impact changes and a factor is set:
+	# openwrt-mcp classifies every change of a client that has one, and the policies below name it.
+	if [ "$factor" != none ] && [ "$approvals" != none ]; then
+		printf 'set openwrt-mcp.%sapproval=approval\nset openwrt-mcp.%sapproval.client=%s\nset openwrt-mcp.%sapproval.approver=%s-owner\n' "$prefix" "$prefix" "$client" "$prefix" "$client"
+		printf 'set openwrt-mcp.%sapproval.factor=%s\nset openwrt-mcp.%sapproval.ttl=%s\nset openwrt-mcp.%sapproval.approvals=%s\n' \
+			"$prefix" "$MCP_APPROVAL_FACTOR" "$prefix" "$MCP_APPROVAL_TTL" "$prefix" "$approvals"
+	fi
 	if [ "$may_packages" = yes ] && [ "$factor" != none ]; then
 		printf 'set openwrt-mcp.%spackages=policy\nset openwrt-mcp.%spackages.client=%s\nadd_list openwrt-mcp.%spackages.tools=apk_add\n' "$prefix" "$prefix" "$client" "$prefix"
 		printf "add_list openwrt-mcp.%spackages.scopes='*'\nadd_list openwrt-mcp.%spackages.mfa_tools='*'\n" "$prefix" "$prefix"
 		printf 'set openwrt-mcp.%spackages.mfa_factor=%s\nset openwrt-mcp.%spackages.mfa_window=%s\nset openwrt-mcp.%spackages.mfa_max_failures=%s\nset openwrt-mcp.%spackages.mfa_lockout=%s\n' \
 			"$prefix" "$factor" "$prefix" "$window" "$prefix" "$max_failures" "$prefix" "$lockout"
+		[ "$approvals" = none ] || printf 'set openwrt-mcp.%spackages.approval=%sapproval\n' "$prefix" "$prefix"
 	fi
 	[ "$factor" = none ] && return 0
 	[ "$may_change" = yes ] || return 0
@@ -264,7 +296,16 @@ mcp_policy_batch() {
 		printf "add_list openwrt-mcp.%s%s.mfa_tools='*'\n" "$prefix" "$sect"
 		printf 'set openwrt-mcp.%s%s.mfa_factor=%s\nset openwrt-mcp.%s%s.mfa_window=%s\nset openwrt-mcp.%s%s.mfa_max_failures=%s\nset openwrt-mcp.%s%s.mfa_lockout=%s\n' \
 			"$prefix" "$sect" "$factor" "$prefix" "$sect" "$window" "$prefix" "$sect" "$max_failures" "$prefix" "$sect" "$lockout"
+		printf 'set openwrt-mcp.%s%s.approval=%sapproval\n' "$prefix" "$sect" "$prefix"
 	done
+	# A reboot, granted only so that each one waits for the owner's approval (hold 1), and only when
+	# someone can approve it. It asks no window: the approval is the owner's consent to that one.
+	[ "$approvals" = on ] || return 0
+	printf 'set openwrt-mcp.%shold=policy\nset openwrt-mcp.%shold.client=%s\nadd_list openwrt-mcp.%shold.tools=ubus_call\n' "$prefix" "$prefix" "$client" "$prefix"
+	set -f
+	for scope in $MCP_HOLD_UBUS; do printf "add_list openwrt-mcp.%shold.scopes='%s'\n" "$prefix" "$scope"; done
+	set +f
+	printf 'set openwrt-mcp.%shold.hold=1\nset openwrt-mcp.%shold.approval=%sapproval\n' "$prefix" "$prefix" "$prefix"
 }
 
 # Make /etc/config/openwrt-mcp hold exactly the policies this package owns for one agent.
@@ -273,11 +314,11 @@ mcp_policy_batch() {
 # nothing writes nothing to flash. When they differ the package's sections for that agent
 # are deleted and written again, in order, which also puts them after any older ones.
 mcp_policies() {
-	local client=$1 agent=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7 may_change=$8 may_packages=${9:-no}
+	local client=$1 agent=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7 may_change=$8 may_packages=${9:-no} approvals=${10:-off}
 	local prefix="hermes_${agent}_" scratch want have sect
 	scratch=$(mktemp -d /tmp/hermes-mcp.XXXXXX) || return 1
 	: > "$scratch/openwrt-mcp"
-	mcp_policy_batch "$client" "$prefix" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" "$may_change" "$may_packages" > "$scratch/batch"
+	mcp_policy_batch "$client" "$prefix" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" "$may_change" "$may_packages" "$approvals" > "$scratch/batch"
 	uci -c "$scratch" -P "$scratch/save" -q batch < "$scratch/batch" && uci -c "$scratch" -P "$scratch/save" -q commit openwrt-mcp || {
 		rm -rf "$scratch"; echo "$NAME: could not build the openwrt-mcp policies for $client" >&2; return 1; }
 	want=$(uci -c "$scratch" -P "$scratch/save" -q show openwrt-mcp | grep "^openwrt-mcp\.$prefix")
@@ -294,33 +335,46 @@ mcp_policies() {
 	rm -rf "$scratch"
 }
 
+# Pair one openwrt-mcp client into a root-only token file, when the file is missing or empty.
+# An earlier token for the same client is revoked first, because nobody holds it any more.
+#   mcp_pair <client> <token file>
+mcp_pair() {
+	local client=$1 token_file=$2 tmp tok
+	[ -z "$(read_secret "$token_file")" ] || return 0
+	tmp="$token_file.new"
+	rm -f "$tmp"
+	"$MCP_BIN" unpair "$client" >/dev/null 2>&1
+	( umask 077; "$MCP_BIN" pair "$client" > "$tmp" ) 2>/dev/null
+	tok=$(head -n1 "$tmp" 2>/dev/null | tr -d ' \t\r\n')
+	if [ -z "$tok" ]; then
+		rm -f "$tmp"
+		echo "$NAME: could not pair $client with openwrt-mcp" >&2
+		return 1
+	fi
+	chmod 0600 "$tmp" && mv "$tmp" "$token_file" || return 1
+	echo "$NAME: paired $client with openwrt-mcp; its token is in $token_file" >&2
+}
+
 # One agent's way to the router: its own paired client and token, and its own policies.
-#   hermes_mcp_agent <agent> <token file> <factor> <window> <max failures> <lockout> [<packages>]
+#   hermes_mcp_agent <agent> <token file> <factor> <window> <max failures> <lockout> [<packages> [<approvals>]]
 # The token is made only when the file is missing or empty, by `openwrt-mcp pair`, into a
-# root-only file; an earlier token for the same client is revoked first, because nobody
-# holds it any more. Unlocking is per client, so a second agent added later is
-# hermes-<name> with its own token and its own unlock window. <packages> is
-# hermes.security.packages, off unless given.
+# root-only file. Unlocking is per client, so a second agent added later is hermes-<name> with
+# its own token and its own unlock window. <packages> is hermes.security.packages, off unless
+# given; <approvals> is on when someone can approve a held change, off unless given.
+#
+# The owner's client: since 0.21.5-r16 every agent has a second client, hermes-<agent>-owner,
+# paired into <token file> with -owner before its extension, whose token the gateway hands only
+# to the unlock plugin, never to the agent. openwrt-mcp lets only that client open the agent's
+# window and approve its held changes, so the agent's own token, which its terminal can reach,
+# cannot spend the owner's tries. It adds no step for the owner: the package pairs it here.
 hermes_mcp_agent() {
-	local agent=$1 token_file=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 packages=${7:-off}
-	local client="hermes-$agent" tmp tok read_uci caps may_change may_packages
+	local agent=$1 token_file=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 packages=${7:-off} approvals=${8:-off}
+	local client="hermes-$agent" read_uci caps may_change may_packages
 	case "$agent" in ''|*[!a-z0-9]*) echo "$NAME: agent name '$agent' must be lower-case letters and digits" >&2; return 1 ;; esac
 	[ -x "$MCP_BIN" ] || {
 		echo "$NAME: openwrt-mcp is not installed ($MCP_BIN); apk add openwrt-mcp" >&2; return 1; }
-	if [ -z "$(read_secret "$token_file")" ]; then
-		tmp="$token_file.new"
-		rm -f "$tmp"
-		"$MCP_BIN" unpair "$client" >/dev/null 2>&1
-		( umask 077; "$MCP_BIN" pair "$client" > "$tmp" ) 2>/dev/null
-		tok=$(head -n1 "$tmp" 2>/dev/null | tr -d ' \t\r\n')
-		if [ -z "$tok" ]; then
-			rm -f "$tmp"
-			echo "$NAME: could not pair $client with openwrt-mcp" >&2
-			return 1
-		fi
-		chmod 0600 "$tmp" && mv "$tmp" "$token_file" || return 1
-		echo "$NAME: paired $client with openwrt-mcp; its token is in $token_file" >&2
-	fi
+	mcp_pair "$client" "$token_file" || return 1
+	mcp_pair "$client-owner" "$(mcp_owner_token_file "$token_file")" || return 1
 	# Every config (wireless, the whole of network, a package's own) only from a daemon that redacts
 	# every secret in a uci_get answer, and
 	# a change policy only from one that refuses an apply that would run code.
@@ -330,15 +384,34 @@ hermes_mcp_agent() {
 		echo "$NAME: hermes.security.packages is official, but no second factor is set, so the agent is given no apk_add and cannot install a package; set a factor first" >&2
 	caps=" $(mcp_daemon_caps "$factor" "$packages") "
 	case "$caps" in *" redacts "*) read_uci=$MCP_READ_UCI_WIDE ;; *) read_uci=$MCP_READ_UCI ;; esac
-	case "$caps" in *" noexec "*) may_change=yes ;; *) may_change=no ;; esac
+	# A change policy only from a daemon that refuses code execution AND holds high-impact changes
+	# for the owner: without the second, a port opened to the internet would run in the window.
+	case "$caps" in *" noexec "*" held "*|*" held "*" noexec "*) may_change=yes ;; *) may_change=no ;; esac
 	case "$packages:$caps" in official:*" apk "*) may_packages=yes ;; *) may_packages=no ;; esac
-	mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" "$may_change" "$may_packages"
+	case "$caps" in *" held "*) ;; *) approvals=none ;; esac
+	mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" "$may_change" "$may_packages" "$approvals" || return 1
+	# The change policies name the approval section, and openwrt-mcp loads no configuration at all
+	# when that section is missing; read it back, and write no change policy if it is not there.
+	if [ "$may_change" = yes ] && [ "$factor" != none ] && \
+		[ "$(uci -q get "openwrt-mcp.hermes_${agent}_approval.client")" != "$client" ]; then
+		echo "$NAME: the approval section for $client did not read back from /etc/config/openwrt-mcp, so no change policy is written" >&2
+		mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" no no none
+	fi
+}
+
+# Where the owner's client's token lives, beside the agent's: router-mcp.token gives
+# router-mcp-owner.token.
+mcp_owner_token_file() {
+	case "$1" in
+		*.token) echo "${1%.token}-owner.token" ;;
+		*) echo "$1-owner" ;;
+	esac
 }
 
 start_service() {
 	local enabled data_dir base_url model key_file mem_max respawn
 	local mcp_url mcp_token_file key profile profile_set run_user max_turns
-	local sec_factor sec_window sec_max sec_lockout sec_packages pkg_grant v
+	local sec_factor sec_window sec_max sec_lockout sec_packages sec_approver approvals pkg_grant v
 	local toolsets providers providers_bad
 	local tg_on tg_token_file tg_token tg_allow_all tg_home tg_allow
 	# tg_allow and toolsets are declared here and filled by the append_* helpers
@@ -404,6 +477,8 @@ start_service() {
 	# factor, an openwrt-mcp that installs official packages only) is hermes_mcp_agent's to check.
 	sec_factor=none
 	sec_packages=off
+	sec_approver=''
+	approvals=off
 	pkg_grant=off
 	if [ "$profile" = owner ]; then
 		config_get sec_factor   security factor 'none'
@@ -411,6 +486,7 @@ start_service() {
 		config_get sec_max      security max_failures '5'
 		config_get sec_lockout  security lockout '15m'
 		config_get sec_packages security packages 'off'
+		config_get sec_approver security approver_id ''
 		case "$sec_factor" in
 			none|pin|totp|pin+totp) ;;
 			*) echo "$NAME: hermes.security.factor must be none, pin, totp or pin+totp, not '$sec_factor'" >&2; return 1 ;;
@@ -424,6 +500,7 @@ start_service() {
 				echo "$NAME: hermes.security window and lockout are durations such as 15m, 1h or 1d, not '$v'" >&2; return 1; }
 		done
 		case "$sec_max" in ''|*[!0-9]*|0) echo "$NAME: hermes.security.max_failures must be a whole number of at least 1, not '$sec_max'" >&2; return 1 ;; esac
+		case "$sec_approver" in *[!0-9]*) echo "$NAME: hermes.security.approver_id must be a numeric Telegram id, not '$sec_approver'" >&2; return 1 ;; esac
 	fi
 
 	# Refuse rather than flap. Each branch names the one thing to fix, because the
@@ -498,6 +575,28 @@ start_service() {
 		fi
 	fi
 
+	# Who approves a high-impact change, one by one, in the private chat: hermes.security.approver_id,
+	# a Telegram id that may talk to the bot. @decided 2026-10-22: one approver. Unset, the one id
+	# allowed to talk to the bot is the approver when exactly one is listed (@claude 2026-10-22: it
+	# adds no step for the owner of a router only they talk to); with several listed and none chosen,
+	# nobody approves, and a high-impact change is refused rather than held. Without Telegram there
+	# is no chat to approve in.
+	if [ "$profile" = owner ] && [ "$tg_on" -eq 1 ]; then
+		if [ -n "$sec_approver" ]; then
+			case ",${tg_allow#,}," in
+				*",$sec_approver,"*) ;;
+				*) echo "$NAME: hermes.security.approver_id $sec_approver is not one of hermes.telegram.allow_user_id, so it could never approve; add it there or choose another" >&2; return 1 ;;
+			esac
+		else
+			case "${tg_allow#,}" in *,*|'') ;; *) sec_approver=${tg_allow#,} ;; esac
+		fi
+		if [ -n "$sec_approver" ]; then
+			approvals=on
+		else
+			echo "$NAME: several Telegram users may talk to the agent and hermes.security.approver_id names none of them, so nobody can approve a high-impact change and it is refused; set it in LuCI under Security" >&2
+		fi
+	fi
+
 	# Data moved to a USB stick by hermes-usb: start only on that stick. Without it the
 	# directory underneath is the router's own storage, and an agent starting there empty
 	# would write exactly where the owner chose not to. So this stops the start and says
@@ -536,7 +635,7 @@ start_service() {
 			mcp_url=$MCP_URL_DEFAULT
 		fi
 		if [ -n "$mcp_url" ]; then
-			if hermes_mcp_agent main "$mcp_token_file" "$sec_factor" "$sec_window" "$sec_max" "$sec_lockout" "$sec_packages"; then
+			if hermes_mcp_agent main "$mcp_token_file" "$sec_factor" "$sec_window" "$sec_max" "$sec_lockout" "$sec_packages" "$approvals"; then
 				/etc/init.d/openwrt-mcp enable >/dev/null 2>&1
 				/etc/init.d/openwrt-mcp running >/dev/null 2>&1 || /etc/init.d/openwrt-mcp start >/dev/null 2>&1 \
 					|| echo "$NAME: could not start openwrt-mcp; the agent has no router tools until it runs" >&2
@@ -559,6 +658,11 @@ start_service() {
 	if [ "$profile" = owner ] && [ -n "$mcp_url" ] && uci -q get openwrt-mcp.hermes_main_packages >/dev/null 2>&1; then
 		pkg_grant=granted
 	fi
+	# Approvals as openwrt-mcp now holds them, read back: on only when the approval section says so.
+	if [ "$profile" != owner ] || [ -z "$mcp_url" ] || [ "$(uci -q get openwrt-mcp.hermes_main_approval.approvals)" != on ]; then
+		approvals=off
+		sec_approver=''
+	fi
 	toolsets=""
 	config_list_foreach main toolsets append_toolset
 	# Further providers, one UCI `provider` section each. Names, endpoints, models and
@@ -576,6 +680,7 @@ start_service() {
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
 		HERMES_OPENWRT_FACTOR="$sec_factor" \
 		HERMES_OPENWRT_PACKAGES="$pkg_grant" \
+		HERMES_OPENWRT_APPROVALS="$approvals" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}" \
 		PYTHONDONTWRITEBYTECODE=1 $DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-set-toolsets \
 		"$data_dir" "${toolsets#,}" "$mcp_url" "$base_url" "$model" "$profile" || return 1
@@ -606,6 +711,8 @@ start_service() {
 		HERMES_OPENWRT_PROFILE="$profile" \
 		HERMES_OPENWRT_FACTOR="$sec_factor" \
 		HERMES_OPENWRT_PACKAGES="$pkg_grant" \
+		HERMES_OPENWRT_APPROVALS="$approvals" \
+		HERMES_OPENWRT_APPROVER_ID="$sec_approver" \
 		HERMES_OPENWRT_READ_UBUS="$(printf '%s' "$MCP_READ_UBUS" | tr ' ' ',')" \
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}"
@@ -623,7 +730,8 @@ start_service() {
 	# exactly that on 2026-09-08, from a package deliberately built with one .pyc
 	# missing.
 
-	[ -n "$mcp_url" ] && procd_append_param env HERMES_MCP_TOKEN_FILE="$mcp_token_file"
+	[ -n "$mcp_url" ] && procd_append_param env HERMES_MCP_TOKEN_FILE="$mcp_token_file" \
+		HERMES_MCP_OWNER_TOKEN_FILE="$(mcp_owner_token_file "$mcp_token_file")"
 
 	# ---- Telegram: the export half ----
 	# Validated above, before any procd state was touched. Only the handover is left,

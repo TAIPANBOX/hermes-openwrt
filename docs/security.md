@@ -519,8 +519,9 @@ Exactly what the bot accepts, from `openwrt_unlock.py`:
   followed by your PIN (4 to 8 digits)." Send the PIN after it, as its own message or as
   `/unlock 4821`.
 
-`/lock` closes the window at once. The bot deletes the message first, then asks
-openwrt-mcp, and answers only the outcome: open until what time, refused, or locked out
+`/lock` closes the window at once, and rejects every high-impact change still waiting for you
+(below). The bot deletes the message first, then asks openwrt-mcp, through the owner's own client
+since 0.21.5-r16 (below), and answers only the outcome: open until what time, refused, or locked out
 until what time. The message never reaches the model and is written to no log and to no
 conversation. If the bot cannot delete it (a failed call to Telegram), it says so and asks
 you to delete it yourself. A wrong PIN is not told apart from a wrong code, and five wrong
@@ -598,6 +599,89 @@ What this does not do, measured and named:
   not know is not, as above. The gateway's environment holds the model key and the openwrt-mcp
   token, and no process of the `hermes` user can read it: the gateway is non-dumpable, so its
   `/proc` entries belong to root (invariant 7 in CLAUDE.md).
+
+### High-impact changes wait for your approval
+
+Since 0.21.5-r16, with openwrt-mcp 0.5.0.5, some changes are too consequential for the unlock
+window: a rollback does not undo what they let happen while they stood. openwrt-mcp holds them,
+whether the window is open or not, and runs one only once you approve that one change:
+
+- a port opened to the internet (a port forward, or a rule that accepts from an internet zone);
+- the firewall weakened (an internet zone that accepts what comes in, a forwarding from the
+  internet, a change in which zones face the internet or what a zone takes by device or subnet, an
+  uplink network put into a trusted zone, a raw nftables fragment);
+- the router rewired: a VLAN, the ports of a bridge or device, or what an interface sits on,
+  whatever it names, since which port then carries the internet is not worked out. A guest network
+  is not held: a new bridge named `br-<name>` with no ports, an interface on it, a Wi-Fi with a
+  password on that network and its own zone run in the window as before;
+- VPN or policy routing changed (a WireGuard interface or peer, a route for every destination, pbr);
+- who answers DNS changed (dnsmasq's upstream servers, rebind protection, a name with a dot answered
+  locally, an interface's DNS servers, DHCP option 6);
+- the time servers changed, since the app codes that approve are only as good as the clock;
+- a Wi-Fi without a password into a trusted network;
+- a service that guards the router stopped or disabled (the firewall, dropbear, uhttpd, rpcd,
+  openwrt-mcp, network, dnsmasq), and a reboot.
+
+openwrt-mcp decides on the state the change would leave, worked out with the router's own `uci` on a
+copy of the configuration in RAM, so a change split over two calls is held on the one that completes
+it, and what cannot be read waits for you. The agent is told `HELD <id>`: nothing was applied, and it
+does not retry. The bot sends you a card, written by openwrt-mcp from its record and not by the
+agent, that says what the change opens and lists every setting it changes, before and after, with
+secrets shown as `<redacted>`:
+
+```
+Router change waiting for you (KQWPT, ref 3f9a12c0, expires in 10 min)
+Asked by hermes-main:
+OPENS THE ROUTER TO THE INTERNET: tcp 2222 from any address to 192.168.1.20:22
+
+firewall.ssh_nas, new redirect
+  + dest 'lan'
+  + dest_ip '192.168.1.20'
+  ...
+```
+
+**Reject** is one tap. **Approve**, or `/approve KQWPT`, has the bot restate the headline openwrt-mcp
+holds, so a message the agent wrote to look like a card cannot be approved by mistake, and ask for
+your PIN and the code from your app in one message, `4821 503917`. That message takes the same path
+as an unlock: deleted at once, never shown to the model, sent once to openwrt-mcp against the hash of
+the card you were sent. It needs both the PIN and the app, so approvals stay off until both are set
+up. A wrong answer counts against the same five tries as an unlock, and the code is spent, so it
+neither approves a second change nor opens the window; approving never opens the window, and a
+window approves nothing. The change then runs exactly as held, with a rollback of five minutes,
+and the bot starts a turn for the agent, in the chat the change came from, saying it was applied
+and to check the router and confirm it. `/reject KQWPT` rejects too, and `/lock` rejects every
+change still waiting.
+
+A change waits ten minutes. The agent may propose one while the window is closed, at most one
+waiting at a time and six an hour, and after three rejections in a row none for an hour, so a
+flood of cards cannot wear you down. openwrt-mcp keeps them in memory only, so a restart drops them.
+
+**Who approves** is one Telegram user, `hermes.security.approver_id`, chosen in LuCI under Security.
+With only one id in `hermes.telegram.allow_user_id`, that one approves and nothing needs choosing;
+with several and none chosen, nobody does, and a high-impact change is refused rather than held, and
+the agent says so. Without Telegram there is no chat to approve in, and the same holds.
+
+**The agent cannot unlock or approve for you.** The package pairs a second openwrt-mcp client,
+`hermes-main-owner`, beside the agent's own, into `/etc/hermes-agent/router-mcp-owner.token`
+(0600, root). The wrapper hands that token to the gateway alone, and the plugin takes it out of the
+environment as it loads, so the agent's terminal never has it; `/unlock`, `/lock` and approvals go
+through it. openwrt-mcp refuses `hermes-main` an unlock of its own window, right or wrong and
+without counting a try, and refuses it the approval tools, so the agent's token, which its terminal
+can read, cannot spend your tries. None of this is a step for you: the package pairs the client and
+the plugin holds its token.
+
+**What only a person may do** is refused to the agent's client whatever a grant says, the window
+open or not: running a command, issuing a WireGuard client (its private key would be in the answer),
+changing the agent's own configuration, openwrt-mcp's, rpcd's, dropbear's, uhttpd's, LuCI's, fstab
+or ucitrack, and rpcd's file object, a firmware, a signal, procd's service object, uci and rpc-sys
+over ubus.
+
+What this does not cover: a change whose danger lies in a value openwrt-mcp does not read (a port
+forward to a host that itself runs something, a firewall zone's extra rules, a package's own
+remote-administration switch) runs in the window like any other change; a WireGuard client's
+configuration cannot be handed over yet (a one-time LuCI page is the plan); and the bot that sends
+the card is the bot the agent talks through, so the restated headline, not the card's look, is what
+to trust.
 
 ### Pairing openwrt-mcp yourself
 

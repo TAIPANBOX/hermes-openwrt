@@ -46,7 +46,10 @@ set -eu
 # 0.21.5-r3: the Security page has a switch, "Let the agent install packages from the official
 # OpenWrt feed" (hermes.security.packages), written by set_packages (write permission) and turned
 # on only with a factor in force; security_status reports what it is set to.
-PKGREL=${PKGREL:-3}
+# 0.21.5-r4: the Security page chooses who approves a high-impact change (hermes.security.approver_id),
+# one of the Telegram ids allowed to talk to the agent, written by set_approver (write permission);
+# security_status reports who approves and whether an approval could work (a PIN and a phone).
+PKGREL=${PKGREL:-4}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
