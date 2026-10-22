@@ -712,6 +712,44 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     in CI's `scenarios` job, a stand-in apk plus a scan that every such script sources the helper;
     red-first against a helper that never retries and one that retries every failure).
 
+24. `@decided 2026-10-22`: the agent's own tools never read the router's secrets. `@measured`
+    2026-10-22 on a Flint 2 (25.12.5, 0.21.5-r14, owner profile), read-only, every file under /etc,
+    /var, /tmp, /srv, /root and /overlay/upper/etc opened as uid hermes: /etc/config/wireless,
+    firewall, luci, hermes and openwrt-mcp are 0644 and opened, and so are their copies under
+    /overlay/upper; network, dhcp, system, rpcd, dropbear and uhttpd are 0600. That router's
+    wireless held no key (radios off), so nothing was read there. `@claude` 2026-10-22, why a key
+    stays open: libuci's commit gives the new file the old one's mode before the rename (uci
+    file.c, uci_file_commit), so a wireless made 0644 at first boot keeps 0644 after a key is set
+    in LuCI, and the 25.12 wifi-scripts write the passphrase into /var/run/hostapd-<phy>.conf too.
+    `@claude` 2026-10-22, how (0.21.5-r15): the wrapper's last line runs `/usr/libexec/hermes-jail`
+    for the owner and assistant profiles, which starts the gateway inside ujail (procd-ujail, in
+    the stock image, a dependency since r15; OpenWrt runs hostapd in it): /bin, /sbin, /lib and
+    /usr read-only, a few files of /etc (passwd, group, hosts, ssl, the time zone, the release),
+    the data directory writable, a /tmp of its own emptied at each start, its own /proc and /sys,
+    and the router's resolv.conf, which ujail adds; no /etc/config, /overlay, /rom, /root, /var or
+    ubus, and the router's processes are in another pid namespace. The network is the router's.
+    -E: a sandbox that cannot be built stops the start. The environment goes by name (-e NAME),
+    so no key reaches a command line; at most 60 entries, refused above, since ujail drops what
+    passes 64 without failing. Never -c (no_new_privs), which would stop the setuid ping. ujail
+    stays root outside the sandbox as its supervisor and runs none of this package's code. Inside,
+    hermes-jail --init is pid 1: it gives up root through hermes-drop's own `become`, makes itself
+    non-dumpable (it holds the keys) and checks that it is, starts the gateway, forwards the stop
+    signals, reaps, and exits with the gateway's status. The root profile runs without it, as an
+    explicit choice. Limits named and not fixed: the router's /proc/meminfo, loadavg and network
+    state stay readable (the watch needs them); a secret another package keeps under /usr or in a
+    file of /etc on the list is not hidden. hermes-usb's
+    wait on the gateway's pid record reads a pid from inside the sandbox; its wait on the service's
+    cgroup, which ujail does not leave, is what holds (gate: `scripts/gate-unlock.sh`
+    `check_agent_tools_cannot_read_router_secrets` (a Wi-Fi key and a WireGuard private key in UCI,
+    hostapd's passphrase and the overlay's copy, all 0644, read by upstream's terminal, read_file
+    and search_files where the gateway runs), `check_router_secret_never_reaches_model` (the same,
+    asked for by the model through the real gateway; no recorded model request holds one),
+    `check_agent_diagnostics_still_work` (docs/examples/router_check.sh, a ping, a temporary file,
+    the data directory, sysfs), `check_gateway_runs_as_hermes_user` (every process of the service
+    but ujail); `scripts/gate-package.sh` `check_gateway_keys_hidden_from_its_user` (no process of
+    the service gives hermes the key); teeth: `scripts/teeth-unlock.sh` faults 63 to 69,
+    `scripts/teeth.sh` fault 13, `scripts/teeth-runtime.py` (the owner note's sandbox sentence)).
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

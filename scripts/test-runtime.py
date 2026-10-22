@@ -1349,7 +1349,10 @@ procd_close_service
                      "`name` option",
                      "A port forward is a firewall section of type redirect (DNAT), not a rule",
                      "read it back with uci_get",
-                     "tell the owner only what the router actually holds")
+                     "tell the owner only what the router actually holds",
+                     # since r15 the terminal runs in a sandbox without the router's settings, log
+                     # and services; the note sends the agent to the openwrt tools for those
+                     "Your terminal runs in a sandbox with no /etc/config, /var or ubus")
         env = {k: v for k, v in self.env.items() if k != "HERMES_EPHEMERAL_SYSTEM_PROMPT"}
         for factor in ("none", "pin", "totp", "pin+totp"):
             with self.subTest(factor=factor):
