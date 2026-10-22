@@ -873,7 +873,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/test-luci-views.mjs` `check_security_approver_offered_only_from_the_allowed_ids`;
     `scripts/gate-package.sh` `check_needs_an_openwrt_mcp_that_redacts` (the floor, 0.5.0.5, and the
     capability); teeth: `scripts/teeth-unlock.sh` faults 74 to 86, `scripts/teeth-runtime.py`
-    (twenty-three mutants), `scripts/teeth-luci.sh` faults 43 to 46.)
+    (twenty-five mutants), `scripts/teeth-luci.sh` faults 43 to 46.)
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

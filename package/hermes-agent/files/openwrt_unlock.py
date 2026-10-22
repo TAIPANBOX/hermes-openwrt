@@ -871,11 +871,13 @@ def _turn_for(a: dict):
 
 def _tell_agent(a: dict) -> None:
     text = _turn_for(a)
-    if not text:
+    # Not an outcome yet: the session is kept for the outcome. An outcome with nothing to tell (the
+    # agent withdrew it) still lets the session go, so none is kept past its change.
+    if not text and a.get("status") not in OUTCOME_LINE:
         return
     with _sessions_lock:
         key = _sessions.pop(a.get("id", ""), None)
-    if not key or _CTX is None:
+    if not text or not key or _CTX is None:
         return
     try:
         if not _CTX.inject_message(text, session_key=key):
@@ -915,6 +917,9 @@ async def _show(a: dict) -> None:
         except Exception as exc:  # noqa: BLE001 - the card stays as it was; the outcome is still told
             log.warning("the card of %s could not be edited (%s)", aid, type(exc).__name__)
     await asyncio.to_thread(_tell_agent, a)
+    # Decided, so nothing waits on the card any more: a later poll that still lists the change finds
+    # no card and leaves it, and a press on the old buttons is answered as no longer waiting.
+    _cards.pop(aid, None)
 
 
 async def _poll_forever() -> None:
