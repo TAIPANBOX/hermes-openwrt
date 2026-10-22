@@ -7,7 +7,39 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A newer push to the same pull request makes the run for the older one moot; main keeps every run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Which package legs this change needs (scripts/ci-subjects.sh, its rules and why they are safe).
+  # A pull request gets the legs its files touch; a push to main and a run by hand get all of them.
+  # Every leg is a required check, so one not needed still runs, says so and passes in seconds.
+  subjects:
+    runs-on: ubuntu-latest
+    outputs:
+      legs: ${{ steps.pick.outputs.legs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: the legs this change needs
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            legs=$(./scripts/ci-subjects.sh "$BASE" "$HEAD")
+            git diff --name-only "$BASE" "$HEAD" | sed 's/^/changed: /'
+          else
+            legs=$(./scripts/ci-subjects.sh --files <<< '.github/workflows/ci.yml')
+          fi
+          echo "legs: $legs"
+          echo "legs=$legs" >> "$GITHUB_OUTPUT"
+
   # Seconds, no containers, and it fails for a reason no container run would catch: a
   # feature file that has drifted from the checks it claims to describe. Reading the
   # scenarios instead of the code is the whole point of writing them, and that only
@@ -26,12 +58,15 @@ jobs:
         run: ./scripts/gate-upstream-watch.sh && ./scripts/teeth-upstream-watch.sh
       - name: apk retries a download the feed cut off, and nothing else, in every container script
         run: ./scripts/test-apk-retry.sh
+      - name: a pull request runs every leg its files touch, and documentation none
+        run: ./scripts/test-ci-subjects.sh
 
   # There is nothing to unit test here: the payload is upstream's, and what this
   # repository contributes is the assembly and the service around it. So the only
   # honest test is to build the package and install it on the operating system it
   # targets, which is what this does.
   package:
+    needs: subjects
     # A native arm64 runner (2026-09-25): the routers are aarch64, and under QEMU on an
     # x86 runner this job took 1 h 41 min. GitHub's arm64 runners are free for public
     # repositories and not offered to private ones, so making this repository private
@@ -55,12 +90,21 @@ jobs:
         arch: [aarch64_generic]
         suite: [core, runtime, teeth, usb, usb-teeth-0, usb-teeth-1, usb-teeth-2, usb-teeth-3, luci-teeth-0, luci-teeth-1, luci-teeth-2, luci-teeth-3, unlock, unlock-teeth-0, unlock-teeth-1, unlock-teeth-2, unlock-teeth-3]
     steps:
+      - name: not needed by this change
+        if: ${{ !contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) }}
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          echo "not run: nothing this pull request changes is under the subject of $SUITE (scripts/ci-subjects.sh)"
+
       - uses: actions/checkout@v4
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
 
       # No QEMU any more: the runner is aarch64 itself. Say so, and stop if it is not, so a
       # changed runner label cannot quietly bring back an x86 host that would then need
       # emulation this job no longer sets up.
       - name: the runner is aarch64
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         run: test "$(uname -m)" = aarch64 && uname -m
 
       # The aarch64 leg also emits the aarch64_cortex-a53 relabel, the label every
@@ -71,14 +115,17 @@ jobs:
       # server cut downloads off all day on 2026-10-08. Every container mounts it (APK_CACHE), and
       # scripts/apk-retry.sh hands it to apk as --cache-dir.
       - name: keep OpenWrt's packages between runs
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         uses: actions/cache@v4
         with:
           path: ~/apk-cache
           key: apk-cache-${{ matrix.arch }}-25.12.4-v1
       - name: the package cache exists and belongs to the runner
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         run: mkdir -p ~/apk-cache && echo "APK_CACHE=$HOME/apk-cache" >> "$GITHUB_ENV"
 
       - name: build the package inside OpenWrt ${{ matrix.arch }}
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         run: EXTRA_ARCHES=${{ matrix.arch == 'aarch64_generic' && 'aarch64_cortex-a53' || '' }} ./package/hermes-agent/build-in-container.sh ${{ matrix.arch }}
 
       # Architecture-independent, so one build serves every router; it is built here
@@ -87,11 +134,13 @@ jobs:
       # because the one failure it can have is claiming a file the base already owns and
       # that cannot be checked against a tree which is not there.
       - name: build the Telegram add-on
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         run: EXTRA_ARCHES=${{ matrix.arch == 'aarch64_generic' && 'aarch64_cortex-a53' || '' }} ./package/hermes-agent-telegram/build-in-container.sh ${{ matrix.arch }}
 
       # Architecture-independent, so one build serves every router; it is built here
       # rather than in its own job because both gates want both packages present.
       - name: build the LuCI app
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         run: ./package/luci-app-hermes/build.sh
 
       # hermes-agent depends on openwrt-mcp (0.21.5-r3), which OpenWrt's feed does not have, so
@@ -107,59 +156,62 @@ jobs:
       # OpenWrt feeds only, and `status` reports apk_add_official_feed_only, which the init asks for
       # before it writes the package policy. Before them, baf6669 (v0.5.0-taipanbox.1).
       - uses: actions/checkout@v4
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           repository: TAIPANBOX/openwrt-mcp
           ref: 8eff8349f4dcf34c12b309dc0655300680cb3d19
           path: openwrt-mcp-src
       - uses: actions/setup-go@v5
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           go-version-file: openwrt-mcp-src/go.mod
       - name: build the openwrt-mcp apk the gates install beside hermes-agent
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh ${{ matrix.arch }}
       # The feed serves openwrt-mcp under both labels; only the core leg's packages are published.
       - name: and openwrt-mcp under the label a Flint 2 and a Brume 2 report, for the feed
-        if: matrix.suite == 'core' && matrix.arch == 'aarch64_generic'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core' && matrix.arch == 'aarch64_generic'
         run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh aarch64_cortex-a53
 
       # apk mkpkg records each file's owner as found on disk, and this runner's uid 1001 became
       # `nobody` on the router, /etc/hermes-agent included. A Mac never shows it, so it is read
       # here, from the packages, where it happened.
       - name: every file in every package is root's
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ./scripts/gate-apk-owner.sh && ./scripts/teeth-apk-owner.sh
 
       - name: it installs, runs, and keeps the key out of sight
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-package.sh
 
       # The pinned upstream commit, uv.lock's versions, the two parts left out, and what
       # upstream ships beside the wheel found where the package put it.
       - name: it carries the pinned upstream, as upstream locks it
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-upstream.sh
 
       - name: and that gate has teeth
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/teeth-upstream.sh
 
       - name: the add-on installs beside the base and neither claims the other's files
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-telegram.sh
 
       - name: and so does the add-on's gate
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/teeth-telegram.sh
 
       - name: the relabel gate has teeth
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ./scripts/teeth-relabel.sh
 
       - name: the web interface installs, registers on ubus, and gives no key back
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-luci.sh
 
       - name: gateway controls and their mutation tests
-        if: matrix.suite == 'runtime'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'runtime'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-runtime.sh
 
       # A gate nobody has seen go red is a gate nobody has tested. Each fault below is
@@ -168,23 +220,25 @@ jobs:
       # from scratch, because a full rebuild per fault would triple the job for no extra
       # signal.
       - name: the gate has teeth
-        if: matrix.suite == 'teeth'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'teeth'
         run: ARCH=${{ matrix.arch }} ./scripts/teeth.sh
 
       - name: hermes-usb moves the data to a stick and back, and the agent will not start without it
-        if: matrix.suite == 'usb'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'usb'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-usb.sh
 
       - name: and that gate has teeth, quarter ${{ matrix.suite }}
-        if: startsWith(matrix.suite, 'usb-teeth-')
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && startsWith(matrix.suite, 'usb-teeth-')
         env:
           MATRIX_SUITE: ${{ matrix.suite }}
+          # The usb leg runs the whole gate with nothing planted; shard 0 need not repeat it.
+          CLEAN_RUN_ELSEWHERE: '1'
         run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#usb-teeth-}/4 ./scripts/teeth-usb.sh
 
       # Every shard plants every fault and runs the gate for its own quarter of them, and each
       # checks that 33 were planted, so a fault dropped from the script fails all four.
       - name: the web interface's gate has teeth, quarter ${{ matrix.suite }}
-        if: startsWith(matrix.suite, 'luci-teeth-')
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && startsWith(matrix.suite, 'luci-teeth-')
         run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#luci-teeth-}/4 ./scripts/teeth-luci.sh
         env:
           MATRIX_SUITE: ${{ matrix.suite }}
@@ -192,11 +246,11 @@ jobs:
       # The owner unlock: 43 checks in OpenWrt's own rootfs with all four packages, the real
       # gateway, the real daemon and the stand-ins for Telegram and the model.
       - name: changes wait for the owner's unlock, and the unlock never reaches the model
-        if: matrix.suite == 'unlock'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'unlock'
         run: ARCH=${{ matrix.arch }} ./scripts/gate-unlock.sh
 
       - name: and that gate has teeth, quarter ${{ matrix.suite }}
-        if: startsWith(matrix.suite, 'unlock-teeth-')
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && startsWith(matrix.suite, 'unlock-teeth-')
         run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#unlock-teeth-}/4 ./scripts/teeth-unlock.sh
         env:
           MATRIX_SUITE: ${{ matrix.suite }}
@@ -207,10 +261,10 @@ jobs:
       # only signs on the workstation and builds nothing there. source-tree names the git tree it
       # was built from; publish-feed.sh refuses a run whose tree is not the one it publishes.
       - name: record the source tree these packages were built from
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: git rev-parse 'HEAD^{tree}' > build/source-tree
       - uses: actions/upload-artifact@v4
-        if: matrix.suite == 'core'
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         with:
           name: hermes-agent-${{ matrix.arch }}
           path: |

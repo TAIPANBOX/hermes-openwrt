@@ -11,8 +11,11 @@ A security problem goes through [SECURITY.md](SECURITY.md), not a pull request o
 1. Fork the repository and branch from `main`.
 2. Make the change, with its scenario and its check (see [What a pull request is held to](#what-a-pull-request-is-held-to)).
 3. Run the checks that cover it locally, then open a pull request against `main`.
-4. CI runs on the pull request, on GitHub's arm64 runners. The slowest leg takes about half
-   an hour. Every check listed on `main`'s branch protection must be green before a merge.
+4. CI runs on the pull request, on GitHub's arm64 runners, and does the work only of the legs
+   your files touch (`scripts/ci-subjects.sh` says which, and a file it does not know runs them
+   all): a change to the documentation alone takes about a minute. A leg your change does not
+   need still reports, passing in seconds and saying why, so every check listed on `main`'s
+   branch protection is there to be green before a merge. A push to `main` runs every leg.
 5. A maintainer reviews and merges. A merged change reaches routers only when the feed is
    next published (see [Releases](#releases)).
 

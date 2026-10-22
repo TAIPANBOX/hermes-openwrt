@@ -189,7 +189,9 @@ plant "the stick's departure stops nothing" $P plug \
 plant "any device's departure stops Hermes" $P plug \
 	'		hermes_data_ok "$dir" >/dev/null || "$SERVICE" stop' '		"$SERVICE" stop'
 
-if [ "$SHARD_I" = 0 ]; then
+# The whole gate with nothing planted, in shard 0 only. CI sets CLEAN_RUN_ELSEWHERE=1, because its usb
+# leg runs this same whole gate beside the shards, and here it made shard 0 the slowest leg of all.
+if [ "$SHARD_I" = 0 ] && [ "${CLEAN_RUN_ELSEWHERE:-0}" != 1 ]; then
 	out=$("$GATE" 2>&1) && echo "teeth ok: with nothing planted the gate passes" || {
 		echo "TEETH FAILED: the gate does not pass as it is"; printf '%s\n' "$out" | tail -8 | sed 's/^/  /'; fail=1; }
 fi
