@@ -214,7 +214,7 @@ Feature: The agent changes the router only when its owner unlocks it
   Scenario: Stopping the service leaves nothing of it running
     Given the service started, with a gateway that ignores SIGTERM
     When procd stops it with SIGTERM
-    Then nothing of the service runs by procd's term_timeout, with no SIGKILL needed
+    Then nothing of the service runs 7 s later, the sandbox having killed the gateway at 5 s, before ujail's and procd's own SIGKILL
     And when procd's SIGKILL reaches the process it started, or a stop lands as the service starts, nothing is left running either
     # -> check_stop_leaves_nothing_running
 

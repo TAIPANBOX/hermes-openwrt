@@ -953,8 +953,8 @@ procd_close_service
                                  env=env, check=False, capture_output=True, text=True)
         self.assertEqual(result2.returncode, 0, result2.stderr)
         self.assertEqual(self.config()["agent"]["disabled_toolsets"], ["browser"])
-        self.assertEqual(json.loads(result2.stdout)["GATE_UID"], hermes_uid)
-        self.assertNotIn("HERMES_OPENWRT_AS_ROOT", json.loads(result2.stdout))
+        self.assertEqual(gateway_json(result2.stdout)["GATE_UID"], hermes_uid)
+        self.assertNotIn("HERMES_OPENWRT_AS_ROOT", gateway_json(result2.stdout))
         # root, and its old name, run as root and tell the launcher not to second-guess that.
         for name in ("root", "admin"):
             with self.subTest(profile=name):

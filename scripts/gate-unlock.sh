@@ -205,7 +205,7 @@ mode_of()  { set -- $(ls -ld "$1"); echo "$1"; }
 # The processes a service is made of, read from /proc (busybox has no pstree): the process
 # procd started and every descendant, one pid per line. A pid in a sandbox's own pid namespace
 # is still listed here under its pid outside it.
-cmd_of()  { tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null; }
+cmd_of()  { tr '\0' ' ' 2>/dev/null < "/proc/$1/cmdline"; }
 ppid_of() { sed -n 's/^.*) [A-Za-z] \([0-9][0-9]*\) .*/\1/p' "/proc/$1/stat" 2>/dev/null; }
 is_ujail() { case "$(cmd_of "$1")" in /sbin/ujail\ *|ujail\ *) return 0 ;; esac; return 1; }
 service_tree() {
@@ -612,16 +612,12 @@ check_fresh_router_without_srv_starts() {
 	# The real gateway, started the way procd starts it, under the same umask.
 	sh -c 'exec env $(cat /tmp/envv) "$@"' sh $(cat /tmp/argv) >/tmp/svc.log 2>&1 &
 	SVC=$!
-	i=0
-	until tr '\0' ' ' < "/proc/$SVC/cmdline" 2>/dev/null | grep -q 'gateway run'; do
-		kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the wrapper exited before the gateway started"; }
-		i=$((i + 1)); [ "$i" -lt 180 ] || { tail -n 5 /tmp/svc.log; fail "the gateway did not start in 180 s"; }
-		sleep 1
-	done
+	# the gateway itself, not the process procd started (since r15 that is ujail, root, outside)
+	GW=$(wait_gateway "$SVC") || { tail -n 5 /tmp/svc.log; fail "$GW"; }
 	sleep 3
-	kill -0 "$SVC" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the gateway died right after starting"; }
-	ids=$(grep -E '^Uid:' "/proc/$SVC/status" | tr -s '\t ' ' ')
-	kill "$SVC" 2>/dev/null; sleep 1
+	kill -0 "$GW" 2>/dev/null || { tail -n 5 /tmp/svc.log; fail "the gateway died right after starting"; }
+	ids=$(grep -E '^Uid:' "/proc/$GW/status" | tr -s '\t ' ' ')
+	kill "$SVC" "$GW" 2>/dev/null; sleep 1
 	echo "$ids" | grep -qx "Uid: $HU $HU $HU $HU" || fail "the gateway's uids are not hermes ($HU): $ids"
 	pass "no /srv before the start: created $(mode_of /srv) root, the data directory drwx------ hermes, and the gateway ran as uid $HU"
 }
@@ -779,7 +775,7 @@ EOF
 leftovers() {
 	for d in /proc/[0-9]*; do
 		grep -q '^State:[[:space:]]*Z' "$d/status" 2>/dev/null && continue
-		case "$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)" in
+		case "$(tr '\0' ' ' 2>/dev/null < "$d/cmdline")" in
 			*"hermes-jail --init"*|*"/usr/bin/hermes gateway run"*) echo "${d#/proc/}" ;;
 		esac
 	done
@@ -807,10 +803,11 @@ check_stop_leaves_nothing_running() {
 	reset; configure - -
 	started
 	probe_stubborn
-	# 1. procd's SIGTERM alone: all of it gone before procd's term_timeout (10 s) would kill
+	# 1. procd's SIGTERM alone: the gateway killed from inside 5 s later, so all of it is gone by 7,
+	# before ujail's own SIGKILL at 8 and procd's at 10, which only back it up
 	svc_start
 	kill -TERM "$SVC"
-	gone_within 10 || fail "10 s after SIGTERM, procd's term_timeout, a gateway that ignores it still ran: $(leftovers | tr '\n' ' ')"
+	gone_within 7 || fail "7 s after SIGTERM a gateway that ignores it still ran, so the sandbox's own 5 s did not end it: $(leftovers | tr '\n' ' ')"
 	# 2. procd's SIGKILL to the process it started: the sandbox goes with it
 	svc_start
 	kill -KILL "$SVC"
@@ -820,7 +817,7 @@ check_stop_leaves_nothing_running() {
 	svc_spawn
 	kill -TERM "$SVC" 2>/dev/null
 	gone_within 10 || { kill -KILL "$SVC" 2>/dev/null; gone_within 3 || fail "a stop right after the start, then SIGKILL at term_timeout, left the gateway running: $(leftovers | tr '\n' ' ')"; }
-	pass "a gateway that ignores SIGTERM gone within 10 s of a stop; nothing left after SIGKILL to the supervisor, or after a stop at the start"
+	pass "a gateway that ignores SIGTERM gone within 7 s of a stop; nothing left after SIGKILL to the supervisor, or after a stop at the start"
 }
 
 check_reads_need_no_unlock() {

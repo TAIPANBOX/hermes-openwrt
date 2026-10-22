@@ -762,7 +762,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     gateway; no recorded model request holds one), `check_agent_diagnostics_still_work`
     (docs/examples/router_check.sh, a ping with unprivileged ICMP closed as on a router, /tmp, the
     data directory, sysfs, the resolver, no_new_privs off), `check_stop_leaves_nothing_running` (a
-    gateway that ignores SIGTERM gone within term_timeout; nothing left after SIGKILL to ujail or a
+    gateway that ignores SIGTERM gone within 7 s, by the sandbox's own 5 s and before ujail's 8; nothing left after SIGKILL to ujail or a
     stop at the start), `check_gateway_runs_as_hermes_user` (every process of the service but
     ujail); `scripts/gate-package.sh` `check_gateway_keys_hidden_from_its_user` (no process of the
     service gives hermes the key); teeth: `scripts/teeth-unlock.sh` faults 63 to 73, which refuse a
