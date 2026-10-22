@@ -534,7 +534,7 @@ mutants = [
      '    if status in ("held", "approving"):', '    if status == "held":',
      'test_card_waits_through_an_approval_in_progress'),
     ('the session dropped before there is an outcome', 'openwrt_unlock.py',
-     '    if not text:\n        return\n    with _sessions_lock:', '    with _sessions_lock:',
+     '    if not text and a.get("status") not in OUTCOME_LINE:\n        return\n    with _sessions_lock:', '    with _sessions_lock:',
      'test_card_waits_through_an_approval_in_progress'),
     ('a decided card kept for ever', 'openwrt_unlock.py', '    _cards.pop(aid, None)', '    pass',
      'test_card_waits_through_an_approval_in_progress'),

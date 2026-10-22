@@ -527,9 +527,12 @@ expect_red "the bounding set left whole" check_agent_tools_cannot_read_router_se
 # ---- the owner's client and held changes (0.21.5-r16) ----
 
 # ---- 74. the owner's token left in the gateway's environment ----
-# Read and kept by the plugin, but not taken out: every process a tool starts would inherit it.
+# Read and kept, but not taken out: every process a tool starts would inherit it. The gateway's
+# sitecustomize and the plugin each take it out, so both go, or the other keeps the check green.
 plant "$PLUGIN" '    token = os.environ.pop("OPENWRT_MCP_OWNER_TOKEN", "").strip()' \
 	'    token = os.environ.get("OPENWRT_MCP_OWNER_TOKEN", "").strip()'
+plant usr/lib/hermes-agent/gateway-boot/sitecustomize.py '_owner_token = os.environ.pop("OPENWRT_MCP_OWNER_TOKEN", "")' \
+	'_owner_token = os.environ.get("OPENWRT_MCP_OWNER_TOKEN", "")'
 expect_red "the owner's token left in the environment" check_owner_token_never_reaches_the_agent
 
 # ---- 75. no owner's client paired ----

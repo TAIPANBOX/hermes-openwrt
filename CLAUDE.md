@@ -874,6 +874,28 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `scripts/gate-package.sh` `check_needs_an_openwrt_mcp_that_redacts` (the floor, 0.5.0.5, and the
     capability); teeth: `scripts/teeth-unlock.sh` faults 74 to 86, `scripts/teeth-runtime.py`
     (twenty-five mutants), `scripts/teeth-luci.sh` faults 43 to 46.)
+    `@measured` 2026-10-22 20:09-20:15 BST on a Flint 2 (25.12.5, owner profile, one Telegram id
+    allowed), hermes-agent 0.21.5-r16, luci-app-hermes 0.21.5-r4 and openwrt-mcp 0.5.0.5 from the
+    artifact of CI run 39834353881 (source tree b7af8a9, the tree of 0d3d305), installed over r14 and
+    taken back to r14, LuCI r3 and openwrt-mcp 0.5.0.4 from the feed afterwards, with the 23 files of
+    /etc/config, /etc/openwrt-mcp, /etc/hermes-agent and /etc/apk/world checksummed equal to before and
+    the package list equal; a test PIN and phone on hermes-main, kept in RAM, removed with the rest.
+    The start paired hermes-main-owner (its token 0600 root), wrote hermes_main_approval (approver
+    hermes-main-owner, pin+totp, approvals on) and hermes_main_hold, and security_status named the
+    allowed id and approvals_ready true. With the gateway stopped, so no card reached Telegram, and the
+    owner's client driven with its token as the plugin drives it: the agent's own mfa_unlock was
+    refused without a try; the owner's opened the window; a port forward from wan in the open window
+    answered HELD, the firewall file and the ruleset (counters aside) unchanged; action_list gave
+    openwrt-mcp's card; action_approve with the PIN and a fresh code applied it and fw4 had `tcp dport
+    2224 dnat ip to 192.168.1.250:22`; the same approval again was refused ("is applied"); the agent
+    confirmed it without an unlock, then removed it in the window, not held, and the ruleset was back
+    to the start; a second one, approved after a firewall section was added by hand, was refused for
+    the changed configuration and stayed held; reject needed no factor; mfa_lock closed the window.
+    One turn of `hermes chat --oneshot` (anthropic/claude-haiku-5.5 through OpenRouter, 4 tool calls)
+    asked for a port forward: it read with uci_get, called uci_apply once, got HELD, did not retry,
+    and said it waits for the owner's approval and would not ask for a PIN or a code; it also told
+    the owner to send /unlock first, which an approval does not need. Not run on hardware: the card
+    and its buttons in Telegram, and the injected turn (the gateway was stopped on purpose).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
