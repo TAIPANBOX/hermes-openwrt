@@ -894,8 +894,19 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     One turn of `hermes chat --oneshot` (anthropic/claude-haiku-5.5 through OpenRouter, 4 tool calls)
     asked for a port forward: it read with uci_get, called uci_apply once, got HELD, did not retry,
     and said it waits for the owner's approval and would not ask for a PIN or a code; it also told
-    the owner to send /unlock first, which an approval does not need. Not run on hardware: the card
-    and its buttons in Telegram, and the injected turn (the gateway was stopped on purpose).
+    the owner to send /unlock first, which an approval does not need. Not run on hardware then: the
+    card and its buttons in Telegram, and the injected turn (the gateway was stopped on purpose).
+    `@measured` 2026-10-22 22:52 BST on the same Flint 2, with r16, LuCI r4 and openwrt-mcp 0.5.0.5
+    from the feed and the PIN and a phone set by the owner in LuCI: asked through Telegram for the
+    same port forward, the agent got HELD, the card came from the bot, `/approve` and then the PIN
+    and a code applied it (openwrt-mcp's audit: action_approve OK, uci_apply OK), fw4 had the rule,
+    and the agent, told the outcome in its chat, read the router back and called uci_confirm itself
+    twelve seconds later; the rule and the firewall file were then put back by hand. Two limits seen
+    on the way, named and not fixed: a bare PIN sent while no approval waits for one is an /unlock
+    and opens the window, and the agent still tells the owner to send /unlock first.
+    `@decided 2026-10-22` (the owner's, paraphrased): a code from the app must still work while it is
+    typed after the PIN. openwrt-mcp 0.5.0.6 (the fork's PR #10, pinned in CI at 2075e0b) accepts a
+    code until 60 s after it leaves the app's screen, two steps back and one ahead.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

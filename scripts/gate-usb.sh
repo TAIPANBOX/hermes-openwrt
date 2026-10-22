@@ -266,7 +266,13 @@ check_copy_that_differs_switches_nothing() {
 #!/bin/sh
 /bin/cp "$@" || exit $?
 for last; do :; done
-f=$(find "$last" -name s3.json | head -n 1); [ -n "$f" ] && printf X | dd of="$f" bs=1 seek=100 conv=notrunc 2>/dev/null
+# The byte written is the one that was there plus one: a fixed byte equals the random one there
+# once in 256 runs, and then nothing is spoiled and the gate goes red for no fault of hermes-usb.
+f=$(find "$last" -name s3.json | head -n 1)
+if [ -n "$f" ]; then
+	b=$(dd if="$f" bs=1 skip=100 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')
+	printf "\\$(printf %o $(( (b + 1) % 256 )))" | dd of="$f" bs=1 seek=100 conv=notrunc 2>/dev/null
+fi
 exit 0
 CP
 	chmod 0755 /tmp/badcp/cp
