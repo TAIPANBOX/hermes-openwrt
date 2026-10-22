@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-label="hermes-openwrt: Hermes Agent as a native OpenWrt service, measured on two routers">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-label="hermes-openwrt: Hermes Agent as a native OpenWrt service, measured on three routers">
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
     <stop offset="0" stop-color="#0a0e16"/><stop offset="0.55" stop-color="#0d1117"/><stop offset="1" stop-color="#101826"/>
@@ -51,8 +51,8 @@
 <!-- three facts, the ones a reader decides on -->
 <g transform="translate(72,240)">
   <rect x="0" y="0" width="232" height="62" rx="10" fill="#141a23" stroke="#1b2331"/>
-  <text x="18" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">RUNS ON</text>
-  <text x="18" y="48" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="600" fill="#e6edf3">two real routers</text>
+  <text x="18" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">TESTED ON</text>
+  <text x="18" y="48" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="600" fill="#e6edf3">three real routers</text>
 
   <rect x="252" y="0" width="232" height="62" rx="10" fill="#141a23" stroke="#1b2331"/>
   <text x="270" y="26" font-family="ui-sans-serif,system-ui,sans-serif" font-size="11" letter-spacing="0.6" fill="#69788b">COSTS</text>

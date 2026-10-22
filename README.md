@@ -4,9 +4,9 @@
 
 # hermes-openwrt
 
-[**Hermes Agent**](https://github.com/NousResearch/hermes-agent) packaged for the router
-it runs on: an `apk` for OpenWrt 25.12, a signed feed, a LuCI page,
-and figures measured on hardware rather than in a container.
+[**Hermes Agent**](https://github.com/NousResearch/hermes-agent) packaged to run on the router
+itself: an `apk` for OpenWrt 25.12, a signed feed, a LuCI page, and figures measured on real
+routers rather than in a container.
 
 [![ci](https://github.com/TAIPANBOX/hermes-openwrt/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/hermes-openwrt/actions/workflows/ci.yml)
 ![OpenWrt 25.12](https://img.shields.io/badge/OpenWrt-25.12-2dd4bf)
@@ -19,32 +19,36 @@ and figures measured on hardware rather than in a container.
 
 ![The agent runs on the router, the model runs elsewhere, and the router itself is reached through a narrow audited window](docs/hero.svg)
 
+**Current release**, in the feed since 2026-10-09: `hermes-agent` 0.21.5-r14, `openwrt-mcp`
+0.5.0.4-r1, `luci-app-hermes` 0.21.5-r3 and `hermes-agent-telegram` 0.21.5-r1.
+
 ## What it is, and what it is not
 
-Hermes living on your router, inside your home network: an assistant for the network it sits
-in, on all the time. The router runs the agent; a provider you choose runs the model, a free one
-included. It has no browser, so it does not book, buy or sign in to sites, and it does search and
-read ordinary web pages without a web API key.
+Hermes runs on your router, always on, as an assistant for the network it sits in. The router
+runs the agent; a model provider you choose runs the model, and free providers work too. The
+package has no browser, so the agent cannot book, buy or sign in to websites. It can still
+search the web and read ordinary pages, without a search API key.
 
 | Use | What it looks like | Status |
 |---|---|---|
-| **The home network, from a phone** | "why is the internet slow?" in Telegram; it runs commands on the router and answers from their output | measured on both routers: a five-command diagnosis in 18 to 25 s; on a clean Flint 2 with 0.21.5-r9's ping, 9 s ([measured](docs/measured.md#the-agents-own-ping)) |
-| **A watch that speaks only when something is wrong** | every hour a script collects loss, latency, DNS, memory, flash and temperature; the model reads them in one call and stays silent if all is normal | 19 hours on a Brume 2, one model call per check ([one way it stays silent](docs/use.md#scheduled-jobs-in-practice)) |
-| **A morning message** | weather, the exchange rate and one news item at 08:00 | delivered on time; a small free model skipped the search it was asked for |
-| **An assistant that is always on** | reminders and lists set in plain words in a chat | not measured yet |
+| **The home network, from a phone** | Ask "why is the internet slow?" in Telegram. The agent runs commands on the router and answers from what they print | Measured on the Flint 2 and the Brume 2: a five-command diagnosis in 18 to 25 s; 9 s on a freshly installed Flint 2 with 0.21.5-r9, which lets the agent ping ([measured](docs/measured.md#the-agents-own-ping)) |
+| **A watch that speaks only when something is wrong** | Every hour a script collects loss, latency, DNS, memory, flash and temperature. The model reads them in one call and says nothing if all is well | Ran for 19 hours on a Brume 2, one model call per check ([how it stays silent](docs/use.md#scheduled-jobs-in-practice)) |
+| **A morning message** | Weather, the exchange rate and one news item at 08:00 | Arrived on time; a small free model skipped the search it was asked to do |
+| **An assistant that is always on** | Reminders and lists, set in plain words in a chat | Not measured yet |
 
-For an agent that browses, books or signs in, run Hermes on a machine with 2 GB or more; the
-router can still serve it as a narrow, audited tool provider through
-[openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp). More: [docs/use.md](docs/use.md).
+If you need an agent that browses, books or signs in, run Hermes on a machine with 2 GB of
+memory or more. The router can still serve that agent as a narrow, audited tool provider
+through [openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp). More: [docs/use.md](docs/use.md).
 
-## The routers it runs on
+## Tested on three routers
 
 ![The three test routers, Flint 2, Brume 2 and Beryl AX, each with the same nine measurements](docs/boxes.svg)
 
-Three GL.iNet routers on **vanilla OpenWrt 25.12.5**, not their vendor firmware, chosen as three
-shapes of one job: a Wi-Fi router, a wired gateway, and a 512 MB travel router that keeps Hermes
-on a USB stick. Each card holds every figure for that router; each was cleaned of the package
-first and put back as found. How every figure was taken: [docs/measured.md](docs/measured.md).
+Three GL.iNet routers running **vanilla OpenWrt 25.12.5**, not the vendor firmware. They cover
+three shapes of the same job: a Wi-Fi router (Flint 2), a wired gateway (Brume 2), and a 512 MB
+travel router that keeps Hermes on a USB stick (Beryl AX). Each card holds every figure for its
+router. Before each run the router was cleaned of the package, and afterwards it was put back
+as it was. How each figure was taken: [docs/measured.md](docs/measured.md).
 
 ## Where it installs: the router's flash or a USB stick
 
@@ -52,11 +56,11 @@ first and put back as found. How every figure was taken: [docs/measured.md](docs
 
 | | When | What it takes | Without the stick | Undo |
 |---|---|---|---|---|
-| **Internal flash**, the default | 450 MB or more free on `/overlay` | nothing beyond [Install](#install) | no stick involved | `apk del` |
-| **Data on the stick**, `hermes-usb` | the same, and you would rather keep the repeated writes off the router's flash | the USB packages, then one command (below) | Hermes stays off and says why; the router runs as usual | `hermes-usb back` |
-| **Everything on the stick**, extroot | under 450 MB free, such as the Beryl AX (256 MB of NAND) | OpenWrt's extroot (format, fstab, copy, one reboot), then [Install](#install) as usual | the router boots its own layer, without Hermes | NAND: drop the two fstab sections under `/rwm` and reboot; eMMC: pull the stick and power-cycle |
+| **Internal flash**, the default | 450 MB or more free on `/overlay` | Nothing beyond [Install](#install) | No stick involved | `apk del` |
+| **Data on a stick**, `hermes-usb` | The same, when you would rather keep the repeated writes off the router's flash | The USB packages, then one command (below) | Hermes stays off and says why; the router works as usual | `hermes-usb back` |
+| **Everything on a stick**, extroot | Under 450 MB free, as on the Beryl AX (256 MB of NAND) | OpenWrt's extroot (format, fstab, copy, one reboot), then [Install](#install) as usual | The router boots its own layer, without Hermes | NAND: remove the two fstab sections under `/rwm` and reboot; eMMC: pull the stick and power-cycle |
 
-The data on a stick, after [Install](#install):
+To move the data to a stick, after [Install](#install):
 
 ```sh
 apk update && apk add kmod-usb-storage block-mount kmod-fs-ext4 e2fsprogs
@@ -66,17 +70,17 @@ hermes-usb move /dev/sda1 --format    # erases that partition, makes ext4, moves
 hermes-usb status
 ```
 
-Extroot's commands, what each refuses, and every measurement: [docs/usb.md](docs/usb.md).
+Extroot's commands, what each one refuses, and every measurement: [docs/usb.md](docs/usb.md).
 
 ## Install
 
 | You need | |
 |---|---|
-| **Router** | vanilla OpenWrt 25.12 (not a vendor firmware) on aarch64: `cat /etc/apk/arch` prints `aarch64_cortex-a53` or `aarch64_generic`. Tested on a Flint 2, a Brume 2 and a Beryl AX |
-| **Memory** | 1 GB. On 512 MB one conversation at a time fits, with little to spare |
-| **Flash** | about 350 MB for the packages, then the data directory (37 MB at the first start, growing). Short of flash: [a USB stick](#where-it-installs-the-routers-flash-or-a-usb-stick) |
-| **A model** | a key for any OpenAI-compatible provider, free ones included; the service does not start without one |
-| **A way back** | a backup kept off the router (`sysupgrade -b /tmp/backup.tar.gz`), and your router's vendor firmware at hand |
+| **Router** | Vanilla OpenWrt 25.12 (not a vendor firmware) on aarch64: `cat /etc/apk/arch` prints `aarch64_cortex-a53` or `aarch64_generic`. Tested on a Flint 2, a Brume 2 and a Beryl AX |
+| **Memory** | 1 GB. With 512 MB, one conversation at a time fits, with little to spare |
+| **Flash** | About 350 MB for the packages, plus the data directory (37 MB at the first start, and it grows). Short of flash: [use a USB stick](#where-it-installs-the-routers-flash-or-a-usb-stick) |
+| **A model** | A key for any OpenAI-compatible provider, free ones included. The service does not start without one |
+| **A way back** | A backup kept off the router (`sysupgrade -b /tmp/backup.tar.gz`), and your router's vendor firmware at hand |
 
 ![Install: trust the feed, add the packages, give it a model, start it](docs/install-flow.svg)
 
@@ -92,17 +96,18 @@ echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/pack
 apk update && apk add hermes-agent luci-app-hermes
 ```
 
-If apk ends with `N errors;` after `Connection aborted`, a download from OpenWrt's own server was
-cut off: run the same `apk add` again until it ends with `OK:`.
+If apk ends with `N errors;` after `Connection aborted`, a download from OpenWrt's own server
+was cut off. Run the same `apk add` again until it ends with `OK:`.
 
-No `--allow-untrusted` and no `--force`: that is the point of signing the feed. `hermes-agent`
-pulls in `openwrt-mcp` from the same feed and creates the `hermes` account the agent runs as.
+You need no `--allow-untrusted` and no `--force`; that is what signing the feed is for.
+`hermes-agent` pulls in `openwrt-mcp` from the same feed and creates the `hermes` account the
+agent runs as.
 
 **2. Give it a model and start it.** The service ships switched off.
 
-Typed in an SSH session on the router, `printf` is a shell builtin and the key never reaches a
-command line another process can read; sending the same line as `ssh router "..."` would put
-it in one.
+Type this in an SSH session on the router. `printf` is a shell builtin, so the key never
+appears on a command line that another process could read. Sending the same line as
+`ssh router "..."` would put it on one.
 
 ```sh
 printf '%s' 'sk-...' > /etc/hermes-agent/provider.key && chmod 600 /etc/hermes-agent/provider.key
@@ -114,22 +119,23 @@ logread -e hermes | tail -n 20
 ```
 
 Pick a strong model. On 2026-10-08, on a Flint 2 and a Brume 2 through Telegram, `gpt-6.1-sol`
-pinged the gateway and the internet, checked DNS and the ports and reported only what it saw,
-while `openai/gpt-4o-mini` with the same package looped on its memory tool, skipped the ping and
-advised a reboot. On OpenRouter a diagnosis with `openai/gpt-6.1-sol` costs a few cents; a ChatGPT
-subscription runs it at no extra cost, picked per chat (see below).
+through a ChatGPT subscription pinged the gateway and the internet, checked DNS and the ports,
+and reported only what it saw. With the same package, `openai/gpt-4o-mini` looped on its memory
+tool, skipped the ping and suggested a reboot. OpenRouter bills `openai/gpt-6.1-sol` per token;
+through a ChatGPT subscription it costs nothing extra, and you pick it per chat (see below).
 
-Or in the browser: **Services -> Hermes Agent -> Settings**. The key is a root-only file and the
-page can write it but never read it back. Which models can drive it is measured
-[below](#which-models-can-drive-it).
+You can also do this in the browser, under **Services -> Hermes Agent -> Settings**. The key
+goes into a root-only file: the page can write it but never reads it back. Which models can
+drive the agent is measured [below](#which-models-can-drive-it).
 
 **3. Reach it from a phone** (optional).
 
 ![A phone talks to Telegram, the router polls Telegram outbound, and an allowlist decides who is answered](docs/telegram.svg)
 
-The router opens no port: it polls Telegram outbound, so it works behind NAT and CGNAT. Only the
-numeric ids you allow are answered, and the service refuses to start with nobody allowed rather
-than answer nobody in silence. The token is a root-only file, like the key.
+The router opens no port. It polls Telegram over an outbound connection, so it works behind NAT
+and CGNAT. Only the numeric user ids you allow get an answer, and with nobody allowed the
+service refuses to start rather than quietly answer no one. The token is a root-only file, like
+the key.
 
 ```sh
 apk add hermes-agent-telegram
@@ -140,14 +146,14 @@ uci add_list hermes.telegram.allow_user_id=<your numeric id, from @userinfobot>
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
-The first reply in a new chat may be Hermes's own onboarding question, which offers to build a
-short profile of you; answer it, or send your message again. More, including what a first test
-chat shows: [docs/telegram.md](docs/telegram.md).
+In a new chat, the first reply may be Hermes's own onboarding question, which offers to build a
+short profile of you. Answer it, or send your message again. More, including what a first test
+chat looks like: [docs/telegram.md](docs/telegram.md).
 
 **4. Let it change the router** (optional). In the default `owner` profile the agent reads the
-router freely and changes it only after you unlock it with a second factor. With none set,
-nothing can change the router through it. Set one in **Services -> Hermes Agent -> Security**,
-or over SSH, where the QR code is printed in the terminal:
+router freely but changes it only after you unlock it with a second factor. Until you set a
+factor, nothing can change the router through the agent. Set one under **Services -> Hermes
+Agent -> Security**, or over SSH, where the QR code is printed in the terminal:
 
 ```sh
 python3 -c 'import getpass; print(getpass.getpass("PIN: "))' | openwrt-mcp pin set hermes-main
@@ -157,17 +163,21 @@ uci set hermes.security.factor=pin+totp    # none, pin, totp or pin+totp
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
-The first line reads the PIN without showing it, through the python3 the package already
-needs (OpenWrt's BusyBox has no `stty`); run it in an SSH session with a terminal (`ssh -t`).
-Then `/unlock` and the PIN in one message, `/unlock 4821`, in the private chat opens a 15-minute
-window (`/unlock 4821 503917` with `pin+totp`; the digits alone work too). `/unlock` on its own
-opens nothing: the bot answers with what to send. On the Security page the PIN and the factor
-have a Save each, and a PIN unlocks nothing until the factor asks for it. The window lets the
-agent change the network, Wi-Fi, firewall, DHCP and system settings (and add official packages if
-you turned that on), not run its own commands as root: [how it keeps the router yours](#how-it-keeps-the-router-yours).
+The first line reads the PIN without echoing it, using the python3 the package already depends
+on (OpenWrt's BusyBox has no `stty`). Run it in an SSH session with a terminal (`ssh -t`).
 
-**Upgrading.** `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (and
-`hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`: an upgrade
+To unlock, send `/unlock` and the PIN as one message in the private chat, for example
+`/unlock 4821`. That opens a 15-minute window. With `pin+totp`, send both: `/unlock 4821 503917`.
+The digits alone work too. `/unlock` on its own opens nothing, and the bot replies with what to
+send. On the Security page the PIN and the factor each have their own Save, and a PIN unlocks
+nothing until the factor asks for it.
+
+During the window the agent can change network, Wi-Fi, firewall, DHCP and system settings (and
+install official packages, if you turned that on). It cannot run its own commands as root:
+[how it keeps the router yours](#how-it-keeps-the-router-yours).
+
+**Upgrading.** Run `apk update && apk upgrade hermes-agent luci-app-hermes openwrt-mcp` (plus
+`hermes-agent-telegram` if you added it), then `/etc/init.d/hermes-agent restart`. An upgrade
 does not restart a running gateway, and it leaves the start at boot as you set it. Do not
 install a fixed version with `apk add hermes-agent=<version>`: that pins it in
 `/etc/apk/world`, and later upgrades silently keep the old one.
@@ -179,49 +189,59 @@ install a fixed version with `apk add hermes-agent=<version>`: that pins it in
 apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp
 ```
 
-That leaves the data, the keys, the configuration and the `hermes` account, on purpose; how to
-take all of it away is in [docs/install-notes.md](docs/install-notes.md#removing-it).
+This leaves the data, the keys, the configuration and the `hermes` account in place, on
+purpose. How to remove all of it: [docs/install-notes.md](docs/install-notes.md#removing-it).
 
-An agent doing this for you: [docs/agent-install.md](docs/agent-install.md) is the same install
-written as checks an agent runs and the output it must see.
+For an agent doing the install: [docs/agent-install.md](docs/agent-install.md) is the same
+procedure, written as checks to run and the output each one must show.
 
 ## How it keeps the router yours
 
 ![The settings page can write a key and can ask whether one is present; nothing returns one](docs/security.svg)
 
-Keys live in root-only files under `/etc/hermes-agent`. The LuCI page can write one and ask
-whether one exists; no page and no call returns one, and keys stay out of command lines, UCI and
-procd's service table.
+Keys live in root-only files under `/etc/hermes-agent`. The LuCI page can write a key and ask
+whether one exists, but no page and no call ever returns one. Keys also stay out of command
+lines, UCI and procd's service table.
 
 | profile | runs as | the router |
 |---|---|---|
 | `owner` (default) | `hermes`, unprivileged | read through openwrt-mcp; changed only through it, after an unlock |
-| `assistant` | `hermes`, no terminal, code or file tools | only through an MCP server you set up |
-| `root` | root, warned at every start | directly, no unlock |
+| `assistant` | `hermes`, with no terminal, code or file tools | only through an MCP server you set up |
+| `root` | root, with a warning at every start | directly, with no unlock |
 
 ![An unlock: the message is deleted before anything else, openwrt-mcp checks the factor, a window opens, a change the agent does not confirm rolls back by itself](docs/unlock.svg)
 
-The owner unlocks from the private Telegram chat with a PIN, an app code or both. The message is
-deleted before anything else and never reaches the model or a log; five wrong tries lock
-unlocking for fifteen minutes. Your consent is the `/unlock` itself: after a change the agent
-checks that the router still answers and confirms the change; one it does not confirm (the router
-lost its connection, or the agent never got that far) is undone by itself after about 90 seconds,
-after a reboot too. In a window the agent can change settings, the VPN and services; it cannot run a command
-over ubus, write a file, flash a firmware or reboot, and openwrt-mcp refuses a setting that would
-run code (a firewall include). It installs no package unless you opt in on the Security page ("Let
-the agent install packages from the official OpenWrt feed", or `hermes.security.packages=official`);
-then only from the official OpenWrt feed, in a window, after a dry run it tells you about, and only
-with openwrt-mcp 0.5.0.4 or later. The agent reads the Wi-Fi and network settings too,
-so it can set up a guest network, but never a key in them: openwrt-mcp answers every Wi-Fi key,
-WireGuard private key and password as `<redacted>`, and the package grants those reads only when
-openwrt-mcp says it does that. Everything, with the limits named:
-[docs/security.md](docs/security.md).
+The owner unlocks from the private Telegram chat with a PIN, a code from an authenticator app,
+or both. The unlock message is deleted before anything else happens, and it never reaches the
+model or a log. Five wrong tries block unlocking for fifteen minutes.
+
+The `/unlock` itself is your consent. After a settings change, the agent checks that the router
+still answers and then confirms the change. A settings change nobody confirms (the router lost
+its connection, or the agent never got that far) rolls itself back, after about 90 seconds by
+default, and after a reboot too. Starting or stopping a service, and installing a package, are
+not rolled back.
+
+In a window the agent can change settings, the VPN and services. It cannot run a command over
+ubus, write a file, flash firmware or reboot, and openwrt-mcp refuses the settings it knows run
+code, such as a firewall include. It installs packages only if you opt in on the Security page
+("Let the agent install packages from the official OpenWrt feed", or
+`hermes.security.packages=official`). Even then it installs only from the official OpenWrt feed
+and only in a window, and the agent is told to do a dry run first and tell you what it would
+install; this needs openwrt-mcp 0.5.0.4 or later.
+
+The agent can read every UCI config, Wi-Fi and network included, so it can set up a guest
+network or check a package it installed, and it can see which services are running. openwrt-mcp
+answers Wi-Fi keys, WireGuard private keys and passwords as `<redacted>`, recognising them by
+option name, and the package grants these wider reads only when openwrt-mcp reports that it
+redacts. A secret kept under an option whose name does not say so (a token inside a DDNS update
+URL, say) is read as it is, and whatever the agent reads goes to your model provider. Everything,
+with the limits named: [docs/security.md](docs/security.md).
 
 ## Measured on hardware
 
-The first full measurement, on the Flint 2 and the Brume 2 with **Hermes 0.21.5** on 2026-09-25,
-where a conversation is a real diagnosis (`openai/gpt-4o-mini` running five commands through the
-terminal tool):
+The first full measurement ran on 2026-09-25 on the Flint 2 and the Brume 2 with
+**Hermes 0.21.5**. A conversation there was a real diagnosis: `openai/gpt-4o-mini` running five
+commands through the terminal tool.
 
 ![Measured on hardware](docs/measured.svg)
 
@@ -242,9 +262,9 @@ terminal tool):
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](docs/rerun.svg)
 
-Step 1 of [Install](#install) and the Telegram add-on, run as written against the published feed
-(agent 0.21.5-r5), with `gpt-5.6-luna` through a ChatGPT subscription. The same figures are on the
-router cards above; the full table is in
+Step 1 of [Install](#install) and the Telegram add-on, run exactly as written against the
+published feed (agent 0.21.5-r5), with `gpt-5.6-luna` through a ChatGPT subscription. The router
+cards above carry the same figures; the full table is in
 [docs/measured.md](docs/measured.md#re-run-on-the-published-release-2026-10-04).
 
 ### How many agents fit alongside your other services
@@ -252,23 +272,25 @@ router cards above; the full table is in
 ![How many agents fit on a 1 GB router](docs/concurrency.svg)
 
 - **Conversations in one gateway** (how Telegram serves several chats) are threads of a process
-  already running: one to four at once kept all of Hermes flat at 388 MB on the Flint 2 and
-  445 MB on the Brume 2.
-- **Separate agents** are a Python interpreter each, about 140 MB: two fit under the default
-  512 MB ceiling; a third fills it, and the service restarts.
+  that is already running. One to four at once kept all of Hermes flat at 388 MB on the Flint 2
+  and 445 MB on the Brume 2.
+- **Separate agents** each need their own Python interpreter, about 140 MB. Two fit under the
+  default 512 MB ceiling; a third fills it, and the service restarts.
 - **With the ceiling lifted**, three fit on clean OpenWrt, leaving 201 to 216 MB.
 
-Plan on conversations, not agents. While the routers did their own job, the Flint 2's house
-traffic moved only by the line's own variation, with no loss, and a conversation took about a
-quarter of the Brume 2's WireGuard throughput, less at nice 10, which is why the service runs at
-nice 10. Details: [docs/measured.md](docs/measured.md).
+So plan on conversations, not separate agents. In a separate run on 2026-09-25, conversations
+ran while the routers did their own job. The Flint 2's household traffic moved only as much as
+the line itself varies, with no loss. On the Brume 2, a WireGuard tunnel carrying 574 Mbit/s
+fell to 414 and 404 Mbit/s with one and three conversations, and only to 439 Mbit/s at nice 10
+(one run per step), which is why the service runs at nice 10. Details:
+[docs/measured.md](docs/measured.md).
 
 ### Which models can drive it
 
 ![Which models can call a tool on the router](docs/models.svg)
 
-The same task for each, one turn on the Brume 2 through OpenRouter: read `/proc/uptime` with the
-terminal tool and give the uptime in minutes.
+The same task for each model, one turn on the Brume 2 through OpenRouter on 2026-09-25: read
+`/proc/uptime` with the terminal tool and give the uptime in minutes.
 
 | Model | Called the tool | Right | Wall clock | Note |
 |---|---|---|---|---|
@@ -282,71 +304,78 @@ terminal tool and give the uptime in minutes.
 | `meta-llama/llama-3.3-70b-instruct` | cut off | no | 15 s | ran out of output tokens mid-call; Hermes refused to run the half-written command |
 | `google/gemma-3-12b-it` | **no** | no | 5 s | printed the call as JSON text |
 
-The floor is native tool calling, not size: an 8B model works, a 12B one without tool support
-does not. Pick for function calling.
+What decides it is native tool calling, not size: an 8B model works, and a 12B model without
+tool support does not. Choose a model for its function calling.
 
 Changing the router asks more of a model than one tool call. On 2026-10-08, on a Brume 2 and a
 Flint 2 through Telegram and openwrt-mcp, `gpt-6.1-sol` through a ChatGPT subscription ran the
 diagnosis correctly, while `gpt-4o-mini` looped on its memory tool and made a wrong firewall
-change. A subscription is signed in with `hermes-login chatgpt` and picked per chat with
+change. Sign in to a subscription with `hermes-login chatgpt` and pick it per chat with
 `/model gpt-6.1-sol --provider openai-codex` ([docs/providers.md](docs/providers.md)).
 
 ## How it is built
 
 ![Upstream, built inside the target release, one shim, packaged, signed locally](docs/build.svg)
 
-Hermes 0.21.5 is assembled, not ported: pip on OpenWrt resolves musllinux wheels and every wheel
-Hermes needs exists, so the package is built inside the OpenWrt release it targets, from one
-pinned upstream commit, every library at upstream's locked version, with one shim
+Hermes 0.21.5 is assembled, not ported. pip on OpenWrt resolves musllinux wheels and every
+wheel Hermes needs exists, so the package is built inside the OpenWrt release it targets: one
+pinned upstream commit, every library at the version upstream locks, and one shim
 (`webbrowser`). [docs/build.md](docs/build.md).
+
+Upstream has moved on to 0.22, but every release after 0.21.5 needs Python 3.14 for its
+dependencies, and OpenWrt 25.12.5 ships Python 3.13. So the package stays on 0.21.5 for now. A
+daily check opens one issue when upstream's latest release is newer than the packaged one.
 
 ### The signed feed
 
-The index and every package are signed with an EC key through `apk adbsign`, and signing happens
-on a workstation, never in CI: a router that trusts the key keeps trusting anything it signs.
+The index and every package are signed with an EC key through `apk adbsign`. Signing happens on
+a workstation, never in CI, because a router that trusts the key keeps trusting anything it
+signs.
 
 ## What it will not do
 
-- **Run the model on the router.** A router CPU spends minutes on the agent's system prompt
-  alone; the model lives elsewhere.
-- **Fit a small router.** About 400 MB of flash and 200 MB of RAM before any work. 512 MB holds
-  one conversation at a time, the packages on a stick (the Beryl AX above); below that, run
-  openwrt-mcp on the router (4 MB of flash, 7.4 MB of memory, measured) and keep Hermes elsewhere.
-- **Browse, see or draw.** Browser, vision, image generation and the wake-word stack are not
-  packaged; `ffmpeg` is, for voice messages.
+- **Run the model on the router.** A router CPU would spend minutes on the agent's system
+  prompt alone, so the model runs elsewhere.
+- **Fit a small router.** It takes about 400 MB of flash and 200 MB of RAM before doing any
+  work. 512 MB holds one conversation at a time, with the packages on a stick (the Beryl AX
+  above). Below that, run openwrt-mcp on the router (4 MB of flash, 7.4 MB of memory, measured)
+  and keep Hermes on another machine.
+- **Browse, see or draw.** The browser, vision, image generation and the wake-word stack are not
+  packaged. `ffmpeg` is, for voice messages.
 
-More than one provider at once, a ChatGPT subscription beside a key, `/model` per chat:
+Several providers at once, a ChatGPT subscription next to a key, `/model` per chat:
 [docs/providers.md](docs/providers.md).
 
 ## Testing it for us
 
-What helps most is what has not been measured yet:
+The most useful reports cover what has not been measured yet:
 
 1. **A reminder set in plain words in a chat**, and whether it arrives on time.
-2. **The gateway's memory over days.** The longest run so far was 19 hours, and in its
-   last 14.5 the gateway grew from 204 to 215 MB, too short to tell a leak from warming
-   up. That figure is the gateway's own resident memory; every hour or so:
+2. **The gateway's memory over days.** The longest run so far lasted 19 hours, and over its
+   last 14.5 the gateway grew from 204 to 215 MB: too short to tell a leak from warming up.
+   That figure is the gateway's own resident memory; to record it, run this every hour or so:
    `grep VmRSS /proc/$(pgrep -o -f '[m]ain.py gateway')/status`.
-3. **Web search with the model you use.** It works on a router (see
-   [the re-run](docs/measured.md#re-run-on-the-published-release-2026-10-04)), but
-   whether a model reaches for it unasked depends on the model.
+3. **Web search with the model you use.** Search works on a router (see
+   [the re-run](docs/measured.md#re-run-on-the-published-release-2026-10-04)), but whether a
+   model reaches for it unasked depends on the model.
 4. **Any aarch64 router other than the Flint 2, Brume 2 and Beryl AX**, with its numbers.
 
-Report what happened in an [issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose):
-the template asks for the router, the versions and the log. Before you paste a log, look
-for keys and tokens in it; the package keeps them out of its own lines, but a model's
-reply or a command's output can carry anything. A security problem goes through
-[SECURITY.md](SECURITY.md) instead, not an issue.
+Report what happened in an [issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose);
+the template asks for the router, the versions and the log. Before you paste a log, check it for
+keys and tokens. The package keeps them out of its own log lines, but a model's reply or a
+command's output can contain anything. Report a security problem through
+[SECURITY.md](SECURITY.md), not in an issue.
 
-To change the code yourself, [CONTRIBUTING.md](CONTRIBUTING.md) says how to build what CI
-builds, which checks cover which part, and what a pull request is held to.
+To change the code yourself, [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build what CI
+builds, which checks cover which part, and what a pull request has to pass.
 
 ## What is checked, and how
 
-Nothing here is verified by reading the archive. Every gate installs the packages into
-OpenWrt's own published rootfs and asks the running system. CI runs them on an arm64 runner
-(the feed's gate runs when the feed is published), and teeth scripts plant faults in the
-product and require a check to catch each one.
+Every gate that tests the product installs the packages into OpenWrt's own published rootfs and
+asks the running system, on an arm64 runner in CI (the feed's gate runs when the feed is
+published). `gate-apk-owner.sh` reads the built archives, and the gates that check the
+repository itself run on a plain runner. Teeth scripts plant faults in the product and require a
+check to catch each one.
 
 | gate | covers |
 |---|---|
@@ -359,6 +388,7 @@ product and require a check to catch each one.
 | `gate-upstream-watch.sh` | the daily check that opens one issue when upstream tags a newer release |
 | `gate-apk-owner.sh`, `gate-relabel.sh` | every file in every package is root's; the `aarch64_cortex-a53` package differs from the generic one only in its label |
 | `gate-figures.sh` | these figures drawn from their data; every picture, link and anchor resolves |
+| `gate-named-routers.sh`, `gate-scenarios-bound.sh` | no router but the three test routers is named; every scenario names a real check, and every check has a scenario |
 
 What each check proves, one by one: [docs/checks.md](docs/checks.md).
 
