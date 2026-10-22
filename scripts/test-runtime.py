@@ -1564,7 +1564,9 @@ print(json.dumps(u._turn_for({"id": "KQWPT", "status": "rejected"})))
     def test_card_waits_through_an_approval_in_progress(self):
         # openwrt-mcp lists a change as approving while an approval runs and as held again when the try
         # is refused. Neither is an outcome: the card stays one that can be approved, and the agent is
-        # told only the outcome, once, in the session the change was proposed from.
+        # told only the outcome, once, in the session the change was proposed from. Once there is an
+        # outcome, withdrawn included, the plugin keeps neither the card nor the session, so a router up
+        # for months does not grow them at six proposals an hour.
         probe = r"""
 import asyncio, json, openwrt_unlock as u
 class Msg:
@@ -1588,15 +1590,19 @@ async def run():
     for status in ("held", "approving", "held", "approving", "applied"):
         extra = {"result": 'Applied.\n  uci_confirm {"token": "T1"}'} if status == "applied" else {}
         await u._show(dict(rec, status=status, **extra))
-        seen.append(u._cards["KQWPT"]["shown"])
+        seen.append(u._cards.get("KQWPT", {}).get("shown", "gone"))
+    u._sessions["WTHDR"] = "other-session"
+    for status in ("held", "withdrawn"):
+        await u._show(dict(rec, id="WTHDR", status=status))
 asyncio.run(run())
-print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told}))
+print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told, "kept": sorted(u._cards) + sorted(u._sessions)}))
 """
         result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True, env=self.env)
         self.assertEqual(result.returncode, 0, result.stderr)
         got = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(got["seen"], ["held", "held", "held", "held", "applied"])
-        self.assertEqual(got["edits"], ["Approved and applied."])
+        self.assertEqual(got["seen"], ["held", "held", "held", "held", "gone"])
+        self.assertEqual(got["edits"], ["Approved and applied.", "Withdrawn by the agent. Nothing was applied."])
+        self.assertEqual(got["kept"], [])
         self.assertEqual(got["told"], [["chat-session", "[The owner approved KQWPT and it was app"]])
 
     def test_tool_search_is_off_unless_the_operator_set_it(self):
