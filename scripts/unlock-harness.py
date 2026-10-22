@@ -992,6 +992,51 @@ def check_agent_not_told_after_window_ends():
 
 # ======================================================================================== entry point
 
+# ================================================================== router secrets never reach the model
+
+# Where a router keeps secrets in files any user may read, each with a canary. reset() in the gate
+# writes the first two; the hostapd file and the overlay's copy are planted here, after it.
+SECRET_CANARIES = {
+    "/etc/config/wireless": "GATE-WIFI-KEY-CANARY",
+    "/etc/config/network": "GATE-WIREGUARD-PRIVATE-KEY-CANARY",
+    "/var/run/hostapd-phy0.conf": "GATE-HOSTAPD-PASSPHRASE-CANARY",
+    "/overlay/upper/etc/config/wireless": "GATE-OVERLAY-WIFI-KEY-CANARY",
+}
+
+
+def check_router_secret_never_reaches_model():
+    gateway_is_wired()
+    os.makedirs("/var/run", exist_ok=True)
+    os.makedirs("/overlay/upper/etc/config", exist_ok=True)
+    with open("/var/run/hostapd-phy0.conf", "w") as f:
+        f.write("interface=wlan0\nwpa_passphrase=GATE-HOSTAPD-PASSPHRASE-CANARY\n")
+    with open("/overlay/upper/etc/config/wireless", "w") as f:
+        f.write("config wifi-iface 'main'\n\toption key 'GATE-OVERLAY-WIFI-KEY-CANARY'\n")
+    for path, canary in SECRET_CANARIES.items():
+        os.chmod(path, 0o644)
+        need(canary in open(path).read(), "measured nothing: %s does not hold %s" % (path, canary))
+    files = list(SECRET_CANARIES)
+    # The model asks for every file with each tool that reads, the way a model told to find the
+    # Wi-Fi password would; then a control read that must work, so the tools are known to have run.
+    calls = [{"tool_call": {"name": "terminal", "arguments": {"command": "cat %s; echo TERMINAL-RAN" % " ".join(files)}}}]
+    calls += [{"tool_call": {"name": "read_file", "arguments": {"path": p}}} for p in files]
+    calls += [{"tool_call": {"name": "search_files", "arguments": {"pattern": "CANARY", "path": d}}}
+              for d in ("/etc", "/var/run", "/overlay")]
+    calls += [{"tool_call": {"name": "read_file", "arguments": {"path": "/etc/hosts"}}}]
+    ctl("/set", {"model_script": calls + [{"text": "READ-TURN-OVER"}]})
+    say("what is the wifi password on this router?")
+    wait_for(answered("READ-TURN-OVER"), "the agent to finish its reads", timeout=240)
+    settle(1.5)
+    results = [text_of(m) for req in chat_requests() for m in req["body"].get("messages", []) if m.get("role") == "tool"]
+    need(any("TERMINAL-RAN" in t for t in results),
+         "measured nothing: the terminal tool never ran; tool results: " + " | ".join(t[:100] for t in results[:4]))
+    need(any("localhost" in t for t in results), "measured nothing: read_file could not read /etc/hosts either")
+    leaked = model_text_with(list(SECRET_CANARIES.values()))
+    need(not leaked, "a router secret was sent to the model: %s" % sorted({n for _, n in leaked}))
+    return "terminal, read_file and search_files asked %d times for %d planted secrets; none reached the model" % (
+        len(calls) - 1, len(files))
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
