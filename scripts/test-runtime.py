@@ -2791,6 +2791,104 @@ start_service; echo "start=$?"
                              capture_output=True, text=True)
         self.assertEqual(pre.returncode, 0, pre.stderr)
 
+    # OpenAI's own API as the main endpoint. Its current models take function tools only on the
+    # Responses API: @measured 2026-10-23 with curl, /v1/chat/completions answered 400 for
+    # gpt-6.1-sol, gpt-5.6-luna and gpt-6-luna with a tool offered, /v1/responses gave the tool call.
+    # Upstream uses Responses for that host whatever a config says, and until 0.21.5-r18 the bridge
+    # wrote chat_completions and the preflight required it: on a Flint 2 with r17 the same day, every
+    # start with that endpoint was "startup refused (upstream provider, endpoint, model or credential
+    # conflicts with UCI)". The data-residency hosts are the same family.
+    OPENAI_ENDPOINTS = ("https://api.openai.com/v1", "https://us.api.openai.com/v1")
+
+    ROUTES_CHECK = (
+        # Both routes the gateway resolves, and the agent it builds, as the wrapper leaves them.
+        "import os, sys\n"
+        "from hermes_cli.runtime_provider import resolve_runtime_provider as r\n"
+        "endpoint, mode = sys.argv[1], sys.argv[2]\n"
+        "for x in (r(), r(requested='custom')):\n"
+        "    got = (x['base_url'].rstrip('/'), x['api_mode'], x['api_key'] == os.environ['OPENAI_API_KEY'])\n"
+        "    assert got == (endpoint, mode, True), got\n"
+        "from gateway.run import _resolve_runtime_agent_kwargs_for_provider\n"
+        "from run_agent import AIAgent\n"
+        "kwargs = _resolve_runtime_agent_kwargs_for_provider('uci', target_model='runtime-model')\n"
+        "for name in ('model', 'request_overrides', 'capabilities'):\n"
+        "    kwargs.pop(name, None)\n"
+        "agent = AIAgent(model='runtime-model', quiet_mode=True, skip_context_files=True, skip_memory=True, **kwargs)\n"
+        "got = (agent.api_mode, str(agent.client.base_url).rstrip('/'), agent.client.api_key == os.environ['OPENAI_API_KEY'])\n"
+        "assert got == (mode, endpoint, True), got\n"
+    )
+
+    def test_openai_api_key_as_the_main_model_starts_on_the_responses_api(self):
+        for endpoint in self.OPENAI_ENDPOINTS:
+            with self.subTest(endpoint=endpoint):
+                configured = self.configure(endpoint=endpoint)
+                self.assertEqual(configured.returncode, 0, configured.stderr)
+                self.assertEqual(self.config()["model"]["api_mode"], "codex_responses")
+                # The real wrapper, bridge and preflight included, down to the gateway's exec.
+                started = self.wrapper_env(endpoint, key="main-key-canary")
+                self.assertEqual(started.returncode, 0, started.stderr)
+                gateway = gateway_json(started.stdout)
+                check = subprocess.run(["python3", "-c", self.ROUTES_CHECK, endpoint, "codex_responses"],
+                                       env=gateway, check=False, capture_output=True, text=True)
+                self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
+
+    def test_responses_api_only_for_openai_itself(self):
+        # The other way. A lookalike host, which upstream's host test refuses as OpenAI's, stays on
+        # chat completions like any other endpoint, and so does a LAN one.
+        for endpoint in ("https://api.openai.com.example.test/v1", "http://127.0.0.1:9/v1"):
+            with self.subTest(endpoint=endpoint):
+                self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+                self.assertEqual(self.config()["model"]["api_mode"], "chat_completions")
+                started = self.wrapper_env(endpoint, key="main-key-canary")
+                self.assertEqual(started.returncode, 0, started.stderr)
+                check = subprocess.run(["python3", "-c", self.ROUTES_CHECK, endpoint, "chat_completions"],
+                                       env=gateway_json(started.stdout), check=False, capture_output=True, text=True)
+                self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
+        # On OpenAI's own host, a route left on chat completions (the config r17 wrote, which bare
+        # `custom` keeps over the host's own transport) is not one the bridge chose: the start is
+        # refused and the file left as it is.
+        endpoint = self.OPENAI_ENDPOINTS[0]
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        config = self.config()
+        config["model"]["api_mode"] = "chat_completions"
+        (self.home / "config.yaml").write_text(yaml.safe_dump(config))
+        env = dict(self.env, OPENAI_BASE_URL=endpoint, CUSTOM_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="main-key-canary")
+        pre = subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,
+                             capture_output=True, text=True)
+        self.assertNotEqual(pre.returncode, 0, "a chat-completions route on OpenAI's own host started")
+        self.assertIn("startup refused", pre.stderr)
+        self.assertNotIn("main-key-canary", pre.stdout + pre.stderr)
+        self.assertEqual(self.config(), config)
+
+    def test_chatgpt_subscription_works_beside_an_openai_api_key(self):
+        # A router may hold both: an OpenAI API key as the main model and a ChatGPT subscription
+        # signed in with hermes-login. Each keeps its own credential and address: the main routes go
+        # to the API with the main key on the Responses API, the subscription to ChatGPT's backend
+        # with its own token, and signing in does not stop the next start.
+        endpoint = self.OPENAI_ENDPOINTS[0]
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        code = ("from hermes_cli.auth import _save_codex_tokens, _update_config_for_provider\n"
+                "_save_codex_tokens({'access_token': 'codex-access-canary', 'refresh_token': 'codex-refresh-canary'}, None)\n"
+                "_update_config_for_provider('openai-codex', 'https://chatgpt.com/backend-api/codex')\n")
+        # As hermes-login runs it: as the user who owns the data directory.
+        saved = self.upstream(code, as_agent=True)
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        self.assertEqual(self.config()["model"]["provider"], "openai-codex")
+        started = self.wrapper_env(endpoint, key="main-key-canary")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertEqual(self.config()["model"]["provider"], "uci")
+        gateway = gateway_json(started.stdout)
+        check = subprocess.run(["python3", "-c", self.ROUTES_CHECK, endpoint, "codex_responses"],
+                               env=gateway, check=False, capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
+        code = ("from hermes_cli.runtime_provider import resolve_runtime_provider as r\n"
+                "x = r(requested='openai-codex')\n"
+                "got = (x['base_url'].rstrip('/'), x['api_mode'], x['api_key'])\n"
+                "assert got == ('https://chatgpt.com/backend-api/codex', 'codex_responses', 'codex-access-canary'), got\n")
+        codex = subprocess.run(["python3", "-c", code], env=gateway, check=False, capture_output=True, text=True)
+        self.assertEqual(codex.returncode, 0, codex.stdout + codex.stderr[-2000:])
+
 
 if __name__ == "__main__":
     if "--selftest" in os.sys.argv:

@@ -110,6 +110,31 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    `scripts/gate-runtime.sh` `check_endpoint_on_the_lan_starts_and_answers`,
    `check_dotenv_cannot_move_the_endpoint_the_wrapper_names`,
    `check_routes_that_would_reach_openrouter_stay_on_the_lan_endpoint`; teeth: `scripts/teeth-runtime.py`).
+   `@decided 2026-10-23`: an OpenAI API key works as the main model, and a ChatGPT subscription
+   signed in beside it keeps working. `@measured` 2026-10-23 with curl from a workstation, one
+   request per model offering one function tool: OpenAI's `/v1/chat/completions` answered 400 for
+   gpt-6.1-sol, gpt-5.6-luna and gpt-6-luna ("use /v1/responses or set reasoning_effort to 'none'",
+   and gpt-6.1-sol refuses `none`), and `/v1/responses` returned the tool call. `@measured` the same
+   day on a Flint 2 with r17, its own bridge and preflight (`/usr/libexec/hermes-set-toolsets`,
+   `/usr/libexec/hermes-runtime-check`) run in /tmp with a fake key: api.openai.com refused the start,
+   openrouter.ai passed. `@claude` 2026-10-23, why and how (0.21.5-r18): upstream uses the Responses
+   API for an official OpenAI host whatever a config says (`hermes_cli/providers.py`
+   `is_official_openai_host`, hostname-parsed, so `*.api.openai.com` data-residency hosts count and a
+   look-alike does not), while the bridge wrote `chat_completions` and the preflight required it. The
+   bridge now writes `api_mode: codex_responses` for such an endpoint and `chat_completions` for every
+   other, both routes need it (bare `custom` keeps a written mode over the host's own), and the
+   preflight requires exactly that mode of both, by the same upstream test; the endpoint, model, key,
+   pool and header checks are unchanged, so the main key still goes only to the UCI endpoint. The
+   ChatGPT subscription is upstream's `openai-codex` provider, with its own tokens at ChatGPT's
+   backend, and nothing here touches it. Not gated: a /model switch on that endpoint, which upstream
+   verifies against OpenAI's own model list and the gate runs offline (gate: `scripts/gate-runtime.sh`
+   `check_openai_api_key_as_the_main_model_starts_on_the_responses_api`,
+   `check_responses_api_only_for_openai_itself`, `check_chatgpt_subscription_works_beside_an_openai_api_key`;
+   teeth: `scripts/teeth-runtime.py`, five mutants). Red first, the tests committed alone (59eb9ef) and
+   run against the r17 package: `@measured` `gh run view 39952854644 --log-failed` 2026-10-23, 83 ran
+   with 3 failures, the first test on both OpenAI hosts (`'chat_completions' != 'codex_responses'`) and
+   the subscription test (`startup refused`); the second test passed there, as it should, since it
+   holds the other way and r17 refused every OpenAI host.
 9. Runtime, LuCI and unlock scenarios bind both ways to the checks that run them, and
    product mutations must turn their named test red with green restored and empty
    discovery refused (gate: `scripts/gate-scenarios-bound.sh`, `scripts/teeth-runtime.py`,

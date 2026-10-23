@@ -699,6 +699,27 @@ Feature: What is set on the router is what the gateway runs with
     Then the main model from the router's configuration is back in place and the start goes ahead
     # -> check_chatgpt_login_does_not_trip_the_preflight
 
+  # @decided 2026-10-23: an OpenAI API key works as the router's main model, and a ChatGPT
+  # subscription keeps working beside it. @measured the same day: with r17 every start with
+  # OpenAI's own address as the main endpoint was refused.
+  Scenario: an OpenAI API key works as the main model
+    Given the router's configuration names OpenAI's own API as the main endpoint, with an API key
+    When the service starts
+    Then the start goes ahead, and the agent reaches that address with that key on the API OpenAI takes tools on
+    # -> check_openai_api_key_as_the_main_model_starts_on_the_responses_api
+
+  Scenario: only OpenAI's own address is spoken to that way
+    Given a main endpoint that is not OpenAI's, a look-alike name included
+    When the service starts
+    Then it is spoken to as before, and on OpenAI's own address a route left the old way stops the start
+    # -> check_responses_api_only_for_openai_itself
+
+  Scenario: a ChatGPT subscription keeps working beside an OpenAI API key
+    Given an OpenAI API key as the main model and a ChatGPT subscription signed in
+    When the service starts
+    Then the main model uses the API key and the subscription its own sign-in, each at its own address
+    # -> check_chatgpt_subscription_works_beside_an_openai_api_key
+
   Scenario: the owner profile switches the unlock plugin on and the others take only that out again
     Given the operator's own plugin lists, one of them naming the unlock plugin as disabled
     When the owner profile is applied, and then another profile
