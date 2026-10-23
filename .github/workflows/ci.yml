@@ -60,6 +60,8 @@ jobs:
         run: ./scripts/test-apk-retry.sh
       - name: a pull request runs every leg its files touch, and documentation none
         run: ./scripts/test-ci-subjects.sh
+      - name: hw-flow.sh reads the router's log from its own mark, never an earlier run's
+        run: ./scripts/test-hw-flow.sh
 
   # There is nothing to unit test here: the payload is upstream's, and what this
   # repository contributes is the assembly and the service around it. So the only

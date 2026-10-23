@@ -35,7 +35,7 @@ legs_for() {
 			echo "" ;;
 		.github/workflows/upstream-watch.yml|.github/workflows/secretscan.yml|scripts/hw-flow.sh|scripts/luci-preview.sh)
 			echo "" ;;
-		scripts/gate-scenarios-bound.sh|scripts/gate-named-routers.sh|scripts/teeth-named-routers.sh|scripts/gate-figures.sh|scripts/teeth-figures.sh|scripts/figures.py|scripts/docs_links.py|scripts/gate-upstream-watch.sh|scripts/teeth-upstream-watch.sh|scripts/upstream-watch.sh|scripts/test-apk-retry.sh|scripts/test-ci-subjects.sh)
+		scripts/gate-scenarios-bound.sh|scripts/gate-named-routers.sh|scripts/teeth-named-routers.sh|scripts/gate-figures.sh|scripts/teeth-figures.sh|scripts/figures.py|scripts/docs_links.py|scripts/gate-upstream-watch.sh|scripts/teeth-upstream-watch.sh|scripts/upstream-watch.sh|scripts/test-apk-retry.sh|scripts/test-ci-subjects.sh|scripts/test-hw-flow.sh)
 			echo "" ;;
 		# the LuCI app: its gate and teeth, and the unlock gate, whose Security checks call its backend
 		package/luci-app-hermes/*|scripts/gate-luci.sh|scripts/teeth-luci.sh|scripts/test-luci-views.mjs)
