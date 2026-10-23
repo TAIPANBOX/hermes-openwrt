@@ -46,8 +46,16 @@ fail() { say "FAIL $1: $2"; FAILED=$((FAILED + 1)); }
 on()   { ssh -o BatchMode=yes -o ConnectTimeout=10 "$ROUTER" "$@"; }
 # a script sent on stdin, so nothing in it is matched by a pgrep on the router's own sh -c
 run()  { ssh -o BatchMode=yes -o ConnectTimeout=10 "$ROUTER" 'sh -s' >>"$LOG" 2>&1; }
-mark() { on "logger -t hw-flow $1"; }
-since(){ on "logread | sed -n '/hw-flow: $1/,\$p'"; }
+# A mark is this run's and this call's own, and since reads from that line: logread keeps earlier
+# runs, and reading from the first line of a name took them in (on a Flint 2 on 2026-10-23 a second
+# run of `start` counted two "Refused" lines an earlier run's cron job had logged, and said FAIL).
+MARKS=0
+mark() { MARKS=$((MARKS + 1)); t="$1 $$-$(date +%s)-$MARKS"; eval "MARK_$1=\$t"; on "logger -t hw-flow '$t'"; }
+since(){
+	eval "t=\${MARK_$1:-}"
+	[ -n "$t" ] || { echo "hw-flow: since $1 before its mark" >&2; return 1; }
+	on "logread | sed -n '/hw-flow: $t\$/,\$p'"
+}
 gateway_up() { # seconds to wait
 	i=0; while [ "$i" -lt "$1" ]; do
 		on "pgrep -f '[m]ain.py gateway' >/dev/null" && return 0; sleep 2; i=$((i + 2)); done; return 1; }
@@ -281,6 +289,9 @@ step_remove() {
 	[ "$left" = 0 ] && pass remove "programs and start link gone; data, keys and account kept, as docs/install-notes.md says" \
 		|| fail remove "$left package paths left"
 }
+
+# HW_FLOW_LIB=1, when sourced: the helpers above and nothing run (scripts/test-hw-flow.sh).
+[ "${HW_FLOW_LIB:-0}" = 1 ] && return 0
 
 STEPS=${*:-clean install model start telegram ask watch admin upgrade}
 say "hw-flow on $ROUTER, $(on 'cat /etc/apk/arch; . /etc/openwrt_release; echo $DISTRIB_RELEASE' | tr '\n' ' '), steps: $STEPS"
