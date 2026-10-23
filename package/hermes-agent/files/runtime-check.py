@@ -51,6 +51,11 @@ def main() -> int:
             raise RuntimeConflict("primary credential pool conflicts with the UCI key file")
         endpoint = expected["OPENAI_BASE_URL"] or ""
         key = expected["OPENAI_API_KEY"] or ""
+        # The transport the bridge chose for that endpoint (set-toolsets.py _main_api_mode):
+        # the Responses API on OpenAI's own hosts, by upstream's own host test, chat
+        # completions everywhere else. Any other transport is one UCI never chose.
+        from hermes_cli.providers import is_official_openai_host
+        mode = "codex_responses" if is_official_openai_host(endpoint) else "chat_completions"
         # The main model is the named `uci` entry, and upstream's auxiliary clients (the
         # session title, for one) still resolve bare `custom` with the same key, so both
         # routes must land on the UCI endpoint: an override that moves only `custom`
@@ -61,7 +66,7 @@ def main() -> int:
             if (not endpoint or not key or not isinstance(model, dict)
                     or model.get("default") != expected["HERMES_MODEL"]
                     or runtime.get("base_url", "").rstrip("/") != endpoint.rstrip("/")
-                    or runtime.get("api_mode") != "chat_completions"
+                    or runtime.get("api_mode") != mode
                     or not hmac.compare_digest(str(runtime.get("api_key") or ""), key)):
                 raise RuntimeConflict("upstream provider, endpoint, model or credential conflicts with UCI")
         headers = dict(model.get("default_headers") or {})

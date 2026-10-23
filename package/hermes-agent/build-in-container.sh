@@ -185,7 +185,11 @@ esac
 # unlock plugin takes out of the environment as it loads; /unlock and approvals go through it, so
 # the agent's own token can no longer spend the owner's tries. The approver is
 # hermes.security.approver_id, or the one Telegram id allowed when only one is.
-PKGREL=${PKGREL:-17}
+# 0.21.5-r18: an OpenAI API key works as the main model. On api.openai.com (and its data-residency
+# hosts) the bridge writes the Responses API, which upstream uses there and on which OpenAI's current
+# models take tools, and the preflight expects it; until r17 it wanted chat completions and refused
+# every start with that endpoint. A ChatGPT subscription signed in beside it is untouched.
+PKGREL=${PKGREL:-18}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

@@ -315,6 +315,17 @@ def _main_entry(entry) -> bool:
     return isinstance(entry, dict) and entry.get("key_env") == "OPENAI_API_KEY"
 
 
+def _main_api_mode(endpoint: str) -> str:
+    """The wire protocol the main model's endpoint takes (0.21.5-r18). OpenAI's own API,
+    api.openai.com and its data-residency hosts, refuses function tools on /v1/chat/completions
+    for its current models and takes them on the Responses API, which upstream uses for that
+    host whatever a config says; every other endpoint is OpenAI-compatible chat completions.
+    Upstream's own host test decides, by hostname and never by substring, so a lookalike host
+    stays on chat completions and the preflight (runtime-check.py) agrees with this."""
+    from hermes_cli.providers import is_official_openai_host
+    return "codex_responses" if is_official_openai_host(endpoint) else "chat_completions"
+
+
 def _key_env(name: str) -> str:
     return "HERMES_PROVIDER_" + name.upper().replace("-", "_") + "_KEY"
 
@@ -480,8 +491,10 @@ def main() -> int:
             if previous is not None and not _main_entry(previous):
                 raise ValueError(f"providers.{MAIN_PROVIDER} is operator-owned; rename it before enabling the UCI model")
             config["providers"] = dict(providers, **{MAIN_PROVIDER: main_entry})
+            # Both routes read this: the main entry, and bare `custom`, which upstream's
+            # auxiliary clients resolve and which keeps a written mode over the host's own.
             model_config.update(default=model, provider=MAIN_PROVIDER, base_url=endpoint,
-                                api_mode="chat_completions", api_key="${OPENAI_API_KEY}")
+                                api_mode=_main_api_mode(endpoint), api_key="${OPENAI_API_KEY}")
             config["model"] = model_config
             # OPENAI_API_KEY holds the main key for whatever endpoint UCI names, and
             # upstream takes its mere presence to mean the OpenAI API itself is signed
