@@ -134,7 +134,17 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
    run against the r17 package: `@measured` `gh run view 39952854644 --log-failed` 2026-10-23, 83 ran
    with 3 failures, the first test on both OpenAI hosts (`'chat_completions' != 'codex_responses'`) and
    the subscription test (`startup refused`); the second test passed there, as it should, since it
-   holds the other way and r17 refused every OpenAI host.
+   holds the other way and r17 refused every OpenAI host. `@measured` 2026-10-23 13:47-13:56 BST on a
+   Flint 2 (25.12.5, owner profile), r17 with this change's two helpers copied over
+   `/usr/libexec/hermes-set-toolsets` and `/usr/libexec/hermes-runtime-check`, `scripts/hw-flow.sh model
+   start` with `BASE_URL=https://api.openai.com/v1 MODEL=gpt-6.1-sol`: the start passed and config.yaml
+   held `api_mode: codex_responses`; a one-off cron job asked why the internet was slow made six calls,
+   every response id `resp_` (the Responses API), pinged the gateway, 1.1.1.1 and 8.8.8.8, read DNS, the
+   port and memory, and changed nothing; `hw-flow.sh watch` with `WATCH_DELIVER=local` answered
+   `[SILENT]`, upstream dropping the watch's `--reasoning-effort none`, which gpt-6.1-sol refuses
+   ("Reasoning-disable recovery" in agent.log). About 0.11 USD in all. The helpers and 12 configuration
+   and key files were then put back, checksummed equal, with the 238 packages as before. Not run on a
+   router: the built r18 package itself.
 9. Runtime, LuCI and unlock scenarios bind both ways to the checks that run them, and
    product mutations must turn their named test red with green restored and empty
    discovery refused (gate: `scripts/gate-scenarios-bound.sh`, `scripts/teeth-runtime.py`,
