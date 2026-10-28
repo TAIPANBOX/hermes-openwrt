@@ -5,8 +5,11 @@
 # the package could go wrong:
 #
 #   1 the recorded commit is not the pinned one        a build from another commit
+#   1 the record does not name the library fixes       a build that ignored them
 #   2 the agent's metadata says 0.21.4                 a stale or mixed tree
 #   3 one library is not at its uv.lock version        resolution floated past the lock
+#   3 a fixed library is back at its locked version    the fix did not reach the tree
+#   3 hermes-agent still pins the locked version       the pin was not moved with the fix
 #   4 nemo-relay is back in the package                the exclusion stopped working
 #   5 the Relay fallback raises instead                upstream dropped its no-op host
 #   6 the env fragment forgets the locales             raw i18n keys on the router
@@ -46,6 +49,11 @@ n=0
 fresh; sed -i.bak 's/^commit=.*/commit=0000000000000000000000000000000000000000/' "$WORK/tree/usr/lib/hermes-agent/upstream"
 expect_red check_upstream_pinned "recorded commit changed"; n=$((n + 1))
 
+fresh; grep -q '^library_fixes=..*' "$WORK/tree/usr/lib/hermes-agent/upstream" || {
+	echo "teeth-upstream: the record names no library fixes; retarget the fault" >&2; exit 1; }
+sed -i.bak '/^library_fixes=/d' "$WORK/tree/usr/lib/hermes-agent/upstream"
+expect_red check_upstream_pinned "record without the library fixes"; n=$((n + 1))
+
 fresh; d=$(ls -d "$WORK/tree/$SITE"/hermes_agent-*.dist-info)
 mv "$d" "$WORK/tree/$SITE/hermes_agent-0.21.4.dist-info"
 expect_red check_version_is_upstream "agent metadata says 0.21.4"; n=$((n + 1))
@@ -53,6 +61,19 @@ expect_red check_version_is_upstream "agent metadata says 0.21.4"; n=$((n + 1))
 fresh; meta=$(ls "$WORK/tree/$SITE"/pyyaml-*.dist-info/METADATA)
 sed -i.bak 's/^Version: .*/Version: 5.4.1/' "$meta"
 expect_red check_versions_follow_lock "pyyaml not at its locked version"; n=$((n + 1))
+
+# Pillow stands for every fixed library: 12.3.0 is the version upstream's lock names.
+fresh; meta=$(ls "$WORK/tree/$SITE"/pillow-*.dist-info/METADATA)
+grep -q '^Version: 13\.0\.0$' "$meta" || {
+	echo "teeth-upstream: pillow is not at its fixed 13.0.0; retarget the faults below" >&2; exit 1; }
+sed -i.bak 's/^Version: .*/Version: 12.3.0/' "$meta"
+expect_red check_versions_follow_lock "pillow back at its locked version"; n=$((n + 1))
+
+fresh; meta=$(ls "$WORK/tree/$SITE"/hermes_agent-*.dist-info/METADATA)
+grep -q '^Requires-Dist: Pillow==13\.0\.0$' "$meta" || {
+	echo "teeth-upstream: hermes-agent does not pin Pillow==13.0.0; retarget the fault" >&2; exit 1; }
+sed -i.bak 's/^Requires-Dist: Pillow==13\.0\.0$/Requires-Dist: Pillow==12.3.0/' "$meta"
+expect_red check_versions_follow_lock "hermes-agent still pins Pillow 12.3.0"; n=$((n + 1))
 
 fresh; mkdir -p "$WORK/tree/$SITE/nemo_relay" "$WORK/tree/$SITE/nemo_relay-0.8.3.dist-info"
 printf 'Metadata-Version: 2.1\nName: nemo-relay\nVersion: 0.8.3\n' > "$WORK/tree/$SITE/nemo_relay-0.8.3.dist-info/METADATA"

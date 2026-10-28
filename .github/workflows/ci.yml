@@ -21,7 +21,7 @@ jobs:
     outputs:
       legs: ${{ steps.pick.outputs.legs }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: the legs this change needs
@@ -47,7 +47,7 @@ jobs:
   scenarios:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: every scenario names a check, and every check is described
         run: ./scripts/gate-scenarios-bound.sh
       - name: the repository names only the routers it is tested on
@@ -99,7 +99,7 @@ jobs:
         run: |
           echo "not run: nothing this pull request changes is under the subject of $SUITE (scripts/ci-subjects.sh)"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
 
       # No QEMU any more: the runner is aarch64 itself. Say so, and stop if it is not, so a
@@ -118,7 +118,7 @@ jobs:
       # scripts/apk-retry.sh hands it to apk as --cache-dir.
       - name: keep OpenWrt's packages between runs
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/apk-cache
           key: apk-cache-${{ matrix.arch }}-25.12.4-v1
@@ -161,15 +161,16 @@ jobs:
       # for the owner's approval of that one change, and `status` reports actions_held_for_approval,
       # which the init asks for before it writes any change policy. Since then it is 2075e0b, the
       # merge of the fork's PR #10 (version 0.5.0.6): a code from the authenticator app keeps
-      # working for 60 s after it leaves the app's screen. Before them, baf6669
-      # (v0.5.0-taipanbox.1).
-      - uses: actions/checkout@v4
+      # working for 60 s after it leaves the app's screen. Since 0.21.5-r19 it is f05b176, the
+      # merge of the fork's PR #11 (version 0.5.0.7): the same code built with Go 1.27.3, for
+      # GO-2026-6809. Before them, baf6669 (v0.5.0-taipanbox.1).
+      - uses: actions/checkout@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: 2075e0b3563ac8adf713c4660abae528d87d8ca5
+          ref: f05b1765d4f017a8e9dc2a2568b89fd05a33f957
           path: openwrt-mcp-src
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           go-version-file: openwrt-mcp-src/go.mod
@@ -271,7 +272,7 @@ jobs:
       - name: record the source tree these packages were built from
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         run: git rev-parse 'HEAD^{tree}' > build/source-tree
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core'
         with:
           name: hermes-agent-${{ matrix.arch }}

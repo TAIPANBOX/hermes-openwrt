@@ -7,7 +7,8 @@
 #
 #   "hermes-agent is built from the upstream commit and archive checksum that
 #   package/upstream/upstream.env pins, reports that version, ships every library at the
-#   version upstream's uv.lock names at that commit, ships neither nemo-relay nor
+#   version upstream's uv.lock names at that commit, except those HERMES_LIBRARY_FIXES
+#   carries newer, each at exactly its version, ships neither nemo-relay nor
 #   pillow-heif, falls back to upstream's no-op Relay host without them, finds its bundled
 #   skills, optional skills, locales and MCP catalogue under /usr/share/hermes-agent, and
 #   ships the platform plugins, Telegram among them."
@@ -62,7 +63,8 @@ echo "-- gate-upstream: $TREE on $IMAGE ($PLATFORM), pin $HERMES_VERSION $HERMES
 REC="$TREE/usr/lib/hermes-agent/upstream"
 [ -f "$REC" ] || { echo "FAIL [1/7] check_upstream_pinned: the package records no upstream at $REC"; exit 1; }
 for kv in "version=$HERMES_VERSION" "tag=$HERMES_TAG" "commit=$HERMES_COMMIT" \
-          "archive_sha256=$HERMES_TARBALL_SHA256" "excluded=$HERMES_EXCLUDE"; do
+          "archive_sha256=$HERMES_TARBALL_SHA256" "excluded=$HERMES_EXCLUDE" \
+          "library_fixes=$HERMES_LIBRARY_FIXES"; do
 	grep -qxF "$kv" "$REC" || {
 		echo "FAIL [1/7] check_upstream_pinned: $REC lacks '$kv'"; sed 's/^/      /' "$REC"; exit 1; }
 done
@@ -73,6 +75,7 @@ echo "PASS [1/7] check_upstream_pinned"
 docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "$PLATFORM" \
 	-v "$TREE:/tree:ro" -v "$ARCHIVE:/archive.tar.gz:ro" \
 	-e HERMES_VERSION="$HERMES_VERSION" -e HERMES_EXCLUDE="$HERMES_EXCLUDE" \
+	-e HERMES_LIBRARY_FIXES="$HERMES_LIBRARY_FIXES" \
 	"$IMAGE" /bin/sh -s <<'CONTAINER'
 . /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
@@ -95,18 +98,29 @@ ls -d "$SITE/hermes_agent-$HERMES_VERSION.dist-info" >/dev/null 2>&1 || fail "[2
 [ "$(ls -d "$SITE"/hermes_agent-*.dist-info | wc -l)" -eq 1 ] || fail "[2/7] check_version_is_upstream" "more than one hermes_agent dist-info"
 echo "PASS [2/7] check_version_is_upstream"
 
-# ---- 3. every library at uv.lock's version ----
+# ---- 3. every library at uv.lock's version, or at the fix upstream.env carries ----
 mkdir -p /tmp/src && tar xzf /archive.tar.gz -C /tmp/src
 LOCK=$(ls /tmp/src/*/uv.lock)
 python3 - "$SITE" "$LOCK" <<'PY' || fail "[3/7] check_versions_follow_lock" "see above"
-import re, sys, tomllib
+import os, re, sys, tomllib
 from pathlib import Path
 site, lock = Path(sys.argv[1]), sys.argv[2]
 canon = lambda n: re.sub(r"[-_.]+", "-", n).lower()
 locked = {}
 for p in tomllib.load(open(lock, "rb"))["package"]:
     locked.setdefault(canon(p["name"]), set()).add(p["version"])
-shipped, bad = 0, []
+fixes = {}
+for item in os.environ.get("HERMES_LIBRARY_FIXES", "").split():
+    name, sep, ver = item.partition("==")
+    if not sep or not ver:
+        print(f"      HERMES_LIBRARY_FIXES: {item!r} is not name==version"); sys.exit(1)
+    fixes[canon(name)] = ver
+bad = []
+for name, ver in sorted(fixes.items()):
+    # A fix at a version the lock already has fixes nothing and would hide that it is stale.
+    if name not in locked or ver in locked[name]:
+        bad.append(f"HERMES_LIBRARY_FIXES {name}=={ver} (lock: {', '.join(sorted(locked.get(name, []))) or 'absent'})")
+shipped, at_fix, have = 0, 0, {}
 for di in site.glob("*.dist-info"):
     meta = (di / "METADATA").read_text(errors="replace")
     name = canon(re.search(r"^Name: (.+)$", meta, re.M).group(1).strip())
@@ -116,15 +130,34 @@ for di in site.glob("*.dist-info"):
     if name in ("hermes-agent", "openwrt-unlock"):
         continue
     shipped += 1
-    if ver not in locked.get(name, set()):
+    have[name] = ver
+    if name in fixes:
+        at_fix += 1
+        if ver != fixes[name]:
+            bad.append(f"{name} {ver}, where HERMES_LIBRARY_FIXES carries {fixes[name]}")
+    elif ver not in locked.get(name, set()):
         bad.append(f"{name} {ver} (lock: {', '.join(sorted(locked.get(name, []))) or 'absent'})")
 if shipped == 0:
     print("measured nothing: no dist-info in the tree"); sys.exit(1)
+# Hermes's own exact pins must name what ships: a fix that moved a library but not the pin
+# leaves metadata that contradicts the tree.
+hermes = next(site.glob("hermes_agent-*.dist-info"))
+pins = 0
+for line in (hermes / "METADATA").read_text().splitlines():
+    m = re.match(r"Requires-Dist:\s*([A-Za-z0-9_.-]+)(\[[^\]]*\])?\s*==\s*([^\s;,]+)\s*(;|$)", line)
+    if not m or canon(m.group(1)) not in have:
+        continue
+    pins += 1
+    if have[canon(m.group(1))] != m.group(3):
+        bad.append(f"hermes-agent declares {m.group(1)}=={m.group(3)}, the package ships {have[canon(m.group(1))]}")
+if pins == 0:
+    print("measured nothing: hermes-agent declares no exact pin the package ships"); sys.exit(1)
 for b in bad:
-    print(f"      not the locked version: {b}")
+    print(f"      not the locked or fixed version: {b}")
 if bad:
     sys.exit(1)
-print(f"      {shipped} libraries, each at its uv.lock version")
+print(f"      {shipped} libraries: {shipped - at_fix} at their uv.lock version, {at_fix} at HERMES_LIBRARY_FIXES'; "
+      f"{pins} exact pins of hermes-agent agree")
 PY
 echo "PASS [3/7] check_versions_follow_lock"
 
