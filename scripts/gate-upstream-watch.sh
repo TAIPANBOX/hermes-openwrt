@@ -101,7 +101,7 @@ run check_issue_when_upstream_is_newer v2026.10.3 "" "Hermes Agent v0.21.6 (v202
 if [ "$RC" -eq 0 ] && [ "$(created)" = 1 ] \
 	&& grep -q 'v2026.10.3' "$T/title" 2>/dev/null \
 	&& grep -q 'v2026.9.24' "$T/title" 2>/dev/null \
-	&& grep -q 'both routers' "$T/body" 2>/dev/null; then
+	&& grep -q 'on the test router, the Flint 2' "$T/body" 2>/dev/null; then
 	pass check_issue_when_upstream_is_newer
 else bad check_issue_when_upstream_is_newer "exit $RC, $(created) issue(s) created, or the title or body is wrong"; fi
 
@@ -161,7 +161,7 @@ run check_issue_when_semver_after_date_pin v0.21.6 ""
 if [ "$RC" -eq 0 ] && [ "$(created)" = 1 ] \
 	&& grep -q 'v0.21.6' "$T/title" 2>/dev/null \
 	&& grep -q 'v2026.9.24' "$T/title" 2>/dev/null \
-	&& grep -q 'both routers' "$T/body" 2>/dev/null; then
+	&& grep -q 'on the test router, the Flint 2' "$T/body" 2>/dev/null; then
 	pass check_issue_when_semver_after_date_pin
 else bad check_issue_when_semver_after_date_pin "exit $RC, $(created) issue(s) created for v0.21.6 over a pin of 0.21.5 at v2026.9.24"; fi
 

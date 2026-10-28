@@ -24,7 +24,9 @@ build, so the package is built the way that Nix build does it:
 - from the archive of one pinned upstream commit, whose checksum is checked before a byte
   is unpacked (`package/upstream/upstream.env`);
 - every library at the version upstream's `uv.lock` names at that commit, not whatever
-  PyPI serves that day;
+  PyPI serves that day, except the few with security advisories published after it: those
+  ship at the version upstream's own lock moved to later, still on the router's Python 3.13
+  (`HERMES_LIBRARY_FIXES` in the same file, eleven of them since 0.21.5-r19);
 - skills, optional skills, translations and the MCP catalogue beside the wheel, under
   `/usr/share/hermes-agent`, found through the same `HERMES_BUNDLED_*` variables upstream's
   Nix wrapper sets.

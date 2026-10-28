@@ -25,7 +25,8 @@ case "$RELEASE" in
 esac
 # The upstream version, commit and exclusions come from one file; see package/upstream/.
 . "$(cd "$(dirname "$0")/../upstream" && pwd)/upstream.env"
-PKGREL=${PKGREL:-1}
+# r2: tornado 6.5.10, a security update named in upstream.env's HERMES_LIBRARY_FIXES.
+PKGREL=${PKGREL:-2}
 # Must match the base package's own PKGREL when the two are published together, because
 # the dependency below is expressed against the upstream version rather than this.
 BASE_PKGREL=${BASE_PKGREL:-2}

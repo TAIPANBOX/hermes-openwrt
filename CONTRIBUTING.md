@@ -38,7 +38,7 @@ EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aar
 
 # openwrt-mcp, which hermes-agent depends on, from the commit CI pins
 git clone https://github.com/TAIPANBOX/openwrt-mcp openwrt-mcp-src
-git -C openwrt-mcp-src checkout 2075e0b3563ac8adf713c4660abae528d87d8ca5
+git -C openwrt-mcp-src checkout f05b1765d4f017a8e9dc2a2568b89fd05a33f957
 OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh aarch64_generic
 ```
 

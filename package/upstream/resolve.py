@@ -31,6 +31,16 @@ leave the dist-info of a package that is not there. So the closure is walked fro
 itself, through each requirement whose marker holds, never entering an excluded name.
 What pip resolved but the walk never reached is printed to stderr, so the cost of the
 exclusion is visible on every build.
+
+Why a few libraries are newer than the lock
+
+HERMES_LIBRARY_FIXES names libraries, name==version, carried newer than uv.lock for security
+advisories published after the pinned commit. Each replaces its lock line, and where Hermes's
+own pyproject.toml pins one exactly (Pillow==12.3.0, say), that pin is moved to the same version
+before the wheel is built, so the installed metadata declares what ships and nothing disagrees.
+Python code is not touched. A fix that is not newer than the lock, names a library the lock does
+not have, or meets a pin it cannot satisfy by moving an exact version stops the build: each one
+is a decision about a version, and a stale one would go on claiming it.
 """
 from __future__ import annotations
 
@@ -48,6 +58,7 @@ from pathlib import Path
 from pip._vendor.packaging.markers import default_environment
 from pip._vendor.packaging.requirements import Requirement
 from pip._vendor.packaging.utils import canonicalize_name
+from pip._vendor.packaging.version import Version
 
 PIP = [sys.executable, "-m", "pip"]
 QUIET = ["--quiet", "--no-cache-dir", "--disable-pip-version-check"]
@@ -59,6 +70,40 @@ def die(msg: str) -> "None":
 
 def excluded() -> set[str]:
     return {canonicalize_name(n) for n in os.environ.get("HERMES_EXCLUDE", "").split()}
+
+
+def library_fixes() -> dict[str, str]:
+    fixes: dict[str, str] = {}
+    for item in os.environ.get("HERMES_LIBRARY_FIXES", "").split():
+        req = Requirement(item)
+        spec = list(req.specifier)
+        if len(spec) != 1 or spec[0].operator != "==" or req.extras or req.marker:
+            die(f"HERMES_LIBRARY_FIXES: {item!r} is not name==version")
+        fixes[canonicalize_name(req.name)] = spec[0].version
+    return fixes
+
+
+def retarget_pins(pyproject: Path, fixes: dict[str, str]) -> None:
+    """Move every exact pin of a fixed library in pyproject.toml to the fixed version."""
+    text = pyproject.read_text()
+    project = tomllib.loads(text)["project"]
+    specs = list(project.get("dependencies", []))
+    for group in project.get("optional-dependencies", {}).values():
+        specs.extend(group)
+    for spec in sorted(set(specs)):
+        req = Requirement(spec)
+        name = canonicalize_name(req.name)
+        if name not in fixes or req.specifier.contains(fixes[name], prereleases=True):
+            continue
+        pinned = [s for s in req.specifier if s.operator == "=="]
+        if len(list(req.specifier)) != 1 or not pinned:
+            die(f"pyproject.toml requires {spec!r}, which {name}=={fixes[name]} does not satisfy")
+        moved = spec.replace(f"=={pinned[0].version}", f"=={fixes[name]}", 1)
+        if f'"{spec}"' not in text:
+            die(f"pyproject.toml does not quote {spec!r} as expected; cannot move its pin")
+        text = text.replace(f'"{spec}"', f'"{moved}"')
+        print(f"resolve.py: pyproject pin {spec} -> {moved}", file=sys.stderr)
+    pyproject.write_text(text)
 
 
 # ---------------------------------------------------------------- build
@@ -83,6 +128,8 @@ def build(archive: str, workdir: str) -> None:
     want = os.environ.get("HERMES_VERSION")
     if want and version != want:
         die(f"archive declares hermes-agent {version}, upstream.env pins {want}")
+    fixes = library_fixes()
+    retarget_pins(src / "pyproject.toml", fixes)
 
     env = dict(os.environ, HERMES_NIX_BUILD="1")
     subprocess.run(PIP + ["wheel", *QUIET, "--no-deps", "-w", str(wheels), str(src)],
@@ -104,6 +151,16 @@ def build(archive: str, workdir: str) -> None:
             pins[name] = None
             continue
         pins.setdefault(name, pkg["version"])
+    for name, version in sorted(fixes.items()):
+        locked = pins.get(name)
+        if name not in pins:
+            die(f"HERMES_LIBRARY_FIXES names {name}, which upstream's lock does not have")
+        if locked is None:
+            die(f"HERMES_LIBRARY_FIXES names {name}, which the lock holds at several versions")
+        if Version(version) <= Version(locked):
+            die(f"HERMES_LIBRARY_FIXES carries {name} {version}, not newer than the lock's {locked}: drop it")
+        pins[name] = version
+        print(f"resolve.py: {name} {locked} -> {version} (HERMES_LIBRARY_FIXES)", file=sys.stderr)
     lines = [f"{n}=={v}" for n, v in sorted(pins.items()) if v]
     (work / "constraints.txt").write_text("\n".join(lines) + "\n")
     print(built[0])

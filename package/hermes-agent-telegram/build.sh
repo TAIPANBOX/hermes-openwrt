@@ -43,7 +43,7 @@ BASE_TREE=${3:-}
 UPSTREAM_SRC=${UPSTREAM_SRC:-/upstream-src}
 . "$UPSTREAM_SRC/upstream.env"
 UPSTREAM_ARCHIVE=${UPSTREAM_ARCHIVE:?build.sh: UPSTREAM_ARCHIVE (the verified upstream archive) is required}
-export HERMES_VERSION HERMES_EXCLUDE UPSTREAM_SRC
+export HERMES_VERSION HERMES_EXCLUDE HERMES_LIBRARY_FIXES UPSTREAM_SRC
 # Must match what the base package was built with, or the resolution below describes a
 # base tree that is not the one on the router.
 EXTRAS=${EXTRAS:-cron,mcp,anthropic}

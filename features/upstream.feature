@@ -11,6 +11,15 @@
 #                        (pillow-heif). The rest of upstream's dependency set ships as
 #                        upstream locks it.
 #
+#   @decided 2026-10-28  The package takes the security updates of its libraries while it
+#                        stays on Hermes 0.21.5: every later Hermes release supports Python
+#                        3.14 only, and OpenWrt 25.12 ships 3.13.
+#
+#   @claude 2026-10-28   How: a library with advisories published after the pinned commit
+#                        ships at the version upstream's own uv.lock moved to by v0.22.5,
+#                        named in upstream.env (HERMES_LIBRARY_FIXES); Hermes's exact pin on
+#                        it moves with it, and its Python code does not change.
+#
 #   @claude 2026-09-25   Upstream now refuses to build a wheel outside its Nix build
 #                        (setup.py raises unless HERMES_NIX_BUILD=1) and ships skills,
 #                        locales and the MCP catalogue beside the wheel, found through
@@ -34,10 +43,13 @@ Feature: The package carries a pinned upstream Hermes, without two heavy parts
     Then it is the pinned upstream version
     # -> check_version_is_upstream
 
-  Scenario: every library is the version upstream locked
+  Scenario: every library is the version upstream locked, or its security update
     Given the libraries the package ships
+    And the security updates the repository names, each newer than upstream's lock
     When each is compared with upstream's lock file at that commit
-    Then every one has the locked version
+    Then a library with a security update has exactly the updated version
+    And every other one has the locked version
+    And Hermes's own exact pins name the versions that ship
     # -> check_versions_follow_lock
 
   Scenario: the two left-out parts are really left out

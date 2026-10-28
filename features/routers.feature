@@ -10,6 +10,10 @@
 #   @decided 2026-10-04  The Beryl AX joins them as a third test router, the one with
 #                        512 MB of memory and little flash, where Hermes runs from a USB
 #                        stick. The lab's other box is still not named.
+#   @decided 2026-10-28  The Brume 2 is no longer a test router. What was measured on it
+#                        stays as measured, so it stays named.
+#   @claude 2026-10-28   A release's hardware checks run on the Flint 2, and on the Beryl
+#                        AX where 512 MB or the USB stick is what the change touches.
 #
 # Bound to scripts/gate-named-routers.sh by scripts/gate-scenarios-bound.sh, both ways;
 # scripts/teeth-named-routers.sh proves the gate can fail.
