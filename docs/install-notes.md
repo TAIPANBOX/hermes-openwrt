@@ -4,8 +4,8 @@
 
 - **The router.** Vanilla OpenWrt 25.12, not a vendor firmware, on an aarch64 router:
   `cat /etc/apk/arch` has to print `aarch64_cortex-a53` or `aarch64_generic`. Nothing else
-  is built. The package is tested on a Flint 2 and a Brume 2, and on a Beryl AX for the case
-  of 512 MB and little flash.
+  is built. Each release is tested on a Flint 2, and on a Beryl AX for the case of 512 MB and
+  little flash; releases up to October 2026 were also run on a Brume 2.
 - **Memory.** 1 GB of RAM; on 512 MB one conversation at a time fits, with little to spare (see
   [Hermes on a USB stick](usb.md#hermes-on-a-usb-stick)). The gateway alone holds about 200 MB before it does any work
   (179 MB on 2026-09-25 with agent r1; 202 to 203 MB on 2026-10-04 with r5 in the owner
