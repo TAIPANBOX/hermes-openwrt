@@ -3,7 +3,8 @@
 `@claude` 2026-09-24: first written by Codex on 2026-09-19, amended on 2026-09-24. Each
 invariant names what holds it. The upstream Python payload is installed unpatched; the
 package adds one shim (`webbrowser.py`) and its own helpers under `/usr/libexec`, and
-leaves out the two dependencies invariant 17 names.
+leaves out the two dependencies invariant 17 names. Since 0.21.5-r19 its metadata's exact pins
+on the libraries invariant 17 updates follow those updates; its code is unchanged.
 
 `@decided 2026-09-24`: the router's own configuration (UCI) is the authority for the
 primary model, its endpoint and the tool selection at every start, including restarts
@@ -293,6 +294,11 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     512 MB of memory and about 200 MB of free flash, where Hermes runs from a USB stick; it may be
     named and drawn. The lab's other box stays unnamed (gate: the same, `OTHERS` in
     `scripts/gate-named-routers.sh`).
+    `@decided 2026-10-28`: the Brume 2 is no longer a test router; what was measured on it stays as
+    measured, so it stays named. `@claude` 2026-10-28: a release's hardware checks run on the Flint 2,
+    and on the Beryl AX where 512 MB or the USB stick is what the change touches; the issue
+    `scripts/upstream-watch.sh` opens says the Flint 2 (gate: `scripts/gate-upstream-watch.sh`
+    `check_issue_when_upstream_is_newer`; the hardware runs themselves are not enforced).
 16. `@decided 2026-09-25`: more than one provider on one router, working at the same time.
     Each UCI `provider` section (base_url, key_file, model, label) becomes an entry in
     upstream's `providers` map whose key_env is `HERMES_PROVIDER_<NAME>_KEY`; the wrapper
@@ -328,6 +334,29 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     upstream then blocks its own config writes. The package records its upstream in
     `/usr/lib/hermes-agent/upstream` (gate: `scripts/gate-upstream.sh`, teeth:
     `scripts/teeth-upstream.sh`).
+    `@decided 2026-10-28`: the package takes the security updates of its libraries while it stays
+    on Hermes 0.21.5, since every later Hermes release supports Python 3.14 only and OpenWrt 25.12
+    ships 3.13. `@claude` 2026-10-28, how (0.21.5-r19, Telegram add-on r2): `HERMES_LIBRARY_FIXES` in
+    `upstream.env` names libraries, name==version, carried newer than the pinned commit's `uv.lock`;
+    each is the version upstream's own lock moved to by v0.22.5, for advisories published after the
+    pin (OSV, read 2026-10-28): anyio, certifi, httpcore2, httpx2, mcp (and mcp-types, which mcp pins
+    exactly), opentelemetry-api, pillow, pyjwt and urllib3 in the base, tornado in the add-on.
+    `resolve.py build` moves each one's constraint and, where Hermes's pyproject.toml pins it exactly
+    (certifi, PyJWT, Pillow, mcp, httpx2), that pin, before the wheel is built, so the installed
+    metadata declares what ships; no Python code changes. It stops on a fix that is not newer than the
+    lock, names a library the lock does not have, or meets a pin it cannot satisfy by moving an exact
+    version; the package records the list (`library_fixes=`). With opentelemetry-api 1.45.1,
+    importlib-metadata and zipp leave the tree; the two libraries that import them do so only on
+    Python older than 3.10. Not established: whether each advisory is reachable on a router (the
+    agent decodes images it is sent, verifies TLS, speaks MCP to openwrt-mcp); the update is taken on
+    the advisories alone. `@measured` 2026-10-28 on a workstation, `RELEASE=25.12.4
+    ./package/hermes-agent/build-in-container.sh aarch64_generic` at main (r18) and on this change:
+    the new gate on the r18 tree failed `check_upstream_pinned` (no `library_fixes=` line), and with
+    that line added failed `check_versions_follow_lock` naming the ten base libraries at their locked
+    versions; on r19 all 7 checks passed (74 libraries, 10 at their fixed version, 38 exact pins of
+    hermes-agent agreeing) and `scripts/teeth-upstream.sh` caught 10 faults on 7 checks (gate:
+    `scripts/gate-upstream.sh` `check_upstream_pinned`, `check_versions_follow_lock`; teeth:
+    `scripts/teeth-upstream.sh` faults 2, 5 and 6).
 
 18. `@decided 2026-10-01`: in the owner profile the agent reads the router freely and
     changes it only through openwrt-mcp, which runs as root and decides. The package pairs
@@ -661,7 +690,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     on the release alone since the pin named in an older title may have moved. It fails instead of
     passing when it cannot read upstream or this repository's issues, or when a tag or a version is
     not in a form it can order. It never moves the pin: a new upstream is built, gated and
-    run on both routers first.
+    run on the test router first (invariant 15).
     `@claude` 2026-10-09: releases are ordered by version, not by tag. Upstream tagged
     vYEAR.MONTH.DAY up to 0.21.5 (`v2026.9.24`) and `v0.21.6` from 2026-10-08, and by tag order
     every date sorts above every version, so the watch refused `v0.21.6` and opened nothing. A

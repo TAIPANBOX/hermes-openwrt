@@ -88,9 +88,9 @@ Changes between them: https://github.com/$UPSTREAM/compare/$HERMES_TAG...$latest
 
 Before the feed carries it:
 
-1. Pin it in \`package/upstream/upstream.env\`: version, tag, the commit the tag points at, and the checksum of that commit's archive.
-2. Build, and run every gate and its teeth (\`gate-upstream.sh\` first: an excluded dependency upstream no longer resolves stops the build).
-3. Run it on both routers, the Flint 2 and the Brume 2, recording each router's state first and restoring it after.
+1. Pin it in \`package/upstream/upstream.env\`: version, tag, the commit the tag points at, and the checksum of that commit's archive. Drop from \`HERMES_LIBRARY_FIXES\` every library the new lock already carries at that version or later.
+2. Build, and run every gate and its teeth (\`gate-upstream.sh\` first: an excluded dependency upstream no longer resolves, or a library fix the new lock makes stale, stops the build).
+3. Run it on the test router, the Flint 2, recording the router's state first and restoring it after.
 4. Re-measure the README's figures that depend on the agent (memory, flash, response times).
 5. Publish the feed from a workstation.
 

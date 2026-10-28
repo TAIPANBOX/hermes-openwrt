@@ -189,7 +189,12 @@ esac
 # hosts) the bridge writes the Responses API, which upstream uses there and on which OpenAI's current
 # models take tools, and the preflight expects it; until r17 it wanted chat completions and refused
 # every start with that endpoint. A ChatGPT subscription signed in beside it is untouched.
-PKGREL=${PKGREL:-18}
+# 0.21.5-r19: the security updates of eleven libraries, with Hermes still at 0.21.5. Advisories
+# published after the pinned commit (OSV, 2026-10-28) touch anyio, certifi, httpcore2, httpx2, mcp,
+# opentelemetry-api, pillow, pyjwt and urllib3 here and tornado in the Telegram add-on; each ships at
+# the version upstream's own lock moved to by v0.22.5 (mcp-types with mcp), named in upstream.env's
+# HERMES_LIBRARY_FIXES. Every later Hermes needs Python 3.14, which OpenWrt 25.12 does not ship.
+PKGREL=${PKGREL:-19}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

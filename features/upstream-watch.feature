@@ -15,6 +15,9 @@
 #                        carry: a vX.Y.Z tag is that version, a date tag is the version its
 #                        release name gives ("Hermes Agent v0.21.5 (v2026.9.24)"), and the
 #                        pin is HERMES_VERSION, which the build's own gate checks.
+#   @claude 2026-10-28   The issue names the Flint 2 as the router a new release runs on,
+#                        since the Brume 2 is no longer a test router (routers.feature), and
+#                        says to drop the library fixes the new lock makes stale.
 #
 # Bound to scripts/gate-upstream-watch.sh by scripts/gate-scenarios-bound.sh, both ways;
 # scripts/teeth-upstream-watch.sh proves the gate can fail.
@@ -31,7 +34,7 @@ Feature: A newer upstream Hermes is noticed without anyone looking
     Given upstream has tagged a release newer than the pinned one
     When the daily check runs
     Then it opens an issue naming the new tag and the pinned tag
-    And the issue says the new release is built, gated and run on both routers before it is published
+    And the issue says the new release is built, gated and run on the test router before it is published
     # -> check_issue_when_upstream_is_newer
 
   Scenario: the same release never opens a second issue, even after the first was closed

@@ -46,7 +46,7 @@ UPSTREAM_SRC=${UPSTREAM_SRC:-/upstream-src}
 . "$UPSTREAM_SRC/upstream.env"
 # The verified archive of that commit, fetched on the host by package/upstream/fetch.sh.
 UPSTREAM_ARCHIVE=${UPSTREAM_ARCHIVE:?build.sh: UPSTREAM_ARCHIVE (the verified upstream archive) is required}
-export HERMES_VERSION HERMES_EXCLUDE
+export HERMES_VERSION HERMES_EXCLUDE HERMES_LIBRARY_FIXES
 
 # Refuse to produce a package against the wrong libc. Silent success here would mean a
 # tree that only fails on the router, at import time, in front of a user.
@@ -120,6 +120,7 @@ tag=$HERMES_TAG
 commit=$HERMES_COMMIT
 archive_sha256=$HERMES_TARBALL_SHA256
 excluded=$HERMES_EXCLUDE
+library_fixes=$HERMES_LIBRARY_FIXES
 UPSTREAM
 chmod 0644 "$OUT/usr/lib/hermes-agent/upstream"
 
