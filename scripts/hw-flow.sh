@@ -1,7 +1,7 @@
 #!/bin/sh
 # hw-flow.sh -- the path a person takes, from a router with no Hermes to an agent that answers in
 # Telegram, run on real hardware over SSH with every step checked. Run it before every feed
-# publish, on a Flint 2 and a Brume 2.
+# publish, on the Flint 2, and on the Beryl AX when 512 MB or the USB stick is what changed.
 #
 # Why it exists. The gates install into a container and check what each change changed. None of
 # them is a person following the README on a clean router, and on 2026-10-08 the first such run in
