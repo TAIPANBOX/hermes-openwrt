@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="590" viewBox="0 0 1280 590" role="img" aria-label="A model on a computer in your house: you ask in Telegram; Hermes on the router calls llm-gateway on 127.0.0.1:8761 with a key of its own; llm-gateway passes the call to a model server such as Ollama in the firewall zone models; neither the internet nor the devices on the LAN can reach that computer">
+<defs><filter id="glow" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur in="SourceGraphic" stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e16"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#4493f8"/></linearGradient>
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/></pattern>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4493f8"/></marker>
+</defs>
+<rect width="1280" height="590" fill="url(#bg)"/><rect width="1280" height="590" fill="url(#grid)" opacity="0.5"/>
+<rect width="1280" height="4" fill="url(#accent)"/>
+<style>@keyframes on{0%,3.0%{opacity:0}7.0%,25.0%{opacity:1}32.0%,100%{opacity:0}}.hl{opacity:0;animation:on 10s ease-in-out infinite backwards}@keyframes flow{to{stroke-dashoffset:-24}}.flow{stroke-dasharray:8 4;animation:flow 1.2s linear infinite}.s0{animation-delay:0.0s}.s1{animation-delay:2.0s}.s2{animation-delay:4.0s}.s3{animation-delay:6.0s}.s4{animation-delay:8.0s}@media (prefers-reduced-motion:reduce){.hl,.flow{animation:none}}</style>
+<text x="48" y="58" font-family="ui-sans-serif,system-ui,sans-serif" font-size="26" fill="#e6edf3" font-weight="600">A model on a computer in your house</text>
+<text x="48" y="84" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#69788b">hermes.main.llm_gateway=1: the agent on the router asks a model server at home, through llm-gateway, instead of a cloud provider.</text>
+<rect x="264" y="112" width="692" height="226" rx="14" fill="#0b1018" stroke="#30363d"/>
+<text x="284" y="136" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#2dd4bf" font-weight="600">THE ROUTER</text><text x="372" y="136" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#69788b">OpenWrt 25.12</text>
+<rect x="992" y="112" width="240" height="372" rx="14" fill="#0b1018" stroke="#d29922" stroke-dasharray="5 4"/>
+<text x="1008" y="136" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#d29922" font-weight="600">FIREWALL ZONE</text><text x="1112" y="136" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#d29922">models</text>
+<rect x="48" y="156" width="180" height="164" rx="10" fill="#0f1520" stroke="#4493f8"/>
+<circle cx="78" cy="190" r="14" fill="none" stroke="#4493f8" stroke-width="2"/>
+<text x="78" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#4493f8" font-weight="600" text-anchor="middle">1</text>
+<text x="102" y="196" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Telegram</text>
+<text x="66" y="238" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">you ask in the chat</text>
+<text x="66" y="260" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">on your phone</text>
+<text x="66" y="298" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#4493f8">allowed ids only</text>
+<g class="hl s0">
+<rect x="48" y="156" width="180" height="164" rx="10" fill="none" stroke="#4493f8" stroke-width="3" filter="url(#glow)"/>
+<circle cx="78" cy="190" r="15" fill="#4493f8"/>
+<text x="78" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#0a0e16" font-weight="700" text-anchor="middle">1</text>
+</g>
+<path class="flow" d="M232,238 L274,238" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="280" y="156" width="196" height="164" rx="10" fill="#0f1520" stroke="#2dd4bf"/>
+<circle cx="310" cy="190" r="14" fill="none" stroke="#2dd4bf" stroke-width="2"/>
+<text x="310" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#2dd4bf" font-weight="600" text-anchor="middle">2</text>
+<text x="334" y="196" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Hermes</text>
+<text x="298" y="238" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">hermes-agent r20</text>
+<text x="298" y="260" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">llm_gateway=1</text>
+<text x="298" y="298" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#2dd4bf">base_url stays as set</text>
+<g class="hl s1">
+<rect x="280" y="156" width="196" height="164" rx="10" fill="none" stroke="#2dd4bf" stroke-width="3" filter="url(#glow)"/>
+<circle cx="310" cy="190" r="15" fill="#2dd4bf"/>
+<text x="310" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#0a0e16" font-weight="700" text-anchor="middle">2</text>
+</g>
+<path class="flow" d="M480,238 L506,238" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="512" y="156" width="196" height="164" rx="10" fill="#0f1520" stroke="#2dd4bf"/>
+<circle cx="542" cy="190" r="14" fill="none" stroke="#2dd4bf" stroke-width="2"/>
+<text x="542" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#2dd4bf" font-weight="600" text-anchor="middle">3</text>
+<text x="566" y="196" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Loopback</text>
+<text x="530" y="238" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">127.0.0.1:8761/v1</text>
+<text x="530" y="260" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">key: llm-gateway.key</text>
+<text x="530" y="298" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#2dd4bf">file 0600, root only</text>
+<g class="hl s2">
+<rect x="512" y="156" width="196" height="164" rx="10" fill="none" stroke="#2dd4bf" stroke-width="3" filter="url(#glow)"/>
+<circle cx="542" cy="190" r="15" fill="#2dd4bf"/>
+<text x="542" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#0a0e16" font-weight="700" text-anchor="middle">3</text>
+</g>
+<path class="flow" d="M712,238 L738,238" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="744" y="156" width="196" height="164" rx="10" fill="#0f1520" stroke="#3fb950"/>
+<circle cx="774" cy="190" r="14" fill="none" stroke="#3fb950" stroke-width="2"/>
+<text x="774" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#3fb950" font-weight="600" text-anchor="middle">4</text>
+<text x="798" y="196" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">llm-gateway</text>
+<text x="762" y="238" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">client: hermes</text>
+<text x="762" y="260" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">one model, one key</text>
+<text x="762" y="298" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#3fb950">stores only a hash</text>
+<g class="hl s3">
+<rect x="744" y="156" width="196" height="164" rx="10" fill="none" stroke="#3fb950" stroke-width="3" filter="url(#glow)"/>
+<circle cx="774" cy="190" r="15" fill="#3fb950"/>
+<text x="774" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#0a0e16" font-weight="700" text-anchor="middle">4</text>
+</g>
+<path class="flow" d="M944,238 L1000,238" stroke="#4493f8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<rect x="1006" y="156" width="212" height="164" rx="10" fill="#0f1520" stroke="#d29922"/>
+<circle cx="1036" cy="190" r="14" fill="none" stroke="#d29922" stroke-width="2"/>
+<text x="1036" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#d29922" font-weight="600" text-anchor="middle">5</text>
+<text x="1060" y="196" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#e6edf3" font-weight="600">Model server</text>
+<text x="1024" y="238" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">Ollama on a desktop</text>
+<text x="1024" y="260" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#9aa7b8">or llama-server</text>
+<text x="1024" y="298" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#d29922">10.60.0.10:11434</text>
+<g class="hl s4">
+<rect x="1006" y="156" width="212" height="164" rx="10" fill="none" stroke="#d29922" stroke-width="3" filter="url(#glow)"/>
+<circle cx="1036" cy="190" r="15" fill="#d29922"/>
+<text x="1036" y="195" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#0a0e16" font-weight="700" text-anchor="middle">5</text>
+</g>
+<text x="1008" y="362" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">only the router gets in</text>
+<text x="1008" y="382" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#9aa7b8">no internet unless allowed</text>
+<rect x="48" y="388" width="216" height="44" rx="8" fill="#0f1520" stroke="#30363d"/>
+<text x="66" y="415" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">The internet</text>
+<path d="M268,410 L966,410" stroke="#f85149" stroke-width="2" stroke-dasharray="6 5" fill="none"/>
+<path d="M972,402 L988,418 M988,402 L972,418" stroke="#f85149" stroke-width="3" stroke-linecap="round"/>
+<rect x="48" y="444" width="216" height="44" rx="8" fill="#0f1520" stroke="#30363d"/>
+<text x="66" y="471" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#e6edf3" font-weight="600">A laptop on the LAN</text>
+<path d="M268,466 L966,466" stroke="#f85149" stroke-width="2" stroke-dasharray="6 5" fill="none"/>
+<path d="M972,458 L988,474 M988,458 L972,474" stroke="#f85149" stroke-width="3" stroke-linecap="round"/>
+<text x="300" y="442" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">Neither reaches the model server: its zone takes connections from the router alone.</text>
+<text x="300" y="498" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#9aa7b8">A laptop asks llm-gateway instead, at https://llm.lan:8760, with a key of its own.</text>
+<text x="48" y="540" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#9aa7b8">Run on a Flint 2 on 2026-11-01: the agent paired itself, and its call came back through the gateway, whose journal named the client hermes.</text>
+<text x="48" y="566" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#69788b">Switched off, base_url and key_file in UCI apply again. Set it up: docs/providers.md.</text>
+</svg>

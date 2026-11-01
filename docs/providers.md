@@ -56,11 +56,21 @@ the address and the code to enter.
 
 ## A model on a computer in the house, through llm-gateway
 
+![Hermes on the router asks llm-gateway on its loopback, with a key of its own; llm-gateway passes the call to Ollama on a computer in the firewall zone models, which neither the internet nor the LAN reaches](llm-gateway.svg)
+
 A router cannot run the model itself, but a computer in the house can: Ollama, llama-server
 or LM Studio on a desktop. [llm-gateway](https://github.com/TAIPANBOX/openwrt-llm-gateway)
-puts those servers behind one name on the router, with a key for every client. With it
-installed, switched on and serving the model in `hermes.main.model`, one option points the
-agent at it:
+puts those servers behind one name on the router, with a key for every client, and its
+`models-zone` command puts the computer in a firewall zone that only the router reaches.
+
+**Installing the gateway.** It is a package of its own, signed with its own key and served
+from its own feed, so it has its own install steps: [its README, Install](https://github.com/TAIPANBOX/openwrt-llm-gateway#install),
+then [Use](https://github.com/TAIPANBOX/openwrt-llm-gateway#use) for a backend and the zone.
+Its feed has `aarch64_cortex-a53`, the Flint 2's architecture, and not `aarch64_generic`.
+
+**Pointing the agent at it.** With the gateway installed, switched on and serving the model in
+`hermes.main.model`, one option does it, or the switch **Model from llm-gateway** under
+**Services -> Hermes Agent -> Settings**:
 
 ```sh
 uci set hermes.main.llm_gateway=1 && uci commit hermes && service hermes-agent restart
