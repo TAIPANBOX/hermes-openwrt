@@ -222,18 +222,22 @@ def levels():
 
 
 def llm_gateway():
-    """The main model from a computer in the house (hermes.main.llm_gateway): the request lit
-    hop by hop from the chat to the model server, and what cannot reach that computer."""
+    """The main model from a computer in the house (hermes.main.llm_gateway): the request marked
+    hop by hop from the chat to the model server, and what cannot reach that computer. Every hop
+    stays fully readable; the one the request is at gains a glowing frame and a solid number."""
     w, h = 1280, 590
     out = frame(w, h, "A model on a computer in your house: you ask in Telegram; Hermes on the router calls llm-gateway on 127.0.0.1:8761 with a key of its own; llm-gateway passes the call to a model server such as Ollama in the firewall zone models; neither the internet nor the devices on the LAN can reach that computer")
+    out[1:1] = ['<defs><filter id="glow" x="-20%" y="-30%" width="140%" height="160%">'
+                '<feGaussianBlur in="SourceGraphic" stdDeviation="5" result="b"/>'
+                '<feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>']
     n, period = 5, 10
-    css = [f"@keyframes lit{{0%,{100 / n * 0.15:.1f}%{{opacity:.28}}{100 / n * 0.35:.1f}%,{100 / n * 1.25:.1f}%{{opacity:1}}{100 / n * 1.6:.1f}%,100%{{opacity:.28}}}}",
-           # backwards: a hop waits dim for its first turn instead of showing lit until then
-           f".st{{animation:lit {period}s ease-in-out infinite backwards}}",
+    css = [f"@keyframes on{{0%,{100 / n * 0.15:.1f}%{{opacity:0}}{100 / n * 0.35:.1f}%,{100 / n * 1.25:.1f}%{{opacity:1}}{100 / n * 1.6:.1f}%,100%{{opacity:0}}}}",
+           # backwards: a hop's mark waits hidden for its first turn
+           f".hl{{opacity:0;animation:on {period}s ease-in-out infinite backwards}}",
            "@keyframes flow{to{stroke-dashoffset:-24}}.flow{stroke-dasharray:8 4;animation:flow 1.2s linear infinite}"]
     for i in range(n):
         css.append(f".s{i}{{animation-delay:{i * period / n:.1f}s}}")
-    css.append("@media (prefers-reduced-motion:reduce){.st,.flow{animation:none}}")
+    css.append("@media (prefers-reduced-motion:reduce){.hl,.flow{animation:none}}")
     out.append("<style>" + "".join(css) + "</style>")
     out.append(text(48, 58, "A model on a computer in your house", 26, weight="600"))
     out.append(text(48, 84, "hermes.main.llm_gateway=1: the agent on the router asks a model server at home, through llm-gateway, instead of a cloud provider.", 14, MUTED))
@@ -252,7 +256,6 @@ def llm_gateway():
     ]
     y0, bh, ay = 156, 164, 238
     for i, (x, bw, title, lines, foot, col) in enumerate(hops):
-        out.append(f'<g class="st s{i}">')
         out.append(f'<rect x="{x}" y="{y0}" width="{bw}" height="{bh}" rx="10" fill="{PANEL}" stroke="{col}"/>')
         out.append(f'<circle cx="{x + 30}" cy="{y0 + 34}" r="14" fill="none" stroke="{col}" stroke-width="2"/>')
         out.append(text(x + 30, y0 + 39, i + 1, 13, col, weight="600", anchor="middle"))
@@ -260,6 +263,11 @@ def llm_gateway():
         for k, line in enumerate(lines):
             out.append(text(x + 18, y0 + 82 + k * 22, line, 13, LABEL, MONO))
         out.append(text(x + 18, y0 + 142, foot, 12, col, MONO))
+        # The mark drawn over the hop while the request is at it: a glowing frame, the number solid.
+        out.append(f'<g class="hl s{i}">')
+        out.append(f'<rect x="{x}" y="{y0}" width="{bw}" height="{bh}" rx="10" fill="none" stroke="{col}" stroke-width="3" filter="url(#glow)"/>')
+        out.append(f'<circle cx="{x + 30}" cy="{y0 + 34}" r="15" fill="{col}"/>')
+        out.append(text(x + 30, y0 + 39, i + 1, 13, "#0a0e16", weight="700", anchor="middle"))
         out.append("</g>")
         if i < len(hops) - 1:
             nx = hops[i + 1][0]
