@@ -221,6 +221,67 @@ def levels():
     return "\n".join(out) + "\n"
 
 
+def llm_gateway():
+    """The main model from a computer in the house (hermes.main.llm_gateway): the request lit
+    hop by hop from the chat to the model server, and what cannot reach that computer."""
+    w, h = 1280, 590
+    out = frame(w, h, "A model on a computer in your house: you ask in Telegram; Hermes on the router calls llm-gateway on 127.0.0.1:8761 with a key of its own; llm-gateway passes the call to a model server such as Ollama in the firewall zone models; neither the internet nor the devices on the LAN can reach that computer")
+    n, period = 5, 10
+    css = [f"@keyframes lit{{0%,{100 / n * 0.15:.1f}%{{opacity:.28}}{100 / n * 0.35:.1f}%,{100 / n * 1.25:.1f}%{{opacity:1}}{100 / n * 1.6:.1f}%,100%{{opacity:.28}}}}",
+           # backwards: a hop waits dim for its first turn instead of showing lit until then
+           f".st{{animation:lit {period}s ease-in-out infinite backwards}}",
+           "@keyframes flow{to{stroke-dashoffset:-24}}.flow{stroke-dasharray:8 4;animation:flow 1.2s linear infinite}"]
+    for i in range(n):
+        css.append(f".s{i}{{animation-delay:{i * period / n:.1f}s}}")
+    css.append("@media (prefers-reduced-motion:reduce){.st,.flow{animation:none}}")
+    out.append("<style>" + "".join(css) + "</style>")
+    out.append(text(48, 58, "A model on a computer in your house", 26, weight="600"))
+    out.append(text(48, 84, "hermes.main.llm_gateway=1: the agent on the router asks a model server at home, through llm-gateway, instead of a cloud provider.", 14, MUTED))
+    red = "#f85149"
+    # The router holds three of the five hops; the model server sits in a zone of its own.
+    out.append(f'<rect x="264" y="112" width="692" height="226" rx="14" fill="#0b1018" stroke="{EDGE}"/>')
+    out.append(text(284, 136, "THE ROUTER", 12, TEAL, weight="600") + text(372, 136, "OpenWrt 25.12", 12, MUTED))
+    out.append(f'<rect x="992" y="112" width="240" height="372" rx="14" fill="#0b1018" stroke="{AMBER}" stroke-dasharray="5 4"/>')
+    out.append(text(1008, 136, "FIREWALL ZONE", 12, AMBER, weight="600") + text(1112, 136, "models", 12, AMBER, MONO))
+    hops = [
+        (48, 180, "Telegram", ["you ask in the chat", "on your phone"], "allowed ids only", BLUE),
+        (280, 196, "Hermes", ["hermes-agent r20", "llm_gateway=1"], "base_url stays as set", TEAL),
+        (512, 196, "Loopback", ["127.0.0.1:8761/v1", "key: llm-gateway.key"], "file 0600, root only", TEAL),
+        (744, 196, "llm-gateway", ["client: hermes", "one model, one key"], "stores only a hash", GREEN),
+        (1006, 212, "Model server", ["Ollama on a desktop", "or llama-server"], "10.60.0.10:11434", AMBER),
+    ]
+    y0, bh, ay = 156, 164, 238
+    for i, (x, bw, title, lines, foot, col) in enumerate(hops):
+        out.append(f'<g class="st s{i}">')
+        out.append(f'<rect x="{x}" y="{y0}" width="{bw}" height="{bh}" rx="10" fill="{PANEL}" stroke="{col}"/>')
+        out.append(f'<circle cx="{x + 30}" cy="{y0 + 34}" r="14" fill="none" stroke="{col}" stroke-width="2"/>')
+        out.append(text(x + 30, y0 + 39, i + 1, 13, col, weight="600", anchor="middle"))
+        out.append(text(x + 54, y0 + 40, title, 16, weight="600"))
+        for k, line in enumerate(lines):
+            out.append(text(x + 18, y0 + 82 + k * 22, line, 13, LABEL, MONO))
+        out.append(text(x + 18, y0 + 142, foot, 12, col, MONO))
+        out.append("</g>")
+        if i < len(hops) - 1:
+            nx = hops[i + 1][0]
+            out.append(f'<path class="flow" d="M{x + bw + 4},{ay} L{nx - 6},{ay}" stroke="{BLUE}" stroke-width="2" fill="none" marker-end="url(#arrow)"/>')
+    out.append(text(1008, 362, "only the router gets in", 12, LABEL, MONO))
+    out.append(text(1008, 382, "no internet unless allowed", 12, LABEL, MONO))
+    # What cannot reach the model server: the internet, and the devices on the LAN.
+    for k, who in enumerate(["The internet", "A laptop on the LAN"]):
+        by = 388 + k * 56
+        ly = by + 22
+        out.append(f'<rect x="48" y="{by}" width="216" height="44" rx="8" fill="{PANEL}" stroke="{EDGE}"/>')
+        out.append(text(66, by + 27, who, 14, FG, weight="600"))
+        out.append(f'<path d="M268,{ly} L966,{ly}" stroke="{red}" stroke-width="2" stroke-dasharray="6 5" fill="none"/>')
+        out.append(f'<path d="M972,{ly - 8} L988,{ly + 8} M988,{ly - 8} L972,{ly + 8}" stroke="{red}" stroke-width="3" stroke-linecap="round"/>')
+    out.append(text(300, 442, "Neither reaches the model server: its zone takes connections from the router alone.", 13, LABEL))
+    out.append(text(300, 498, "A laptop asks llm-gateway instead, at https://llm.lan:8760, with a key of its own.", 13, LABEL))
+    out.append(text(48, 540, "Run on a Flint 2 on 2026-11-01: the agent paired itself, and its call came back through the gateway, whose journal named the client hermes.", 14, LABEL))
+    out.append(text(48, 566, "Switched off, base_url and key_file in UCI apply again. Set it up: docs/providers.md.", 13, MUTED))
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
 def bubble(x, y, w, lines, fill, fg=FG, font=SANS, size=14, pad=14, step=21, stamp=None):
     """A chat bubble: a rounded panel with one text line per entry, and the time in its corner as
     Telegram puts it; returns (svg, height)."""
@@ -424,7 +485,7 @@ def usb_choice(d):
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs")
     data = json.load(open(os.path.join(ROOT, "docs", "measurements", "figures.json"), encoding="utf-8"))
-    figures = {"usb-choice.svg": usb_choice(data["usb_choice"]), "boxes.svg": routers(data["routers"]), "rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock(), "approve.svg": approve(), "approve-chat.svg": approve_chat(), "levels.svg": levels()}
+    figures = {"usb-choice.svg": usb_choice(data["usb_choice"]), "boxes.svg": routers(data["routers"]), "rerun.svg": rerun(data["rerun"]), "install-flow.svg": install_flow(), "unlock.svg": unlock(), "approve.svg": approve(), "approve-chat.svg": approve_chat(), "levels.svg": levels(), "llm-gateway.svg": llm_gateway()}
     for name, svg in figures.items():
         with open(os.path.join(outdir, name), "w", encoding="utf-8") as f:
             f.write(svg)

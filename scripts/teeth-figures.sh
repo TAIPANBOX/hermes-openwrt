@@ -37,6 +37,10 @@ python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["rerun"]
 	|| { echo "teeth FAILED: the data fault was not planted"; exit 1; }
 expect "a number changed in the data and not redrawn" 1 check_figures_match_their_data
 
+fresh; sed -i.bak 's/127\.0\.0\.1:8761/127.0.0.1:8762/' "$T/r/docs/llm-gateway.svg"; rm -f "$T/r/docs/llm-gateway.svg.bak"
+grep -q '127.0.0.1:8762' "$T/r/docs/llm-gateway.svg" || { echo "teeth FAILED: the hand edit was not planted"; exit 1; }
+expect "a schematic edited by hand, not through scripts/figures.py" 1 check_figures_match_their_data
+
 fresh; printf '\n![gone](docs/no-such-figure.svg)\n' >> "$T/r/README.md"
 expect "a picture that is not there" 1 check_doc_images_exist
 
