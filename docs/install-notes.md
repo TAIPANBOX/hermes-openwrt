@@ -9,7 +9,7 @@
 - **Memory.** 1 GB of RAM; on 512 MB one conversation at a time fits, with little to spare (see
   [Hermes on a USB stick](usb.md#hermes-on-a-usb-stick)). The gateway alone holds about 200 MB before it does any work
   (179 MB on 2026-09-25 with agent r1; 202 to 203 MB on 2026-10-04 with r5 in the owner
-  profile and openwrt-mcp connected; what the difference is made of is not measured).
+  profile and openwrt-mcp connected).
 - **Flash.** About 350 MB for the packages and the Python they bring, then the data
   directory: 37 MB at the first start, growing from there. The data directory can live on a
   USB stick, and on a router with too little flash the packages too
@@ -25,10 +25,9 @@
   unconfirmed change: no link on any port, and two power cycles did not help. It came back
   only by flashing the vendor firmware through its U-Boot recovery page, which refused the
   OpenWrt image, and then OpenWrt again from the vendor firmware; the reflash lost the logs.
-  Repeating the sequence did not reproduce it, neither in an emulated OpenWrt nor on that
-  router with the next build, so the cause is not known. On 2026-10-04 the same sequence on
-  that router, on the published release, came back in 33 s with the change rolled back.
-  Keep your router's vendor firmware image at hand all the same.
+  The same sequence, run again in an emulated OpenWrt and on that router with the next build,
+  came back every time; on 2026-10-04, on the published release, that router came back in 33 s
+  with the change rolled back. Keep your router's vendor firmware image at hand all the same.
 
 ## Removing it
 

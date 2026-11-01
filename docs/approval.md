@@ -10,7 +10,8 @@ once, what approving looks like, and why it takes both.
 Which changes are held: a port opened to the internet, the firewall weakened, the router's ports or
 VLANs rewired, VPN or policy routing changed, who answers DNS changed, the time servers changed, a
 Wi-Fi without a password put into a trusted network, a service that guards the router stopped, and
-a reboot. The full list, and what it does not cover: [security.md](security.md#high-impact-changes-wait-for-your-approval).
+a reboot. The full list, and how each is decided: [security.md](security.md#high-impact-changes-wait-for-your-approval).
+How the pieces fit together: [per-action-approval.md](per-action-approval.md).
 
 ## Why a PIN and a code, both
 

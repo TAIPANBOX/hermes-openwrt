@@ -10,7 +10,8 @@ package and a 950 MB container image:
 On `openwrt/rootfs:aarch64_generic-25.12.4`, `pip debug --verbose` reports
 `cp313-cp313-musllinux_1_2_aarch64` as its top tag. A `pydantic-core` wheel, which is
 compiled Rust, installs and imports and validates. For Hermes 0.21.5 the router profile
-is 77 packages in under 30 seconds with nothing compiled and no toolchain present.
+installed as 77 packages in under 30 seconds, with nothing compiled and no toolchain present;
+since 0.21.5-r19 it is 74.
 
 So Hermes does not need to be built for OpenWrt. It needs to be assembled for it, and
 that is what this repository does.
@@ -82,7 +83,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 
 ## Status
 
-- [x] Native package for OpenWrt 25.12 (apk); 24.10 was served until 2026-09-25 and is not any more
+- [x] Native package for OpenWrt 25.12 (apk), the one release line the feed serves since 2026-09-25
 - [x] Hermes 0.21.5 from a pinned upstream commit, libraries at upstream's locked versions
 - [x] `aarch64_cortex-a53` for the Flint 2, Brume 2 and Beryl AX, plus `aarch64_generic`
 - [x] LuCI interface with write-only key handling
@@ -96,16 +97,16 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] Telegram, as a two-distribution add-on package
 - [x] Three profiles, owner by default, assistant and root by choice; `admin` accepted as root
 - [x] The agent runs as an unprivileged user, `hermes`, unless the profile says root
-- [x] The owner profile reads the router through openwrt-mcp and changes it only through it, refused until a second factor is set and unlocked (stage 3 of 5: the policies, the factor's settings, the refusals, per-agent unlock and the rollback)
-- [x] The unlock from Telegram: `/unlock` and `/lock`, the message deleted and kept from the model, the logs and the conversation, a scheduled job refused (stage 4 of 5, 0.21.5-r4)
-- [x] The LuCI Security page that sets a PIN and adds a phone by QR code, and the SSH enrolment that prints the QR code in the terminal (stage 5 of 5, LuCI r13)
+- [x] The owner profile reads the router through openwrt-mcp and changes it only through it, refused until a second factor is set and unlocked: the policies, the factor's settings, the refusals, per-agent unlock and the rollback
+- [x] The unlock from Telegram: `/unlock` and `/lock`, the message deleted and kept from the model, the logs and the conversation, a scheduled job refused (0.21.5-r4)
+- [x] The LuCI Security page that sets a PIN and adds a phone by QR code, and the SSH enrolment that prints the QR code in the terminal (LuCI r13)
 - [x] A router with no `/srv` starts the agent, and the agent is told when the owner has unlocked changes (0.21.5-r5, from what a QEMU OpenWrt and a Brume 2 showed on 2026-10-02)
 - [x] A per-turn limit on model calls, set on the router
 - [x] Several providers at once, each chat on the one it picks, a ChatGPT subscription included
 - [x] Upstream's native Anthropic provider
 - [x] A Providers page: further providers with write-only keys, ChatGPT sign-in and sign-out
 - [x] Hermes's data on a USB stick with one command, `hermes-usb` (0.21.5-r6), and no start without the stick; extroot measured on a Beryl AX and a Brume 2
-- [x] A daily check opens an issue when upstream tags a release newer than the pinned one (`scripts/upstream-watch.sh`); moving to it stays a reviewed change, built, gated and run on both routers first
+- [x] A daily check opens an issue when upstream tags a release newer than the pinned one (`scripts/upstream-watch.sh`); moving to it stays a reviewed change, built, gated and run on the Flint 2 first
 - [x] An upgrade leaves the service's start at boot as the owner set it; only an install switches it on (0.21.5-r7)
 - [x] An endpoint on the LAN starts: the wrapper exports `CUSTOM_BASE_URL` equal to the endpoint in UCI (0.21.5-r8)
 - [x] The agent can ping as its own user: the package depends on iputils-ping, BusyBox's ping needing root (0.21.5-r9)

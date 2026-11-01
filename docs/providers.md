@@ -66,7 +66,8 @@ puts those servers behind one name on the router, with a key for every client, a
 **Installing the gateway.** It is a package of its own, signed with its own key and served
 from its own feed, so it has its own install steps: [its README, Install](https://github.com/TAIPANBOX/openwrt-llm-gateway#install),
 then [Use](https://github.com/TAIPANBOX/openwrt-llm-gateway#use) for a backend and the zone.
-Its feed has `aarch64_cortex-a53`, the Flint 2's architecture, and not `aarch64_generic`.
+Its feed carries llm-gateway 0.1.0-r2 since 2026-11-01, built for `aarch64_cortex-a53`, the
+Flint 2's architecture, among others.
 
 **Pointing the agent at it.** With the gateway installed, switched on and serving the model in
 `hermes.main.model`, one option does it, or the switch **Model from llm-gateway** under
@@ -153,24 +154,22 @@ entry at every start.
 | the gateway is down | Hermes tries three times over about ten seconds; the gateway came back before the third try and the turn finished. Down for longer, the job fails |
 | a model switched with `hermes cron edit --model` | served and priced per call, inside the same run |
 
-**What the gateway governs, and what it does not.** It sees every model call: who calls,
-as whom, how much a conversation and the group of routers have spent, what the tool results
-in the conversation carried. It does not see the tools themselves: the terminal, the files
-and openwrt-mcp run on the router, and the agent calls openwrt-mcp there directly, not through
-a gateway's own MCP broker, so a change to the router is governed by openwrt-mcp and your
-unlock (see [security.md](security.md)), not by the gateway. What the tools fetch from the
-internet does not pass through it either. Two things measured on 2026-10-14 with TokenFuse's
-firewall in enforce mode:
+**What the gateway governs.** It sees every model call: who calls, as whom, how much a
+conversation and the group of routers have spent, what the tool results in the conversation
+carried. The tools run on the router: the terminal, the files and openwrt-mcp are there, and the
+agent calls openwrt-mcp directly, so a change to the router is governed by openwrt-mcp and your
+unlock (see [security.md](security.md)), and what the tools fetch from the internet goes out from
+the router itself. Two things measured on 2026-10-14 with TokenFuse's firewall in enforce mode:
 
-- A gateway that judges the tool calls in an answer sees only what it reads whole. Hermes
-  streams its answers, and TokenFuse does not yet judge a streamed answer's tool calls: a
-  `write_file` call its firewall refuses in a buffered answer ran on the router.
+- A gateway that judges the tool calls in an answer judges what it reads whole. Hermes streams
+  its answers, and that day TokenFuse judged the tool calls of buffered answers: a `write_file`
+  call its firewall refuses in a buffered answer ran on the router when it came streamed.
 - TokenFuse reads the descriptions of the tools a request declares, and the descriptions of
   openwrt-mcp's `uci_get` and Hermes's own `web_extract` read to it as a possible injection.
   Every conversation is therefore marked untrusted from its first call, and a real injection
   read later adds no new signal.
 
-Limits on the router side:
+On the router side:
 
 - With a pass-through gateway the provider key stays on the router (root's alone, as
   before): the gateway limits what the key spends through it, not what it spends elsewhere.

@@ -192,7 +192,7 @@ The first line reads the PIN without echoing it, using the python3 the package a
 on (OpenWrt's BusyBox has no `stty`). Run it in an SSH session with a terminal (`ssh -t`).
 </details>
 
-How each part works, and its limits: [docs/approval.md](docs/approval.md), [docs/security.md](docs/security.md).
+How each part works: [docs/approval.md](docs/approval.md), [docs/security.md](docs/security.md).
 
 ## A model on a computer in your house
 
@@ -228,16 +228,17 @@ free, put every package on the stick with OpenWrt's extroot first. Commands and 
 ![The three test routers, Flint 2, Brume 2 and Beryl AX, each with the same nine measurements](docs/boxes.svg)
 
 Vanilla OpenWrt 25.12.5 on a Flint 2 (a Wi-Fi router), a Brume 2 (a wired gateway) and a Beryl AX
-(512 MB, Hermes on a USB stick). Measured on 2026-09-25: a diagnosis of five commands took 18 to
-25 s, the gateway held about 180 MB, and six conversations at once were all answered. Whether a model can drive it depends
-on native tool calling, not size. Every figure and how it was taken: [docs/measured.md](docs/measured.md).
+(512 MB, Hermes on a USB stick). Measured from 2026-10-03 to 2026-10-05 on the published release:
+one conversation took 25 to 35 s, the gateway held about 200 MB, six conversations at once were all
+answered on the 1 GB routers, and the Beryl AX runs one at a time. Whether a model can drive it
+depends on native tool calling, not size. Every figure and how it was taken:
+[docs/measured.md](docs/measured.md).
 
-## Help test it
+## Reports from your router
 
-The most useful reports: a reminder set in plain words, the gateway's memory over several days, web
-search with your model, and any other aarch64 router. Open an
-[issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose), and check a log for keys
-before you paste it. Security problems go to [SECURITY.md](SECURITY.md).
+A report from your own router and model is welcome: what you asked, what the agent did, and the
+log. Open an [issue](https://github.com/TAIPANBOX/hermes-openwrt/issues/new/choose), and check a log
+for keys before you paste it. Security problems go to [SECURITY.md](SECURITY.md).
 
 ## How it is built and checked
 

@@ -135,7 +135,7 @@ The `[m]` in the pattern is load-bearing when you send these lines as `ssh route
 router's `sh -c` then carries the text `main.py gateway` in its own command line, `pgrep -o -f`
 picks that shell, and the checks read the wrong process (measured 2026-10-08).
 
-Not running: read `logread | sed -n '/hermes-runbook: start/,$p' | tail -n 40` and match the line in
+If it is not running, read `logread | sed -n '/hermes-runbook: start/,$p' | tail -n 40` and match the line in
 [Failures](#failures). The gateway takes 4 to 5 s to exec and about 200 MB of memory.
 
 ## 5. Telegram (only if the person wants it)
@@ -181,7 +181,7 @@ asks for. Send /unlock followed by your PIN (4 to 8 digits)." and opens nothing.
 Security page the PIN and the factor have a Save each: a PIN saved while the factor is `none`
 unlocks nothing until PIN is chosen under "What unlocking asks for" and saved there.
 Explain to the person what an open window allows: settings, the VPN and services, never a
-command, a firmware or a reboot, with the one gap security.md names
+command or a firmware, and the high-impact changes below only once the owner approves each one
 ([security.md](security.md)). You may check the state, which holds no secret:
 
 ```sh
@@ -265,6 +265,7 @@ Lines the service writes to `logread`, what they mean, and what to do.
 | `could not start openwrt-mcp` / `could not pair hermes-main` | openwrt-mcp failed | `logread -e openwrt-mcp`; report it |
 | `openwrt-mcp ... does not report that uci_get redacts credentials` | an openwrt-mcp older than 0.5.0.2; the agent runs, but cannot read wireless, the whole of network or a package's own config | `apk update && apk upgrade openwrt-mcp`, then restart hermes-agent |
 | `openwrt-mcp ... does not report that uci_apply refuses code execution` | an openwrt-mcp older than 0.5.0.3; the agent reads, and nothing can change the router through it | `apk update && apk upgrade openwrt-mcp`, then restart hermes-agent |
+| `openwrt-mcp ... does not report that it holds high-impact changes for the owner's approval` | an openwrt-mcp older than 0.5.0.5; the agent reads, and nothing can change the router through it | `apk update && apk upgrade openwrt-mcp`, then restart hermes-agent |
 | `hermes.security.packages is official, but ...` | the owner opted in to package installs, and no factor is set or openwrt-mcp is older than 0.5.0.4 | report it to the owner; the factor and the opt-in are theirs |
 | `the openwrt-mcp running is ..., not the installed ...` | the daemon from before an upgrade is still serving and a restart did not replace it | `service openwrt-mcp restart`, then restart hermes-agent; report it if the line comes back |
 | the gateway starts, then stops five times within minutes | procd's bounded respawn gave up after repeated failures | read the first refusal above it |
