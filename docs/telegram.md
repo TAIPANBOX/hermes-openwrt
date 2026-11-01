@@ -52,8 +52,8 @@ changes the version of nothing already installed.
 
 | | |
 |---|---|
-| added | `python-telegram-bot` 22.8, `tornado` 6.5.8 |
-| version changes to the base package's 77 | none |
+| added | `python-telegram-bot` 22.8, `tornado` 6.5.10 (a security update, since the add-on's r2) |
+| version changes to the base package's 74 | none |
 | flash it takes | 12 MB, against the base package's 239 MB tree (2026-09-25, both routers) |
 
 That second row is what makes an add-on possible at all. Two OpenWrt packages cannot own

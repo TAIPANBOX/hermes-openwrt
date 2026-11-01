@@ -153,10 +153,10 @@ The root profile runs without the sandbox: it asks for the whole router. So does
 hand from a root shell (`hermes chat`, `hermes cron run`), which runs as `hermes` but as the
 owner's own session, not the service.
 
-The limits, named. The router's memory, load and network state stay readable, which the
-diagnostics need. A secret another package keeps under `/usr`, or in one of the few `/etc` files
-listed, is not hidden. `resolv.conf` and the time zone are the files present at the start; a change
-to them reaches the sandbox at the next start. The checks: `check_agent_tools_cannot_read_router_secrets`
+What stays readable inside: the router's memory, load and network state, which the diagnostics
+need, and whatever another package keeps under `/usr` or in one of the few `/etc` files listed.
+`resolv.conf` and the time zone are the files present at the start; a change to them reaches the
+sandbox at the next start. The checks: `check_agent_tools_cannot_read_router_secrets`
 plants a Wi-Fi key and a WireGuard private key in UCI, hostapd's passphrase and the overlay's copy,
 all 0644 and each with a marker line no redaction touches, and requires upstream's terminal,
 read_file and search_files to return none of them while a control in the data directory is found;
@@ -203,14 +203,14 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.4 since
-0.21.5-r13 (`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the
-commit is the one in `.github/workflows/ci.yml`). Upstream has the code factor and its
-enrolment; the PIN, a factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the
-two-step enrolment, the redaction of every `uci_get` answer, the refusal of every `uci_apply`
-that would run code and `apk_add` from the official feeds only are the fork's, and its README
-documents them. `hermes-agent` depends on `openwrt-mcp>=0.5.0.4`, the first version that does all
-three, so an upgrade of the agent cannot leave an older one beside it.
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.7 today
+(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the commit is the
+one in `.github/workflows/ci.yml`). Upstream has the code factor and its enrolment; the PIN, a
+factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the two-step enrolment, the
+redaction of every `uci_get` answer, the refusal of every `uci_apply` that would run code,
+`apk_add` from the official feeds only and the high-impact changes held for your approval are the
+fork's, and its README documents them. `hermes-agent` depends on `openwrt-mcp>=0.5.0.5`, the first
+version that does all of them, so an upgrade of the agent cannot leave an older one beside it.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -227,20 +227,24 @@ one of a client that covers a call:
 | `hermes_main_read_log` | `logread` | none |
 | `hermes_main_change` | `uci_apply`, `uci_confirm` on `network` (WireGuard included), `wireless`, `firewall`, `dhcp` and `system`, each apply rolled back unless the agent confirms it | the factor |
 | `hermes_main_change_ubus` | `ubus_call`, by method: `network.reload`, `network.restart`, an interface's `up`, `down` and `renew` (by `network.interface` or the interface's own object), `network.wireless.up`, `.down` and `.reconf`, and `rc.init` (start, stop, restart, reload, enable or disable a service) | the factor |
+| `hermes_main_hold` | `ubus_call` on `system.reboot`, written only when someone can approve, every call held | your approval of that one reboot |
 
 `exec` and `wg_new_client` are not granted: the second answers with a WireGuard private
 key, and whatever a tool answers goes to the model provider.
 
 **What an open window allows.** Since 0.21.5-r11 an open window lets the agent change
-settings, the VPN and services, and nothing else by name: settings through `uci_apply`, which
+settings, the VPN and services, and nothing else by name, and since 0.21.5-r16 the high-impact
+ones among them wait for your approval of each as well
+([below](#high-impact-changes-wait-for-your-approval)): settings through `uci_apply`, which
 undoes a change the agent does not confirm (after a reboot too), and the ubus calls above, which bring a
 setting into effect or restart a service. No policy the package writes grants rpcd's `file`
 object (it runs commands and writes files), `system.sysupgrade` or
-`system.validate_firmware_image`, `system.reboot` (a reboot cannot be rolled back, so it is left
-to you), `system.signal`, `uci` over ubus (it would go around `uci_apply`'s rollback), procd's
-`service` object (`service.set` starts any command), `rpc-sys` (packages and upgrades) or
-`exec`; openwrt-mcp refuses each of them before it reaches ubus, window or not. Until r11 the
-change policy granted `ubus_call` on everything, and a window was root for its length.
+`system.validate_firmware_image`, `system.signal`, `uci` over ubus (it would go around
+`uci_apply`'s rollback), procd's `service` object (`service.set` starts any command), `rpc-sys`
+(packages and upgrades) or `exec`; openwrt-mcp refuses each of them before it reaches ubus,
+window or not. A reboot cannot be rolled back, so `system.reboot` is granted only through the
+hold policy, and each reboot waits for your approval (below). Until r11 the change policy granted
+`ubus_call` on everything, and a window was root for its length.
 
 `uci_apply` reaches five configs: `network` (interfaces, routes and the WireGuard VPN),
 `wireless`, `firewall`, `dhcp` and `system`. Nothing else, and in particular not the agent's own
@@ -262,16 +266,15 @@ it there is no change policy, whatever the factor, and the start says so in one 
 both daemon checks and the ubus list above, an open window changes settings, the VPN and
 services and never runs a command.
 
-The limits of that, named: openwrt-mcp's list of options that run code is a list (its own
-source names what it does not cover: a package it does not know, an option that writes a file
-somewhere, a service such as ttyd whose purpose is a shell); a ubus call has no rollback, so a
-service stopped stays stopped until it is started again; and `rc.init` is granted for any
-service, because openwrt-mcp scopes a ubus call by its method and not by its arguments, so in a
-window the agent can stop or disable the firewall, `dropbear` or openwrt-mcp itself, which
-weakens the router or locks a way in without giving the agent anything new (restarting
-`hermes-agent` is harmless, its configuration being out of reach); and a policy you grant `hermes-main`
-yourself, `exec` included, is your own choice, which the package does not undo. Every call is in
-openwrt-mcp's audit log. Installing packages from a window is possible only when you opt in, and
+How it works at the edges: openwrt-mcp knows the options that run code by a list, so an option of
+a package it does not know, an option that writes a file somewhere, or a service such as ttyd whose
+purpose is a shell is judged as an ordinary setting; a ubus call has no rollback, so a service
+stopped stays stopped until it is started again; `rc.init` reaches any service, and since
+0.21.5-r16 stopping or disabling one that guards the router (the firewall, `dropbear`, `uhttpd`,
+`rpcd`, openwrt-mcp, `network`, `dnsmasq`) waits for your approval like any high-impact change
+(below), while restarting `hermes-agent` is harmless, its configuration being out of reach; and a
+policy you grant `hermes-main` yourself, `exec` included, is your own choice, which the package
+leaves as you wrote it. Every call is in openwrt-mcp's audit log. Installing packages from a window is possible only when you opt in, and
 then only from the official OpenWrt feed ([Package installs, your opt-in](#package-installs-your-opt-in)). What the
 unlock protects against is the time outside the window: an agent misled by a web page, or anyone
 who gets the bot to talk, cannot change the router without you.
@@ -296,11 +299,11 @@ only, and the start says why in one line. apk replaces openwrt-mcp's program on 
 without restarting the daemon, so when one is running the package also asks it, through
 `/health`, which version it is; when that is not the installed version it restarts openwrt-mcp
 once, and if the old one is still the one serving it keeps the narrow grants and names the
-version in the log. Two limits, named: openwrt-mcp decides what is secret by the option's name,
-so a secret inside an option whose name gives no sign of it (a token pasted into a DDNS update
-address, a password inside `pppd_options`) is not redacted; and `ubus call network.wireless
-status`, which returns each Wi-Fi interface's configuration with its key, is not redacted at
-all, so the package never grants it.
+version in the log. Two things follow from how redaction works: openwrt-mcp decides what is
+secret by the option's name, so a secret inside an option whose name gives no sign of it (a token
+pasted into a DDNS update address, a password inside `pppd_options`) is read as it is; and `ubus
+call network.wireless status` returns each Wi-Fi interface's configuration with its key, so the
+package never grants it.
 
 **A service's state and a package's settings.** Since 0.21.5-r14 the agent can tell whether a
 service runs, and read the settings of a package it installed. On a Flint 2 running r13 it
@@ -313,13 +316,13 @@ command line and environment, where other packages keep their own secrets, and w
 answers goes to the model provider (the LuCI read permission leaves it out for the same reason).
 From an openwrt-mcp that reports it redacts, `uci_get` covers every config (`*`), so a package's
 own config (transmission, adguardhome, vnstat, tor, tailscale) is read with its passwords and
-keys `'<redacted>'`; from one that does not, the narrow list above, unchanged. A list of packages
-was the other choice and was not taken: openwrt-mcp only grants, with no way to refuse one config
-inside a wider grant, and a list would miss the next package installed. What `*` also opens:
+keys `'<redacted>'`; from one that does not, the narrow list above, unchanged. Why every config
+and not a list of packages: openwrt-mcp only grants, with no way to refuse one config inside a
+wider grant, and a list would miss the next package installed. What `*` also opens:
 the configs of `hermes` (key file paths, the profile, the factor, the allowed Telegram ids),
 `openwrt-mcp` (its address and its policies; its tokens, PINs and app secrets are files outside
 UCI), `rpcd` (its login password is redacted), `dropbear` and `uhttpd` (their key files are
-redacted), `luci`, `fstab` and `ucitrack`. The limit is the one above, now over every package: a
+redacted), `luci`, `fstab` and `ucitrack`. Redaction works as above, now over every package: a
 secret under an option whose name gives no sign of it (a token in a DDNS update address, a
 password in `pppd_options`, a client id that is itself a credential) is read as it is. Reading is
 not changing: `uci_apply` stays on the five configs above, and `rc.list` sits in the read policy,
@@ -405,8 +408,9 @@ added, the window, the failure limit and the lockout) and does three things:
   feed", off unless you turn it on. It can be turned on only while a factor is in force, and
   turned off at any time. What it does is the next section.
 
-The window that is open right now cannot be shown: openwrt-mcp keeps it in memory and a separate
-process cannot see it. `/lock` in the Telegram chat closes it.
+An open window lives in openwrt-mcp's memory, so the page shows the settings in force, and the
+bot tells you in the chat when a window opens and until when. `/lock` in the Telegram chat closes
+it.
 
 The page needs the agent to have been started once in the owner profile, which is what pairs
 `hermes-main` with openwrt-mcp; before that it says so and offers nothing. It offers nothing in
@@ -435,7 +439,7 @@ effect at once. On the command line nothing stops you setting a factor before it
 exists; then every unlock is refused until they do, and `openwrt-mcp mfa status` says so. The page
 cannot be put in that state, and the command line can.
 
-What this does not do, named:
+Worth knowing about the setup:
 
 - The six-digit code you type to add a phone is an argument of the `openwrt-mcp mfa activate` the
   backend runs, so it is readable in `/proc` for the moment that takes. It is spent as soon as it
@@ -445,9 +449,9 @@ What this does not do, named:
 - LuCI over plain HTTP carries the PIN and the QR code across your network unencrypted, as it does
   every key typed into the other pages. The page says so when it is served over HTTP. On a network
   you do not trust, use HTTPS, or the SSH way.
-- A wrong code at activation is not counted or limited. It is six digits, from a session that is
-  already signed in to LuCI.
-- The page shows what is in force, and an unlock window is not part of that, as above.
+- A wrong code at activation costs no try: it is six digits, typed in a session that is already
+  signed in to LuCI.
+- The page shows what is in force; an open window is told in the chat, as above.
 
 ### Package installs, your opt-in
 
@@ -486,20 +490,21 @@ When the policy is not there, the tool is kept from the model like `exec`, so it
 for something that would only be refused, and it tells you it cannot install packages. A scheduled
 job cannot install anything, a window open or not, as it cannot change anything else.
 
-What this does not do, named:
+What to know before you turn it on:
 
-- It does not check what a package does. A package from the official feed can add a service, open
-  a port or change a setting when it installs; you decide which packages you ask for.
-- An install has no rollback. `uci_apply`'s automatic undo is for settings; a package stays
-  installed until it is removed (`apk del <name>`, by you).
-- Which feeds count as official is openwrt-mcp's decision, made from `distfeeds.list`; this
-  package does not check the feed addresses itself.
+- What a package does is yours to judge. A package from the official feed can add a service, open
+  a port or change a setting when it installs, and the agent installs only the packages you ask for.
+- A package stays installed until it is removed (`apk del <name>`); `uci_apply`'s automatic undo
+  is for settings.
+- Which feeds count as official is openwrt-mcp's decision, made from `distfeeds.list`.
 - apk pulls in dependencies and may upgrade an installed library a new package needs; the dry run
   lists every package that would be installed or changed.
 - Only downloads.openwrt.org's feeds are used, so a router whose `distfeeds.list` points at a
   mirror or at archive.openwrt.org has no feed apk_add will use, and every install is refused.
-- No install and no dry run is run by this repository's checks: `apk_add` updates its index from
-  the feed before every call, and the gates run offline. They prove the policy and the refusals.
+
+On a Flint 2 on 2026-10-09, through Telegram, the agent installed vnstat2, adguardhome and
+transmission-daemon with `apk_add` and started their services. The gates prove the policy and the
+refusals against the real daemon, offline.
 
 ### Unlocking from Telegram
 
@@ -567,9 +572,9 @@ that a change which was waiting for it should be done now. The line holds no PIN
 the plugin never keeps either. `/lock`, a lockout and the end of the window all end it, and the
 line is taken out of the earlier turns the request replays as well, so after `/lock` the agent
 is not left reading "do it now". A scheduled job is not told, since it may not change the router
-inside a window. The plugin knows only the windows it saw open: one opened some other way, or
-one still open when the gateway restarted, is not announced, and the agent then finds out as it
-did before, from a refusal that tells it to ask you to unlock.
+inside a window. The plugin announces the windows it saw open. For one opened some other way,
+or still open when the gateway restarted, the agent goes by openwrt-mcp's answer, as before: a
+refusal tells it to ask you to unlock.
 
 The plugin lives in the package's own site-packages with a `hermes_agent.plugins` entry
 point, which makes it root's files that the agent, running as `hermes`, cannot rewrite;
@@ -587,7 +592,7 @@ The agent is told that if one of your
 messages is replaced by a notice that it was removed, it should answer what it was doing
 and ask you to send `/unlock` again.
 
-What this does not do, measured and named:
+Worth knowing, measured:
 
 - A PIN alone on a line of a longer message is removed from what the model is sent, and
   stays in the chat and in the conversation database. Send it on its own.
@@ -600,10 +605,8 @@ What this does not do, measured and named:
   held back when it is the whole message, and replaced in the request when it is one line
   of several, which includes a number you pasted.
 - With `allow_all`, anyone may chat and none may unlock.
-- A scheduled job that hands its work to a subagent asynchronously is not measured, and no
-  gate covers the subagent path. The synchronous path was measured on hardware, as above.
-- In a window, a setting that runs code is refused by openwrt-mcp's list, and an option it does
-  not know is not, as above. The gateway's environment holds the model key and the openwrt-mcp
+- In a window, a setting that runs code is refused by openwrt-mcp's list, as above. The gateway's
+  environment holds the model key and the openwrt-mcp
   token, and no process of the `hermes` user can read it: the gateway is non-dumpable, so its
   `/proc` entries belong to root (invariant 7 in CLAUDE.md).
 
@@ -620,9 +623,9 @@ whether the window is open or not, and runs one only once you approve that one c
   internet, a change in which zones face the internet or what a zone takes by device or subnet, an
   uplink network put into a trusted zone, a raw nftables fragment);
 - the router rewired: a VLAN, the ports of a bridge or device, or what an interface sits on,
-  whatever it names, since which port then carries the internet is not worked out. A guest network
-  is not held: a new bridge named `br-<name>` with no ports, an interface on it, a Wi-Fi with a
-  password on that network and its own zone run in the window as before;
+  whatever it names, so a rewiring that could move the internet onto another port always waits
+  for you. A guest network runs in the window as before: a new bridge named `br-<name>` with no
+  ports, an interface on it, a Wi-Fi with a password on that network and its own zone;
 - VPN or policy routing changed (a WireGuard interface or peer, a route for every destination, pbr);
 - who answers DNS changed (dnsmasq's upstream servers, rebind protection, a name with a dot answered
   locally, an interface's DNS servers, DHCP option 6);
@@ -686,12 +689,17 @@ changing the agent's own configuration, openwrt-mcp's, rpcd's, dropbear's, uhttp
 or ucitrack, and rpcd's file object, a firmware, a signal, procd's service object, uci and rpc-sys
 over ubus.
 
-What this does not cover: a change whose danger lies in a value openwrt-mcp does not read (a port
-forward to a host that itself runs something, a firewall zone's extra rules, a package's own
-remote-administration switch) runs in the window like any other change; a WireGuard client's
-configuration cannot be handed over yet (a one-time LuCI page is the plan); and the bot that sends
-the card is the bot the agent talks through, so the restated headline, not the card's look, is what
-to trust.
+How far it reaches: openwrt-mcp decides by the settings its rules read, so a change whose danger
+lies elsewhere (a port forward to a host that itself runs something, a firewall zone's extra rules,
+a package's own remote-administration switch) runs in the window like any other change; a WireGuard
+client is never issued to the agent, since its private key would be in the answer; and the bot that
+sends the card is the bot the agent talks through, so the restated headline, not the card's look,
+is what to trust.
+
+On a Flint 2 on 2026-10-22, asked through Telegram for a port forward from the internet, the agent
+got `HELD`, the card came from the bot, `/approve` and then the PIN and a code applied it, fw4 carried
+the rule, and the agent, told the outcome in its chat, read the router back and confirmed the change
+itself twelve seconds later. How the pieces fit together: [per-action-approval.md](per-action-approval.md).
 
 ### Pairing openwrt-mcp yourself
 

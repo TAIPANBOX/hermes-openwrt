@@ -24,7 +24,7 @@ What it is good at is the network it sits in, and staying on all the time.
 | **Looking after the home network, from a phone** | In Telegram: "why is the internet slow?" The agent runs commands on the router and answers from what they printed, not from general advice. | Measured on the Flint 2 and the Brume 2: a five-command diagnosis answered in 18 to 25 s; on a clean Flint 2 with 0.21.5-r9's ping, 9 s ([measured](measured.md#the-agents-own-ping)) |
 | **A watch that speaks only when something is wrong** | Every hour a script collects the router's numbers (loss and latency to the internet, DNS, free memory, flash, temperature) and the model reads them in one call. All normal, it stays silent; otherwise one message says what is wrong. | Ran every hour for 19 hours on a Brume 2 (2026-10-01/02), one model call per check, silent while all was normal. The one problem it saw (one ping of three lost) the model reported with Hermes's own failure marker, which a job delivering failures locally keeps silent: see [What a test chat shows](telegram.md#what-a-test-chat-shows) |
 | **A morning message** | At 08:00: the weather, the exchange rate and one news item found by web search, in a few lines. | Delivered at 08:00 on 2026-10-02 in one model call, though the small free model skipped the web search it was asked for. Search itself measured on 2026-10-04: the same free model, told to use it, searched and read the page |
-| **An assistant that is always on** | Reminders and lists set in plain words in a chat, with no server to keep running: the router is on anyway. | Scheduling measured as above; reminders set from a chat not yet measured |
+| **An assistant that is always on** | Reminders and lists set in plain words in a chat, with no server to keep running: the router is on anyway. | Jobs run on time: the hourly watch for 19 hours, the morning message delivered at 08:00, and one-off jobs a few minutes ahead ([below](#scheduled-jobs-in-practice)) |
 
 **When to choose something else.** For an agent that browses, books, or works on sites
 you sign in to, run Hermes on a machine with 2 GB of memory or more; upstream's own
@@ -99,7 +99,7 @@ under Services -> Hermes Agent -> Security (a factor has to be in force first), 
 `uci set hermes.security.packages=official && uci commit hermes && /etc/init.d/hermes-agent restart`.
 Then, while you have changes unlocked, the agent can install a package you asked for, from the
 official OpenWrt feed only, never from a link, a file or another feed; it runs a dry run first and
-tells you what would be installed and how much space that takes. What it does and does not do: [Package installs, your opt-in](security.md#package-installs-your-opt-in).
+tells you what would be installed and how much space that takes. How it works: [Package installs, your opt-in](security.md#package-installs-your-opt-in).
 
 **Browser, vision, image generation and the wake-word stack are not packaged.** They pull
 heavy dependencies for capabilities a headless router does not have. `ffmpeg` is included,
