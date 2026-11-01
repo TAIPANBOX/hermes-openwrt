@@ -232,6 +232,14 @@ Feature: The web page manages the agent and never hands a key back
     And the old name admin is not offered, and a router set to admin is shown and saved as root
     # -> check_profile_field_defaults_to_owner
 
+  # @claude 2026-11-01: the model from llm-gateway, the router's own gateway to the house's model
+  # servers (hermes.main.llm_gateway, hermes-agent 0.21.5-r20), is switched on and off on this page too.
+  Scenario: the settings page switches the model from llm-gateway on and off and leaves the endpoint alone
+    Given the settings page's model section, with an endpoint, a model and a key stored
+    When the owner turns on the switch for the model from llm-gateway and saves
+    Then the switch is what is written, and the endpoint, model and key fields stay on the page and in UCI as they were
+    # -> check_llm_gateway_switch_leaves_the_endpoint_alone
+
   Scenario: the Security page tells what is in force and never a secret
     Given the owner profile, with openwrt-mcp's client for the agent paired
     When the page asks for the security status
