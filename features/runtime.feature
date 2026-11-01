@@ -725,3 +725,33 @@ Feature: What is set on the router is what the gateway runs with
     When the owner profile is applied, and then another profile
     Then the plugin is enabled and no longer disabled, the operator's other names stay, and the other profile removes the name only if the bridge put it there
     # -> check_owner_profile_enables_the_unlock_plugin_and_the_others_take_it_out_again
+
+  # ---- The main model from llm-gateway ----
+  #
+  # @decided 2026-11-01: the agent on the router can take its model from llm-gateway, the router's
+  # own gateway to the model servers in the house (TAIPANBOX/openwrt-llm-gateway), so a router that
+  # cannot run a model itself uses one on a computer at home, without the cloud.
+  # @claude 2026-11-01: as an option, off unless the owner turns it on, and off changes nothing; the
+  # service pairs its own client with the gateway, as it pairs its client with openwrt-mcp.
+
+  Scenario: the model comes from the router's model gateway when the owner turns it on
+    Given llm-gateway installed and switched on, with a model server in the house that serves the router's model
+    When the owner turns the gateway option on and the service starts
+    Then the service pairs a client of its own with the gateway, whose key is kept only in a root-only file
+    And the agent's answer comes from the house's model server, through the gateway on the router's own loopback
+    And the endpoint and the key file the owner set stay as they were
+    # -> check_llm_gateway_pairs_a_client_and_the_model_comes_from_it
+
+  Scenario: the client's key is issued again only when it is needed
+    Given the service paired with the gateway once
+    When it starts again, then after its key file is lost, then after the router's model changes
+    Then the second start changes nothing, a new key replaces the lost one, and the client follows the new model
+    And the gateway holds one client for the agent throughout, and one the owner widened by hand keeps its key
+    # -> check_llm_gateway_reissues_the_key_only_when_it_is_needed
+
+  Scenario: a gateway that cannot answer stops the start, and the option off changes nothing
+    Given the gateway option on, with llm-gateway not installed, switched off, or serving no such model
+    When the service starts
+    Then it does not start, the log says which and how to put it right, and the gateway is not touched
+    And with the option off the service starts on the endpoint the owner set, the gateway untouched
+    # -> check_llm_gateway_missing_or_off_refuses_the_start

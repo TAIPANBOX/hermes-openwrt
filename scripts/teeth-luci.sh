@@ -9,6 +9,9 @@
 # owner's opt-in to package installs from the official feed: the page's switch open with no
 # factor, the page sending it anyway, the backend taking official with no factor or any value at
 # all, the status not telling what is set, and the call left out of the write permission.
+# Faults 47 and 48 are LuCI r5's, the switch for the model from llm-gateway: the endpoint made to
+# depend on it, which LuCI would remove from UCI on save while the switch is on, and the switch
+# made a text field.
 # The original eighteen: each a change somebody could plausibly make to the rpcd backend or its
 # ACL. Faults 1 to 3 are each caught by a different one of the three checks gate-luci.sh
 # added alongside them; fault 4 is the second side of fault 1's check, a grant beside the
@@ -56,7 +59,7 @@ SRC_RPCD="$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes"
 # behind for the next run to mistake for the original.
 for pair in "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json:$ACL" \
             "$ROOT/package/luci-app-hermes/root/usr/libexec/rpcd/hermes:$RPCD" \
-            "$SRC_PROVIDERS:$PROVIDERS" "$SRC_FLASH:$FLASH" "$SRC_SECURITY:$SECURITY"; do
+            "$SRC_PROVIDERS:$PROVIDERS" "$SRC_FLASH:$FLASH" "$SRC_SECURITY:$SECURITY" "$SRC_SETTINGS:$SETTINGS"; do
 	src=${pair%%:*}; tree=${pair##*:}
 	cmp -s "$src" "$tree" || {
 		echo "teeth-luci: the build tree's $(basename "$tree") differs from the repository's." >&2
@@ -73,7 +76,8 @@ cleanup() {
 	cp "$SRC_PROVIDERS" "$PROVIDERS" 2>/dev/null || true
 	cp "$SRC_FLASH" "$FLASH" 2>/dev/null || true
 	cp "$SRC_SECURITY" "$SECURITY" 2>/dev/null || true
-	chmod 0644 "$ACL" "$PROVIDERS" "$FLASH" "$SECURITY" 2>/dev/null || true
+	cp "$SRC_SETTINGS" "$SETTINGS" 2>/dev/null || true
+	chmod 0644 "$ACL" "$PROVIDERS" "$FLASH" "$SECURITY" "$SETTINGS" 2>/dev/null || true
 	chmod 0755 "$RPCD" 2>/dev/null || true
 	# The mutant is a package a feed builder would otherwise collect from this
 	# directory and sign. It does not outlive this script.
@@ -493,6 +497,20 @@ repack_luci
 expect_red "the page sends an id that is not allowed" check_security_approver_offered_only_from_the_allowed_ids
 cp "$SRC_SECURITY" "$SECURITY"
 
+# ---- fault 47: the endpoint depends on the llm-gateway switch ----
+# Shown only while the switch is off, the field would be removed from UCI on the first save with
+# it on, and the owner's endpoint gone when it is turned off again.
+plant "$SETTINGS" "o.default = 'https://openrouter.ai/api/v1';" "o.default = 'https://openrouter.ai/api/v1'; o.depends('llm_gateway', '0');" "fault 47"
+repack_luci
+expect_red "the endpoint depends on the llm-gateway switch" check_llm_gateway_switch_leaves_the_endpoint_alone
+cp "$SRC_SETTINGS" "$SETTINGS"
+
+# ---- fault 48: the llm-gateway switch made a text field ----
+plant "$SETTINGS" "s.option(form.Flag, 'llm_gateway'," "s.option(form.Value, 'llm_gateway'," "fault 48"
+repack_luci
+expect_red "the llm-gateway switch made a text field" check_llm_gateway_switch_leaves_the_endpoint_alone
+cp "$SRC_SETTINGS" "$SETTINGS"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -500,6 +518,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 46 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 46 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 48 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 48 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 46 faults on 28 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 48 faults on 29 checks (shard $SHARD), green restored"

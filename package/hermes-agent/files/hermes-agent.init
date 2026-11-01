@@ -92,6 +92,17 @@ MCP_READ_UCI_WIDE='*'
 MCP_CHANGE_UCI='network network.* wireless wireless.* firewall firewall.* dhcp dhcp.* system system.*'
 MCP_CHANGE_UBUS='network.reload network.restart network.interface.up network.interface.down network.interface.renew network.interface.*.up network.interface.*.down network.interface.*.renew network.wireless.up network.wireless.down network.wireless.reconf rc.init'
 
+# llm-gateway (TAIPANBOX/openwrt-llm-gateway): the router's own gateway to the model servers in
+# the house, one name and a key per client. With hermes.main.llm_gateway on, the main model comes
+# from it: the package pairs one client, hermes, keeps its key in a root-only file of its own and
+# points the agent at the gateway's loopback port, where a key is required too. base_url and
+# key_file in /etc/config/hermes are the owner's and are never rewritten; they are simply not used
+# while the option is on. See llm_gateway_endpoint.
+LLMGW_BIN=/usr/bin/llm-gateway
+LLMGW_INIT=/etc/init.d/llm-gateway
+LLMGW_CLIENT=hermes
+LLMGW_KEY_FILE=$CONF/llm-gateway.key
+
 # Read a secret from a file into stdout, or nothing if it is missing or empty.
 # Never echoes the path's contents to the log.
 read_secret() {
@@ -409,8 +420,78 @@ mcp_owner_token_file() {
 	esac
 }
 
+# The main model's endpoint when it comes from llm-gateway, printed on stdout: the gateway's own
+# loopback address. A gateway that is not installed, is switched off (in its configuration or at
+# boot) or has no backend serving the router's model is refused with one line that says which and
+# how to put it right, and nothing of the gateway's is touched: the agent never starts pointed at a
+# gateway that cannot answer it.
+#
+# The client is one, hermes, for the router's model. `llm-gateway client add` prints its key once
+# and keeps only the key's SHA-256, so the key goes from that output into a root-only file of this
+# package's, never onto a command line, into UCI or into the log, and the wrapper reads it from there
+# at every exec, like the main key. It is issued only when it is needed: when the gateway has no such
+# client, when the key file is missing or empty (nobody holds the key the gateway has, so the client
+# is removed and added again), or when the client's models leave out the router's model. A client
+# the owner widened by hand, to '*' or to a list that names the model, is theirs and keeps its key.
+# A new client takes a reload of the gateway, which reads its clients when it starts; an enabled
+# gateway that is not running is started, as at boot, where this service (START 95) comes first.
+#   llm_gateway_endpoint <model>
+llm_gateway_endpoint() {
+	local model=$1 port sect served=no have new=no tmp
+	[ -x "$LLMGW_BIN" ] || {
+		echo "$NAME: hermes.main.llm_gateway is on, but llm-gateway is not installed ($LLMGW_BIN). Install it, or 'uci set hermes.main.llm_gateway=0 && uci commit hermes' to use base_url." >&2
+		return 1; }
+	if [ "$(uci -q get llm-gateway.main.enabled)" != 1 ] || ! "$LLMGW_INIT" enabled >/dev/null 2>&1; then
+		echo "$NAME: hermes.main.llm_gateway is on, but llm-gateway is switched off. 'uci set llm-gateway.main.enabled=1 && uci commit llm-gateway && service llm-gateway enable && service llm-gateway start' turns it on." >&2
+		return 1
+	fi
+	port=$(uci -q get llm-gateway.main.loopback_port)
+	port=${port:-8761}
+	case "$port" in *[!0-9]*) echo "$NAME: llm-gateway.main.loopback_port '$port' is not a port" >&2; return 1 ;; esac
+	# A model name holds no space (llm-gateway refuses one), so a backend's list reads as words.
+	for sect in $(uci -q show llm-gateway | sed -n 's/^llm-gateway\.\([A-Za-z0-9_]*\)=backend$/\1/p'); do
+		case " $(uci -q get "llm-gateway.$sect.model") " in *" $model "*) served=yes ;; esac
+	done
+	[ "$served" = yes ] || {
+		echo "$NAME: hermes.main.llm_gateway is on, but no backend of llm-gateway serves the model '$model' (hermes.main.model). Add it to the backend that has it: uci add_list llm-gateway.<backend>.model='$model' && uci commit llm-gateway" >&2
+		return 1; }
+	# The models of the client hermes, as `client list` prints them: name, tab, "models a,b".
+	have=$("$LLMGW_BIN" client list 2>/dev/null | awk -v c="$LLMGW_CLIENT" 'BEGIN { FS = "\t" } $1 == c { sub(/^models /, "", $2); print $2 }')
+	case ",$have," in
+		*",$model,"*|*",*,"*) [ -n "$(read_secret "$LLMGW_KEY_FILE")" ] || new=yes ;;
+		*) new=yes ;;
+	esac
+	if [ "$new" = yes ]; then
+		if [ -n "$have" ]; then
+			"$LLMGW_BIN" client remove "$LLMGW_CLIENT" >/dev/null || {
+				echo "$NAME: could not remove the llm-gateway client $LLMGW_CLIENT to issue it again" >&2; return 1; }
+		fi
+		tmp="$LLMGW_KEY_FILE.new"
+		rm -f "$tmp" "$tmp.out"
+		( umask 077; "$LLMGW_BIN" client add "$LLMGW_CLIENT" -model "$model" > "$tmp.out" ) || {
+			rm -f "$tmp.out"; echo "$NAME: llm-gateway did not add the client $LLMGW_CLIENT" >&2; return 1; }
+		( umask 077; sed -n 's/^  key  *\(llmgw_[A-Za-z0-9_-]\{32,\}\)$/\1/p' "$tmp.out" > "$tmp" )
+		rm -f "$tmp.out"
+		if [ ! -s "$tmp" ] || ! chmod 0600 "$tmp" || ! mv "$tmp" "$LLMGW_KEY_FILE"; then
+			rm -f "$tmp"
+			"$LLMGW_BIN" client remove "$LLMGW_CLIENT" >/dev/null 2>&1
+			echo "$NAME: llm-gateway added the client $LLMGW_CLIENT, but its key could not be kept in $LLMGW_KEY_FILE, so the client is removed again" >&2
+			return 1
+		fi
+		echo "$NAME: paired the client $LLMGW_CLIENT with llm-gateway for the model '$model'; its key is in $LLMGW_KEY_FILE" >&2
+	fi
+	if "$LLMGW_INIT" running >/dev/null 2>&1; then
+		[ "$new" = no ] || "$LLMGW_INIT" reload >/dev/null 2>&1 \
+			|| echo "$NAME: could not reload llm-gateway; the client $LLMGW_CLIENT works once it restarts" >&2
+	else
+		"$LLMGW_INIT" start >/dev/null 2>&1 \
+			|| echo "$NAME: could not start llm-gateway; the agent has no model until it runs" >&2
+	fi
+	echo "http://127.0.0.1:$port/v1"
+}
+
 start_service() {
-	local enabled data_dir base_url model key_file mem_max respawn
+	local enabled data_dir base_url model key_file mem_max respawn llm_gateway
 	local mcp_url mcp_token_file key profile profile_set run_user max_turns
 	local sec_factor sec_window sec_max sec_lockout sec_packages sec_approver approvals pkg_grant v
 	local toolsets providers providers_bad
@@ -437,8 +518,7 @@ start_service() {
 	config_get mcp_token_file main router_mcp_token_file ''
 	config_get profile_set    main profile ''
 	config_get max_turns      main max_turns '20'
-
-	key=$(read_secret "$key_file")
+	config_get_bool llm_gateway main llm_gateway 0
 
 	# Three profiles, chosen in /etc/config/hermes, and one old name. owner (what applies
 	# wherever none is set, existing routers included) runs the agent as the unprivileged
@@ -506,8 +586,18 @@ start_service() {
 
 	# Refuse rather than flap. Each branch names the one thing to fix, because the
 	# person reading this in logread has no other source of truth.
-	[ -n "$base_url" ] || { echo "$NAME: base_url is empty in /etc/config/hermes" >&2; return 1; }
 	[ -n "$model" ]    || { echo "$NAME: model is empty in /etc/config/hermes" >&2; return 1; }
+	# The main model from llm-gateway, the router's own gateway to the house's model servers, when the
+	# owner turned it on: its loopback address and the key of the client this package pairs with it,
+	# in place of base_url and key_file for this start only. Those two stay in /etc/config/hermes as
+	# the owner set them, and are what the agent uses again once the option is off.
+	if [ "$llm_gateway" -eq 1 ]; then
+		base_url=$(llm_gateway_endpoint "$model") || return 1
+		key_file=$LLMGW_KEY_FILE
+		echo "$NAME: the model '$model' comes from llm-gateway at $base_url, as its client $LLMGW_CLIENT; base_url and key_file in /etc/config/hermes are kept and not used while hermes.main.llm_gateway is on" >&2
+	fi
+	[ -n "$base_url" ] || { echo "$NAME: base_url is empty in /etc/config/hermes" >&2; return 1; }
+	key=$(read_secret "$key_file")
 	if [ -z "$key" ]; then
 		echo "$NAME: no API key in $key_file. Write the key there as a single line:" >&2
 		echo "$NAME:   printf '%s' 'sk-...' > $key_file && chmod 600 $key_file" >&2

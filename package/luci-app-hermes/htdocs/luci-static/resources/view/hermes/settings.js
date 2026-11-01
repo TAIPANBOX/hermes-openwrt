@@ -105,6 +105,14 @@ return view.extend({
 		s = m.section(form.NamedSection, 'main', 'hermes', _('Model'));
 		s.anonymous = true;
 
+		/* No field below depends on this switch, on purpose: LuCI removes a field from UCI on save
+		 * while its dependency does not hold, and the endpoint and key are the owner's, used again
+		 * the moment the switch is off. */
+		o = s.option(form.Flag, 'llm_gateway', _('Model from llm-gateway'),
+			_('Take the model from llm-gateway, this router\'s own gateway to the model servers in your house (Ollama, llama-server or LM Studio on a computer), when it is installed and switched on. The service pairs a client of its own with the gateway and keeps that key itself. The endpoint and key below are kept and not used while this is on. The model below must be one the gateway serves.'));
+		o.rmempty = false;
+		o.default = '0';
+
 		o = s.option(form.Value, 'base_url', _('API endpoint'),
 			_('Anything that speaks the OpenAI protocol. A local model on this router is not a supported configuration: the agent\'s own prompt is thousands of tokens and a router CPU takes minutes to read it before answering.'));
 		o.default = 'https://openrouter.ai/api/v1';

@@ -3,6 +3,7 @@
 
 @codex 2026-09-19: runs in the package test container, with no model/API calls.
 """
+import hashlib
 import importlib.util
 import json
 import os
@@ -13,7 +14,9 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -2888,6 +2891,266 @@ start_service; echo "start=$?"
                 "assert got == ('https://chatgpt.com/backend-api/codex', 'codex_responses', 'codex-access-canary'), got\n")
         codex = subprocess.run(["python3", "-c", code], env=gateway, check=False, capture_output=True, text=True)
         self.assertEqual(codex.returncode, 0, codex.stdout + codex.stderr[-2000:])
+
+    # ---- llm-gateway: the main model from the router's own gateway to the house's model servers ----
+
+    LLMGW = Path(os.environ.get("LLM_GATEWAY_DIR", "/llm-gateway"))
+    LLMGW_KEY = Path("/etc/hermes-agent/llm-gateway.key")
+    LLMGW_CONFIG = Path("/etc/config/llm-gateway")
+    LLMGW_ON = ("uci set hermes.main.llm_gateway=1\nuci set hermes.main.model={model}\n"
+                "uci set hermes.main.base_url=https://openrouter.ai/api/v1\n"
+                "uci set hermes.main.key_file=/etc/hermes-agent/provider.key")
+
+    def llm_gateway(self, backend_url, models=("runtime-model",), installed=True, enabled="1",
+                    at_boot=True, running=False):
+        """llm-gateway on this container as a router has it: the real program, built from
+        openwrt-llm-gateway by scripts/build-llm-gateway.sh, with that repository's own shipped
+        configuration, switched on and given one backend, the house's model server. It listens on
+        loopback only: netifd does not run here, so a zone would have no address. Its init script is
+        a stand-in, since procd does not run here either: it answers `enabled` and `running` as told
+        and records every other action, one per line, in the file this returns. Everything goes again
+        after the test, and so do the key file the service writes and the hermes configuration."""
+        binary = self.LLMGW / "llm-gateway"
+        if not binary.is_file():
+            self.fail(f"measured nothing: no llm-gateway at {binary} (scripts/build-llm-gateway.sh)")
+        hermes_config = Path("/etc/config/hermes").read_bytes()
+        placed = (Path("/usr/bin/llm-gateway"), self.LLMGW_CONFIG, Path("/etc/init.d/llm-gateway"),
+                  self.LLMGW_KEY, Path(str(self.LLMGW_KEY) + ".new"))
+
+        def remove():
+            for path in placed:
+                path.unlink(missing_ok=True)
+            Path("/etc/config/hermes").write_bytes(hermes_config)
+        remove()
+        self.addCleanup(remove)
+        work = Path(tempfile.mkdtemp(prefix="llmgw-"))
+        self.addCleanup(shutil.rmtree, work, True)
+        if installed:
+            shutil.copyfile(binary, "/usr/bin/llm-gateway")
+            os.chmod("/usr/bin/llm-gateway", 0o755)
+        shutil.copyfile(self.LLMGW / "llm-gateway.config", self.LLMGW_CONFIG)
+        init = Path("/etc/init.d/llm-gateway")
+        init.write_text(f"""#!/bin/sh
+case "$1" in
+	enabled) [ -e {work}/at-boot ] ;;
+	running) [ -e {work}/running ] ;;
+	*) echo "$1" >> {work}/init.log ;;
+esac
+""")
+        init.chmod(0o755)
+        for flag, on in (("at-boot", at_boot), ("running", running)):
+            if on:
+                (work / flag).touch()
+        batch = [f"set llm-gateway.main.enabled={enabled}", "delete llm-gateway.main.zone",
+                 f"set llm-gateway.main.cert_dir={work}/certs", f"set llm-gateway.main.journal={work}/journal.log",
+                 "set llm-gateway.house=backend", f"set llm-gateway.house.url={backend_url}"]
+        batch += [f"add_list llm-gateway.house.model={m}" for m in models]
+        subprocess.run(["uci", "batch"], input="\n".join(batch + ["commit llm-gateway", ""]), text=True, check=True)
+        log = work / "init.log"
+        log.touch()
+        self.llmgw_work = work
+        return log
+
+    def llmgw_clients(self):
+        listed = subprocess.run(["/usr/bin/llm-gateway", "client", "list"], check=False, capture_output=True, text=True)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        return listed.stdout
+
+    @staticmethod
+    def llmgw_hash(key):
+        return "sha256:" + hashlib.sha256(key.encode()).hexdigest()
+
+    def serve_llm_gateway(self):
+        """The real gateway, serving the configuration the init left, until the test ends."""
+        out = open(self.llmgw_work / "serve.log", "w")
+        self.addCleanup(out.close)
+        proc = subprocess.Popen(["/usr/bin/llm-gateway", "serve"], stdout=out, stderr=subprocess.STDOUT)
+
+        def stop():
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        self.addCleanup(stop)
+        direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for _ in range(100):
+            try:
+                with direct.open("http://127.0.0.1:8761/health", timeout=2) as answer:
+                    if answer.read() == b"ok":
+                        return
+            except OSError:
+                pass
+            if proc.poll() is not None:
+                break
+            time.sleep(0.2)
+        self.fail("llm-gateway serve did not answer: " + (self.llmgw_work / "serve.log").read_text())
+
+    def wrapper_as_procd(self, instance, **overrides):
+        """The real wrapper as procd would run this instance, its command and its environment, down
+        to the exec of the gateway, which is replaced by a print of the environment it would have."""
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        try:
+            cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+            env = dict(os.environ)
+            env.update(instance["env"])
+            env.update(overrides)
+            return subprocess.run(["sh", str(FILES / "hermes-gateway"), *instance["command"][1:]],
+                                  env=env, check=False, capture_output=True, text=True)
+        finally:
+            cli.write_bytes(original)
+
+    def test_llm_gateway_pairs_a_client_and_the_model_comes_from_it(self):
+        # @decided 2026-11-01: the agent on the router can take its model from llm-gateway, the
+        # router's own gateway to the model servers in the house, so a router that cannot run a model
+        # itself uses one on a PC at home. @claude: the service pairs its own client with the gateway,
+        # as it pairs hermes-main with openwrt-mcp, and the owner's own endpoint and key are left alone.
+        url, received = self.fake_endpoint()
+        log = self.llm_gateway(url)
+        started = self._start(self.LLMGW_ON.format(model="runtime-model"))
+        self.assertEqual(started.returncode, 0, started.stderr)
+        instance = json.loads(started.stdout)["instances"]["instance1"]
+        # The agent is pointed at the gateway's loopback port, with the key the gateway issued.
+        self.assertEqual(instance["command"], ["/usr/sbin/hermes-gateway", str(self.LLMGW_KEY)])
+        self.assertEqual(instance["env"]["OPENAI_BASE_URL"], "http://127.0.0.1:8761/v1")
+        self.assertEqual(instance["env"]["HERMES_MODEL"], "runtime-model")
+        # What the owner set stays as it was, in UCI and on disk: nothing is overwritten.
+        for option, want in (("base_url", "https://openrouter.ai/api/v1"), ("key_file", "/etc/hermes-agent/provider.key")):
+            got = subprocess.run(["uci", "-q", "get", f"hermes.main.{option}"], capture_output=True, text=True).stdout.strip()
+            self.assertEqual(got, want, option)
+        self.assertEqual(Path("/etc/hermes-agent/provider.key").read_text(), "provider-canary-runtime")
+        # One client for the agent in the gateway, which keeps only the key's hash; the key itself is
+        # in one root-only file and nowhere else this start wrote or printed.
+        key = self.LLMGW_KEY.read_text().strip()
+        self.assertRegex(key, r"^llmgw_[A-Za-z0-9_-]{43}$")
+        mode = self.LLMGW_KEY.stat()
+        self.assertEqual((mode.st_mode & 0o777, mode.st_uid, mode.st_gid), (0o600, 0, 0))
+        self.assertEqual(self.llmgw_clients(), "hermes\tmodels runtime-model\n")
+        self.assertIn(self.llmgw_hash(key), self.LLMGW_CONFIG.read_text())
+        self.assertFalse(Path(str(self.LLMGW_KEY) + ".new").exists())
+        data = "".join(p.read_text(errors="replace") for p in self.home.rglob("*") if p.is_file())
+        for where, text in (("what the start printed", started.stdout + started.stderr),
+                            ("/etc/config/hermes", Path("/etc/config/hermes").read_text()),
+                            ("/etc/config/llm-gateway", self.LLMGW_CONFIG.read_text()),
+                            ("the data directory", data)):
+            self.assertNotIn(key, text, where)
+        self.assertIn("llm-gateway", started.stderr)
+        # The gateway was not running, so the start started it.
+        self.assertEqual(log.read_text().split(), ["start"])
+        # And the agent's answer comes from the house's model server through the gateway: the wrapper
+        # reads the key the start wrote, the gateway takes it as the client hermes and passes the call
+        # on. The router's MCP connection is not what this is about and is left out of the run.
+        self.serve_llm_gateway()
+        wrapped = self.wrapper_as_procd(instance, HERMES_OPENWRT_MCP_URL="")
+        self.assertEqual(wrapped.returncode, 0, wrapped.stderr)
+        gateway = gateway_json(wrapped.stdout)
+        self.assertEqual(gateway["OPENAI_API_KEY"], key)
+        result = subprocess.run(["hermes", "-z", "Reply briefly", "-t", "memory"],
+                                env=dict(gateway, NO_PROXY="127.0.0.1,localhost"),
+                                check=False, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("HERMES_RUNTIME_OK", result.stdout)
+        self.assertTrue(received)
+        for call in received:
+            self.assertEqual(call[:2], ("/v1/chat/completions", "runtime-model"))
+        # The gateway's own journal: no call it took was another client's, and every model call was the
+        # client hermes's and went to the house's server with the router's model. (/v1/models, should
+        # upstream ask, the gateway answers itself; a probe of a path it has no route for is journaled
+        # with no client, refused before any key is read.)
+        journal = [json.loads(line) for line in (self.llmgw_work / "journal.log").read_text().splitlines()]
+        self.assertTrue(all(e.get("client") in (None, "hermes") for e in journal), journal)
+        calls = [e for e in journal if e.get("route") == "/v1/chat/completions"]
+        self.assertEqual(len(calls), len(received), journal)
+        for entry in calls:
+            self.assertEqual((entry.get("client"), entry.get("model"), entry.get("backend"), entry.get("status")),
+                             ("hermes", "runtime-model", "house", 200), entry)
+
+    def test_llm_gateway_reissues_the_key_only_when_it_is_needed(self):
+        # A start that finds the client and its key as they should be changes nothing, not even the
+        # gateway's file; a lost key file, or a model the router no longer uses, issues the client
+        # again under a new key, which the gateway is reloaded to take. One client for the agent, always.
+        url, _received = self.fake_endpoint()
+        log = self.llm_gateway(url, models=("runtime-model", "second-model"), running=True)
+
+        def start(model):
+            result = self._start(self.LLMGW_ON.format(model=model))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)["instances"]["instance1"], self.LLMGW_KEY.read_text().strip()
+
+        def only_hash(key, *gone):
+            text = self.LLMGW_CONFIG.read_text()
+            self.assertEqual(text.count("key_hash"), 1, text)
+            self.assertIn(self.llmgw_hash(key), text)
+            for old in gone:
+                self.assertNotIn(self.llmgw_hash(old), text)
+
+        _instance, first = start("runtime-model")
+        self.assertEqual(log.read_text().split(), ["reload"])
+        before = self.LLMGW_CONFIG.read_bytes()
+        _instance, again = start("runtime-model")
+        self.assertEqual(again, first)
+        self.assertEqual(self.LLMGW_CONFIG.read_bytes(), before)
+        self.assertEqual(log.read_text().split(), ["reload"])
+        # The key file lost: the client is issued again, and the old key is no longer the gateway's.
+        self.LLMGW_KEY.unlink()
+        _instance, lost = start("runtime-model")
+        self.assertNotEqual(lost, first)
+        self.assertEqual(self.llmgw_clients(), "hermes\tmodels runtime-model\n")
+        only_hash(lost, first)
+        self.assertEqual(log.read_text().split(), ["reload", "reload"])
+        # The router's model changed: the client is issued for that model.
+        instance, moved = start("second-model")
+        self.assertNotEqual(moved, lost)
+        self.assertEqual(instance["env"]["HERMES_MODEL"], "second-model")
+        self.assertEqual(self.llmgw_clients(), "hermes\tmodels second-model\n")
+        only_hash(moved, lost)
+        self.assertEqual(log.read_text().split(), ["reload", "reload", "reload"])
+        # A client the owner widened by hand to every model is the owner's, and keeps its key.
+        subprocess.run(["uci", "batch"], input="delete llm-gateway.hermes.model\nadd_list llm-gateway.hermes.model=*\n"
+                       "commit llm-gateway\n", text=True, check=True)
+        _instance, widened = start("runtime-model")
+        self.assertEqual(widened, moved)
+        self.assertEqual(self.llmgw_clients(), "hermes\tmodels *\n")
+        self.assertEqual(log.read_text().split(), ["reload", "reload", "reload"])
+
+    def test_llm_gateway_missing_or_off_refuses_the_start(self):
+        # On, the gateway has to be there to answer: a gateway not installed, switched off, or with no
+        # backend for the router's model stops the start with one line that says which, and the gateway
+        # is not touched. Off, which is what applies wherever it is not set, nothing of this happens.
+        url, _received = self.fake_endpoint()
+        on = self.LLMGW_ON.format(model="runtime-model")
+        for case, setup, said in (
+                ("not installed", dict(installed=False), "llm-gateway is not installed"),
+                ("off in its configuration", dict(enabled="0"), "llm-gateway is switched off"),
+                ("off at boot", dict(at_boot=False), "llm-gateway is switched off"),
+                ("no backend for the model", dict(models=("other-model",)),
+                 "no backend of llm-gateway serves the model 'runtime-model'")):
+            with self.subTest(case=case):
+                log = self.llm_gateway(url, **setup)
+                before = self.LLMGW_CONFIG.read_bytes()
+                refused = self._start(on)
+                self.assertNotEqual(refused.returncode, 0, refused.stdout)
+                self.assertIn(said, refused.stderr)
+                self.assertNotIn("hermes-gateway", refused.stdout)
+                self.assertFalse(self.LLMGW_KEY.exists())
+                self.assertEqual(self.LLMGW_CONFIG.read_bytes(), before)
+                self.assertEqual(log.read_text(), "")
+        # Off: the gateway installed and running beside it changes nothing.
+        log = self.llm_gateway(url, running=True)
+        before = self.LLMGW_CONFIG.read_bytes()
+        off = self._start("uci -q delete hermes.main.llm_gateway\nuci set hermes.main.model=runtime-model\n"
+                          "uci set hermes.main.base_url=https://openrouter.ai/api/v1\n"
+                          "uci set hermes.main.key_file=/etc/hermes-agent/provider.key")
+        self.assertEqual(off.returncode, 0, off.stderr)
+        instance = json.loads(off.stdout)["instances"]["instance1"]
+        self.assertEqual(instance["command"], ["/usr/sbin/hermes-gateway", "/etc/hermes-agent/provider.key"])
+        self.assertEqual(instance["env"]["OPENAI_BASE_URL"], "https://openrouter.ai/api/v1")
+        self.assertFalse(self.LLMGW_KEY.exists())
+        self.assertEqual(self.LLMGW_CONFIG.read_bytes(), before)
+        self.assertEqual(self.llmgw_clients(), "")
+        self.assertEqual(log.read_text(), "")
 
 
 if __name__ == "__main__":

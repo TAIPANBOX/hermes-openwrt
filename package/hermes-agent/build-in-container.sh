@@ -194,7 +194,11 @@ esac
 # opentelemetry-api, pillow, pyjwt and urllib3 here and tornado in the Telegram add-on; each ships at
 # the version upstream's own lock moved to by v0.22.5 (mcp-types with mcp), named in upstream.env's
 # HERMES_LIBRARY_FIXES. Every later Hermes needs Python 3.14, which OpenWrt 25.12 does not ship.
-PKGREL=${PKGREL:-19}
+# 0.21.5-r20: the main model can come from llm-gateway, the router's own gateway to the model servers
+# in the house (hermes.main.llm_gateway, off unless set): the init pairs a client named hermes with it,
+# keeps that client's key in a root-only file and points the agent at the gateway's loopback port, and
+# leaves base_url and key_file as the owner set them. CLAUDE.md, invariant 27.
+PKGREL=${PKGREL:-20}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

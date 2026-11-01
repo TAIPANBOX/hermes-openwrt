@@ -99,12 +99,14 @@ function world(replies) {
 		changes: () => { w.calls.push({ method: 'uci.changes' }); return Promise.resolve(w.staged); } };
 
 	class Option {
-		constructor(section, name) { this.section = section; this.name = name; this.values = []; }
+		constructor(section, name) { this.section = section; this.name = name; this.values = []; this.deps = []; }
 		value(key) { this.values.push(key); }
+		// LuCI removes an option from UCI on save while its dependency does not hold.
+		depends(key, value) { this.deps.push([key, value]); }
 	}
 	class Section {
 		constructor(map, type) { this.map = map; this.sectiontype = type; this.options = {}; }
-		option(Type, name) { const o = new Type(this, name); this.options[name] = o; return o; }
+		option(Type, name, title, description) { const o = new Type(this, name); o.title = title; o.description = description; this.options[name] = o; return o; }
 		handleAdd(_ev, name) { w.calls.push({ method: 'form.handleAdd', args: [name] }); return Promise.resolve(); }
 		handleRemove(id) { w.calls.push({ method: 'form.handleRemove', args: [id] }); return Promise.resolve(); }
 	}
@@ -115,7 +117,8 @@ function world(replies) {
 		section(Type, ...rest) { const s = new Type(this, rest[0]); this.sections.push(s); return s; }
 		render() { return Promise.resolve(E('div', {}, [])); }
 	}
-	w.form = new Proxy({ Map: FormMap, TypedSection, NamedSection }, { get: (t, k) => t[k] ?? class extends Option {} });
+	// One class per widget, which knows its name (Flag, Value...), so a check can tell what a field is.
+	w.form = new Proxy({ Map: FormMap, TypedSection, NamedSection }, { get: (t, k) => t[k] ?? (t[k] = class extends Option { static kind = k; }) });
 	w.view = {
 		extend: (o) => Object.assign(Object.create({
 			super(name) { w.calls.push({ method: `view.${name}` }); return Promise.resolve(w.duringSuper?.()); },
@@ -323,6 +326,27 @@ check('check_profile_field_defaults_to_owner', async () => {
 		assert(field.values.includes(v), `the profile field does not offer '${v}'`);
 	assert(!field.values.includes('admin'), "the profile field still offers 'admin', the old name of root");
 	assert(field.values[0] === 'owner', `the first choice is '${field.values[0]}', not 'owner'`);
+});
+
+// The model from llm-gateway, the router's own gateway to the house's model servers, is one switch,
+// hermes.main.llm_gateway, beside the endpoint, model and key. The service then uses the gateway in
+// their place for as long as it is on, and they are the owner's: a field that depended on the switch
+// would be removed from UCI by LuCI on save while the switch is on, and the owner's endpoint or key
+// would be gone when it is turned off again.
+check('check_llm_gateway_switch_leaves_the_endpoint_alone', async () => {
+	const w = world({ 'hermes.status': { provider_key_set: true } });
+	await open(w, 'settings');
+	const owner = (name) => w.map.sections.find(s => s.options[name]);
+	const sw = owner('llm_gateway')?.options.llm_gateway;
+	assert(sw, 'the settings page has no switch for the model from llm-gateway');
+	assert(sw.constructor.kind === 'Flag', `the llm-gateway switch is a ${sw.constructor.kind}, not a Flag`);
+	assert(owner('llm_gateway') === owner('base_url'), 'the llm-gateway switch is not in the section that holds the endpoint');
+	for (const name of ['base_url', 'model', '_provider_key', 'llm_gateway']) {
+		const o = owner(name)?.options[name];
+		assert(o, `the settings page has no ${name} field`);
+		assert(o.deps.length === 0, `${name} depends on ${JSON.stringify(o.deps)}, so saving can remove it`);
+	}
+	assert(/llm-gateway/.test(`${sw.title} ${sw.description}`), 'the switch does not say it is about llm-gateway');
 });
 
 // ---- the Security page --------------------------------------------------------------------

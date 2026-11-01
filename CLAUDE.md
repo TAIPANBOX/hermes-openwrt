@@ -973,6 +973,41 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     typed after the PIN. openwrt-mcp 0.5.0.6 (the fork's PR #10, pinned in CI at 2075e0b) accepts a
     code until 60 s after it leaves the app's screen, two steps back and one ahead.
 
+27. `@decided 2026-11-01`: the agent's main model can come from llm-gateway, the router's own gateway
+    to the model servers in the house (TAIPANBOX/openwrt-llm-gateway), so a router that cannot run a
+    model uses one on a computer at home, without the cloud. `@claude` 2026-11-01, how (0.21.5-r20):
+    an option, `hermes.main.llm_gateway`, off unless the owner turns it on, and off changes nothing,
+    as the session that asked for it specified. On, every start (`llm_gateway_endpoint` in the init) refuses, with one
+    line that says which, a gateway that is not installed, is switched off (`llm-gateway.main.enabled`
+    not 1, or not enabled at boot) or has no backend listing `hermes.main.model`, and then touches
+    nothing of the gateway's. Otherwise it keeps one client, `hermes`, for that model, issued with
+    `llm-gateway client add hermes -model <model>` when the gateway has none, when
+    `/etc/hermes-agent/llm-gateway.key` is missing or empty (removed and added again, since nobody holds
+    the key the gateway has), or when the client's models leave the router's model out; a client the
+    owner widened by hand, to `*` or to a list that names the model, keeps its key. The key goes from
+    what `client add` prints into that file, 0600 root, and never onto a command line, into UCI or into
+    the log; the gateway keeps its SHA-256 only. A new client reloads a running gateway, and an enabled
+    one that is not running is started (this service starts first at boot, 95 before 96). The agent
+    then gets `http://127.0.0.1:<loopback_port>/v1` (8761 unless set; the gateway wants a key there
+    too) and that key file for this start: `base_url` and `key_file` in UCI are the owner's, never
+    rewritten, and used again once the option is off. What follows (the wrapper, the bridge, the
+    preflight, ujail, which shares the router's network) is as for any endpoint. Turning the option
+    off, or removing the package, leaves the client and its key file where they are; /model reaches
+    only the models the client allows. (gate: `scripts/gate-runtime.sh`
+    `check_llm_gateway_pairs_a_client_and_the_model_comes_from_it` (the real llm-gateway, built at
+    562ba8e by `scripts/build-llm-gateway.sh` and serving: an agent turn answered by a model server in
+    its place through the gateway, whose own journal names the client hermes),
+    `check_llm_gateway_reissues_the_key_only_when_it_is_needed`,
+    `check_llm_gateway_missing_or_off_refuses_the_start`; teeth: `scripts/teeth-runtime.py`, twelve
+    mutants.) LuCI 0.21.5-r5: the settings page switches it, beside the endpoint, model and key, none
+    of which depends on the switch, since LuCI removes a field from UCI on save while its dependency
+    does not hold (gate: `scripts/test-luci-views.mjs` `check_llm_gateway_switch_leaves_the_endpoint_alone`;
+    teeth: `scripts/teeth-luci.sh` faults 47 and 48). Red first, the test files alone on main (a
+    temporary branch, since deleted): `@measured` `gh run view 41312437448 --log-failed` 2026-11-01,
+    86 runtime tests with 5 failures and 1 error, all of them the three new tests (the start used
+    provider.key, no key file was written, four refusals started), and the LuCI check failed on "the
+    settings page has no switch for the model from llm-gateway".
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.
