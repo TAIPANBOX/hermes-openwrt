@@ -999,7 +999,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     its place through the gateway, whose own journal names the client hermes),
     `check_llm_gateway_reissues_the_key_only_when_it_is_needed`,
     `check_llm_gateway_missing_or_off_refuses_the_start`; teeth: `scripts/teeth-runtime.py`, twelve
-    mutants.)
+    mutants.) LuCI 0.21.5-r5: the settings page switches it, beside the endpoint, model and key, none
+    of which depends on the switch, since LuCI removes a field from UCI on save while its dependency
+    does not hold (gate: `scripts/test-luci-views.mjs` `check_llm_gateway_switch_leaves_the_endpoint_alone`;
+    teeth: `scripts/teeth-luci.sh` faults 47 and 48).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

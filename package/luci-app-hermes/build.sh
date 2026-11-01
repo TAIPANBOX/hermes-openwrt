@@ -49,7 +49,10 @@ set -eu
 # 0.21.5-r4: the Security page chooses who approves a high-impact change (hermes.security.approver_id),
 # one of the Telegram ids allowed to talk to the agent, written by set_approver (write permission);
 # security_status reports who approves and whether an approval could work (a PIN and a phone).
-PKGREL=${PKGREL:-4}
+# 0.21.5-r5: the settings page has a switch, "Model from llm-gateway" (hermes.main.llm_gateway, which
+# hermes-agent 0.21.5-r20 reads): the model then comes from the router's own gateway to the house's
+# model servers. The endpoint, model and key fields stay as they are and do not depend on it.
+PKGREL=${PKGREL:-5}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
