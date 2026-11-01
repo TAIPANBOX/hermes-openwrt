@@ -1,0 +1,22 @@
+<!doctype html><meta charset="utf-8"><title>hermes-openwrt feed</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:3rem auto;padding:0 1rem}
+code,pre{background:#f4f4f4;padding:.15rem .35rem;border-radius:3px}pre{padding:.8rem;overflow-x:auto}
+h2{margin-top:2.2rem}</style>
+<h1>hermes-openwrt</h1>
+<p>A signed feed carrying <a href="https://github.com/TAIPANBOX/hermes-openwrt">hermes-agent
+and luci-app-hermes</a>: the Hermes Agent as a native OpenWrt service. The reference
+devices are the GL.iNet Flint 2 and Brume 2; generic 64-bit ARM is served too.</p>
+
+<h2>OpenWrt 25.12 and later</h2>
+<pre>wget -O /etc/apk/keys/hermes-openwrt.pem \
+  https://taipanbox.github.io/hermes-openwrt/hermes-openwrt.pem
+
+echo "https://taipanbox.github.io/hermes-openwrt/25.12/$(cat /etc/apk/arch)/packages.adb" \
+  >> /etc/apk/repositories.d/customfeeds.list
+
+apk update && apk add hermes-agent luci-app-hermes</pre>
+
+<p>Without the key, apk drops the repository silently and the package simply does not
+exist; no <code>--allow-untrusted</code> appears anywhere above. OpenWrt 24.10 is not
+served.</p>
+<p>Architectures: aarch64_cortex-a53 aarch64_generic</p>
