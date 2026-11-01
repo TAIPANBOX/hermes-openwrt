@@ -3055,15 +3055,17 @@ esac
         self.assertTrue(received)
         for call in received:
             self.assertEqual(call[:2], ("/v1/chat/completions", "runtime-model"))
-        # The gateway's own journal: every call it took was the client hermes's, and every model call
-        # went to the house's server with the router's model. (/v1/models, should upstream ask, the
-        # gateway answers itself.)
+        # The gateway's own journal: no call it took was another client's, and every model call was the
+        # client hermes's and went to the house's server with the router's model. (/v1/models, should
+        # upstream ask, the gateway answers itself; a probe of a path it has no route for is journaled
+        # with no client, refused before any key is read.)
         journal = [json.loads(line) for line in (self.llmgw_work / "journal.log").read_text().splitlines()]
-        self.assertTrue(all((e.get("client"), e.get("status")) == ("hermes", 200) for e in journal), journal)
+        self.assertTrue(all(e.get("client") in (None, "hermes") for e in journal), journal)
         calls = [e for e in journal if e.get("route") == "/v1/chat/completions"]
         self.assertEqual(len(calls), len(received), journal)
         for entry in calls:
-            self.assertEqual((entry.get("model"), entry.get("backend")), ("runtime-model", "house"), entry)
+            self.assertEqual((entry.get("client"), entry.get("model"), entry.get("backend"), entry.get("status")),
+                             ("hermes", "runtime-model", "house", 200), entry)
 
     def test_llm_gateway_reissues_the_key_only_when_it_is_needed(self):
         # A start that finds the client and its key as they should be changes nothing, not even the
