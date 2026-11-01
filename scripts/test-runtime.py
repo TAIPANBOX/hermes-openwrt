@@ -2913,7 +2913,6 @@ start_service; echo "start=$?"
         binary = self.LLMGW / "llm-gateway"
         if not binary.is_file():
             self.fail(f"measured nothing: no llm-gateway at {binary} (scripts/build-llm-gateway.sh)")
-        work = Path(tempfile.mkdtemp(prefix="llmgw-"))
         hermes_config = Path("/etc/config/hermes").read_bytes()
         placed = (Path("/usr/bin/llm-gateway"), self.LLMGW_CONFIG, Path("/etc/init.d/llm-gateway"),
                   self.LLMGW_KEY, Path(str(self.LLMGW_KEY) + ".new"))
@@ -2922,9 +2921,10 @@ start_service; echo "start=$?"
             for path in placed:
                 path.unlink(missing_ok=True)
             Path("/etc/config/hermes").write_bytes(hermes_config)
-            shutil.rmtree(work, True)
         remove()
         self.addCleanup(remove)
+        work = Path(tempfile.mkdtemp(prefix="llmgw-"))
+        self.addCleanup(shutil.rmtree, work, True)
         if installed:
             shutil.copyfile(binary, "/usr/bin/llm-gateway")
             os.chmod("/usr/bin/llm-gateway", 0o755)
