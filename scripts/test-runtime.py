@@ -3141,7 +3141,8 @@ esac
         log = self.llm_gateway(url, running=True)
         before = self.LLMGW_CONFIG.read_bytes()
         off = self._start("uci -q delete hermes.main.llm_gateway\nuci set hermes.main.model=runtime-model\n"
-                          "uci set hermes.main.base_url=https://openrouter.ai/api/v1")
+                          "uci set hermes.main.base_url=https://openrouter.ai/api/v1\n"
+                          "uci set hermes.main.key_file=/etc/hermes-agent/provider.key")
         self.assertEqual(off.returncode, 0, off.stderr)
         instance = json.loads(off.stdout)["instances"]["instance1"]
         self.assertEqual(instance["command"], ["/usr/sbin/hermes-gateway", "/etc/hermes-agent/provider.key"])
