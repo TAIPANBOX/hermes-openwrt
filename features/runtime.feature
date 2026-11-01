@@ -730,9 +730,9 @@ Feature: What is set on the router is what the gateway runs with
   #
   # @decided 2026-11-01: the agent on the router can take its model from llm-gateway, the router's
   # own gateway to the model servers in the house (TAIPANBOX/openwrt-llm-gateway), so a router that
-  # cannot run a model itself uses one on a computer at home, without the cloud. It is an option and
-  # it is off unless the owner turns it on; off, nothing changes. The service pairs its own client
-  # with the gateway, as it pairs its client with openwrt-mcp.
+  # cannot run a model itself uses one on a computer at home, without the cloud.
+  # @claude 2026-11-01: as an option, off unless the owner turns it on, and off changes nothing; the
+  # service pairs its own client with the gateway, as it pairs its client with openwrt-mcp.
 
   Scenario: the model comes from the router's model gateway when the owner turns it on
     Given llm-gateway installed and switched on, with a model server in the house that serves the router's model

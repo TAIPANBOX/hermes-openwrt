@@ -975,9 +975,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
 
 27. `@decided 2026-11-01`: the agent's main model can come from llm-gateway, the router's own gateway
     to the model servers in the house (TAIPANBOX/openwrt-llm-gateway), so a router that cannot run a
-    model uses one on a computer at home, without the cloud. It is an option, off unless the owner
-    turns it on, and off changes nothing. `@claude` 2026-11-01, how (0.21.5-r20):
-    `hermes.main.llm_gateway`. On, every start (`llm_gateway_endpoint` in the init) refuses, with one
+    model uses one on a computer at home, without the cloud. `@claude` 2026-11-01, how (0.21.5-r20):
+    an option, `hermes.main.llm_gateway`, off unless the owner turns it on, and off changes nothing,
+    as the session that asked for it specified. On, every start (`llm_gateway_endpoint` in the init) refuses, with one
     line that says which, a gateway that is not installed, is switched off (`llm-gateway.main.enabled`
     not 1, or not enabled at boot) or has no backend listing `hermes.main.model`, and then touches
     nothing of the gateway's. Otherwise it keeps one client, `hermes`, for that model, issued with

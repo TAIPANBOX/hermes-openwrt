@@ -3005,8 +3005,8 @@ esac
     def test_llm_gateway_pairs_a_client_and_the_model_comes_from_it(self):
         # @decided 2026-11-01: the agent on the router can take its model from llm-gateway, the
         # router's own gateway to the model servers in the house, so a router that cannot run a model
-        # itself uses one on a PC at home. The service pairs its own client with the gateway, as it
-        # pairs hermes-main with openwrt-mcp, and the owner's own endpoint and key are left as they are.
+        # itself uses one on a PC at home. @claude: the service pairs its own client with the gateway,
+        # as it pairs hermes-main with openwrt-mcp, and the owner's own endpoint and key are left alone.
         url, received = self.fake_endpoint()
         log = self.llm_gateway(url)
         started = self._start(self.LLMGW_ON.format(model="runtime-model"))
