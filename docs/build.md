@@ -122,6 +122,11 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] The owner may let the agent install packages from the official OpenWrt feed, an opt-in on the Security page, with a factor in force and an openwrt-mcp whose `apk_add` installs official packages only (0.21.5-r13, LuCI 0.21.5-r3, openwrt-mcp 0.5.0.4)
 - [x] The agent reads whether a service runs (rpcd's `rc.list`, never procd's `service.list`) and, from an openwrt-mcp that redacts, the config of a package it installed, its secrets `<redacted>` (0.21.5-r14)
 - [x] The agent's terminal, file and search tools run in ujail, OpenWrt's own sandbox, with no `/etc/config`, `/overlay`, `/var` or ubus, so no tool reads a router secret from a file; diagnostics work as before (0.21.5-r15)
+- [x] A high-impact change waits for the owner's approval of that one change, given from Telegram with the PIN and an app code; `/unlock` and approvals go through a client of the owner's own (0.21.5-r16, LuCI 0.21.5-r4, openwrt-mcp 0.5.0.5)
+- [x] A PIN sent while a change waits opens no window, and the agent never sends the owner to `/unlock` for an approval (0.21.5-r17)
+- [x] An OpenAI API key works as the main model, on the Responses API, with a ChatGPT subscription beside it untouched (0.21.5-r18)
+- [x] The security updates of eleven libraries, with Hermes still at 0.21.5 (0.21.5-r19)
+- [x] The main model can come from llm-gateway, the router's own gateway to the model servers in the house: one option, a client paired at every start, its key in a root-only file, the owner's `base_url` and key left alone (0.21.5-r20, LuCI 0.21.5-r5)
 
 ## Prior art, and what is not ours
 

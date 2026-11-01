@@ -14,8 +14,10 @@
   directory: 37 MB at the first start, growing from there. The data directory can live on a
   USB stick, and on a router with too little flash the packages too
   (see [Hermes on a USB stick](usb.md#hermes-on-a-usb-stick)).
-- **A model.** A key for an OpenAI-compatible provider, a free one included: the service
-  does not start without one. A ChatGPT subscription can be added beside it and picked
+- **A model.** A key for an OpenAI-compatible provider, a free one included, or a model
+  server on a computer in the house through llm-gateway, which hands the agent a key of its
+  own (see [llm-gateway](providers.md#a-model-on-a-computer-in-the-house-through-llm-gateway)):
+  the service does not start without one. A ChatGPT subscription can be added beside it and picked
   with `/model`, not used instead of it (see [More than one provider](providers.md#more-than-one-provider)).
 - **A way back.** Keep a backup off the router (`sysupgrade -b /tmp/backup.tar.gz`, then
   copy it away) and know how your router's recovery mode works before you start. On

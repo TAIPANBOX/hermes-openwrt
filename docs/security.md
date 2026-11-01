@@ -28,6 +28,11 @@ support bundle. So keys live in root-only files under `/etc/hermes-agent`, and t
 are write-only: the page can store one and can ask whether one exists, and no method
 returns one.
 
+Nobody types the key for llm-gateway. When `hermes.main.llm_gateway` is on, the service
+takes it from what the gateway prints once when it adds the client `hermes`, straight
+into `/etc/hermes-agent/llm-gateway.key` (0600, root), never onto a command line, into UCI or
+into the log. The gateway keeps only its SHA-256.
+
 `scripts/gate-luci.sh` asserts that rather than trusting it. It writes a canary through
 the RPC and then requires that no readable method mentions it.
 

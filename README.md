@@ -18,10 +18,11 @@ routers.
 
 ![The agent runs on the router, the model runs elsewhere, and the router itself is reached through a narrow audited window](docs/hero.svg)
 
-**Current release**, in the feed since 2026-10-28: `hermes-agent` 0.21.5-r19, `openwrt-mcp`
-0.5.0.7-r1, `luci-app-hermes` 0.21.5-r4, `hermes-agent-telegram` 0.21.5-r2. It carries the security
-updates of eleven libraries under Hermes. A router set up before 2026-10-22 runs the `wget` line of
-[step 1](#install) once more: the feed has a new signing key since then.
+**Current release**, in the feed since 2026-11-01: `hermes-agent` 0.21.5-r20, `openwrt-mcp`
+0.5.0.7-r1, `luci-app-hermes` 0.21.5-r5, `hermes-agent-telegram` 0.21.5-r2. It can take its model
+from [a computer in your house](#a-model-on-a-computer-in-your-house) through llm-gateway, and it
+carries the security updates of eleven libraries under Hermes. A router set up before 2026-10-22
+runs the `wget` line of [step 1](#install) once more: the feed has a new signing key since then.
 
 ## What it does
 
@@ -31,17 +32,22 @@ updates of eleven libraries under Hermes. A router set up before 2026-10-22 runs
   something is wrong.
 - **Changes the router only with you.** Settings after you unlock it; the risky changes only
   after you approve each one.
+- **Uses a model on your own computer, if you have one.** With
+  [llm-gateway](https://github.com/TAIPANBOX/openwrt-llm-gateway) on the same router, the agent asks
+  Ollama or llama-server at home instead of a cloud provider: [below](#a-model-on-a-computer-in-your-house).
 
-The router runs the agent; a model provider you choose runs the model, free ones included. It has
-no browser, so it cannot book, buy or sign in to websites. More: [docs/use.md](docs/use.md).
+The router runs the agent; the model runs at a provider you choose, free ones included, or on a
+computer in your house. It has no browser, so it cannot book, buy or sign in to websites. More:
+[docs/use.md](docs/use.md).
 
 ## Install
 
 ![Install: trust the feed, add the packages, give it a model, start it](docs/install-flow.svg)
 
 You need vanilla OpenWrt 25.12 on aarch64, 1 GB of memory (512 MB fits one conversation), about
-350 MB of flash ([or a USB stick](#where-it-installs)), a key for any OpenAI-compatible provider,
-and a backup kept off the router. Details: [docs/install-notes.md](docs/install-notes.md).
+350 MB of flash ([or a USB stick](#where-it-installs)), a key for any OpenAI-compatible provider
+(or [a model server in your house](#a-model-on-a-computer-in-your-house)), and a backup kept off
+the router. Details: [docs/install-notes.md](docs/install-notes.md).
 
 **1. Trust the feed and install.**
 
@@ -188,6 +194,26 @@ on (OpenWrt's BusyBox has no `stty`). Run it in an SSH session with a terminal (
 
 How each part works, and its limits: [docs/approval.md](docs/approval.md), [docs/security.md](docs/security.md).
 
+## A model on a computer in your house
+
+![Hermes on the router asks llm-gateway on its loopback, with a key of its own; llm-gateway passes the call to Ollama on a computer in the firewall zone models, which neither the internet nor the LAN reaches](docs/llm-gateway.svg)
+
+A router cannot run a model, but a computer in the house can: Ollama, llama-server or LM Studio.
+[llm-gateway](https://github.com/TAIPANBOX/openwrt-llm-gateway), a package of its own from its own
+signed feed, puts those servers behind the router: one name, a key for every device, and, with one
+command, a firewall zone for them that only the router reaches. Install it as
+[its README](https://github.com/TAIPANBOX/openwrt-llm-gateway#install) shows, give it a backend that
+serves the model in `hermes.main.model`, then:
+
+```sh
+uci set hermes.main.llm_gateway=1 && uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+Or switch on **Model from llm-gateway** under **Services -> Hermes Agent -> Settings**. Every start
+pairs the agent with the gateway as its client `hermes`, keeps that key in a root-only file, and
+leaves your `base_url` and key as you set them, for when the option is off again. More:
+[docs/providers.md](docs/providers.md#a-model-on-a-computer-in-the-house-through-llm-gateway).
+
 ## Where it installs
 
 ![Where Hermes goes: internal flash by default, its data on a USB stick with hermes-usb, or every package on the stick with extroot when the flash is too small](docs/usb-choice.svg)
@@ -232,7 +258,7 @@ checks them there, and teeth scripts plant faults to prove each check catches th
 | [docs/security.md](docs/security.md) | keys, profiles, the unlock, the controls |
 | [docs/measured.md](docs/measured.md) | every hardware figure, which models work |
 | [docs/usb.md](docs/usb.md) | `hermes-usb` and extroot |
-| [docs/providers.md](docs/providers.md) | several providers, a ChatGPT subscription, a model gateway |
+| [docs/providers.md](docs/providers.md) | several providers, a ChatGPT subscription, a model in your house, a model gateway |
 | [docs/telegram.md](docs/telegram.md) | the phone, the allowlist, a test chat |
 | [docs/build.md](docs/build.md) · [docs/checks.md](docs/checks.md) | how it is built, every gate |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) | changing it, reporting a vulnerability |
