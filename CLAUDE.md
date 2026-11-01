@@ -1002,7 +1002,11 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     mutants.) LuCI 0.21.5-r5: the settings page switches it, beside the endpoint, model and key, none
     of which depends on the switch, since LuCI removes a field from UCI on save while its dependency
     does not hold (gate: `scripts/test-luci-views.mjs` `check_llm_gateway_switch_leaves_the_endpoint_alone`;
-    teeth: `scripts/teeth-luci.sh` faults 47 and 48).
+    teeth: `scripts/teeth-luci.sh` faults 47 and 48). Red first, the test files alone on main (a
+    temporary branch, since deleted): `@measured` `gh run view 41312437448 --log-failed` 2026-11-01,
+    86 runtime tests with 5 failures and 1 error, all of them the three new tests (the start used
+    provider.key, no key file was written, four refusals started), and the LuCI check failed on "the
+    settings page has no switch for the model from llm-gateway".
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
