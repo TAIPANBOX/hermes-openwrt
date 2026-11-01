@@ -177,6 +177,18 @@ jobs:
       - name: build the openwrt-mcp apk the gates install beside hermes-agent
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh ${{ matrix.arch }}
+      # hermes.main.llm_gateway pairs the agent with llm-gateway, the router's own gateway to the
+      # house's model servers, through that program's command line; the runtime gate runs the real
+      # one, built from a pinned commit like openwrt-mcp: 562ba8e, its main as published (v0.1.0).
+      - uses: actions/checkout@v7
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'runtime'
+        with:
+          repository: TAIPANBOX/openwrt-llm-gateway
+          ref: 562ba8e690cac3352f0f6384315b9fb4aed27b99
+          path: llm-gateway-src
+      - name: build llm-gateway for the runtime gate
+        if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'runtime'
+        run: LLM_GATEWAY_SRC="$PWD/llm-gateway-src" ./scripts/build-llm-gateway.sh ${{ matrix.arch }}
       # The feed serves openwrt-mcp under both labels; only the core leg's packages are published.
       - name: and openwrt-mcp under the label a Flint 2 and a Brume 2 report, for the feed
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'core' && matrix.arch == 'aarch64_generic'

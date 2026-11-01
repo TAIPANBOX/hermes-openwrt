@@ -23,6 +23,11 @@ BUILD="$ROOT/build/$LINE/$ARCH"
 # hermes-agent depends on openwrt-mcp (its owner profile pairs and configures it), so the
 # container is handed that apk the way it is handed the Telegram add-on.
 MCP=$("$ROOT/scripts/mcp-apk.sh" "$ARCH") || exit 1
+# llm-gateway, the router's own gateway to the house's model servers: the real program, which the
+# tests of hermes.main.llm_gateway put in place and take away again (scripts/build-llm-gateway.sh).
+LLMGW="$ROOT/build/$LINE/$ARCH-llm-gateway"
+[ -x "$LLMGW/llm-gateway" ] || {
+    echo "measured nothing: no llm-gateway for $ARCH. Build it: ./scripts/build-llm-gateway.sh $ARCH" >&2; exit 1; }
 # Convenience for iterating on one test at a time: any arguments name the tests to run
 # (e.g. RuntimeTests.test_x), and the mutation tests are skipped. No arguments runs the
 # full suite followed by teeth-runtime.py, as before.
@@ -30,7 +35,7 @@ RUNTIME_TESTS="$*"
 # This privileged container has a PRIVATE cgroup namespace and no writable host
 # mounts. Its root cgroup is the disposable container, never the host namespace.
 docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "linux/$ARCH" --privileged --cgroupns private --memory 1g \
-    -e RUNTIME_TESTS="$RUNTIME_TESTS" \
+    -e RUNTIME_TESTS="$RUNTIME_TESTS" -e LLM_GATEWAY_DIR=/llm-gateway -v "$LLMGW:/llm-gateway:ro" \
     -v "$ROOT:/src:ro" -v "$BUILD:/build:ro" -v "$BUILD-telegram:/addon:ro" -v "$MCP:/openwrt-mcp.apk:ro" "$IMAGE" sh -s <<'CONTAINER'
 . /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
