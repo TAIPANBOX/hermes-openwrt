@@ -2994,7 +2994,9 @@ esac
         original = cli.read_bytes()
         try:
             cli.write_text("#!/bin/sh\nexec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
-            env = dict(os.environ, **instance["env"], **overrides)
+            env = dict(os.environ)
+            env.update(instance["env"])
+            env.update(overrides)
             return subprocess.run(["sh", str(FILES / "hermes-gateway"), *instance["command"][1:]],
                                   env=env, check=False, capture_output=True, text=True)
         finally:

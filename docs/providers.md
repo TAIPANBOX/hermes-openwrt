@@ -54,6 +54,27 @@ browser: it adds and removes providers, takes each key write-only like the main 
 deletes a provider's key along with the provider, and signs ChatGPT in and out, showing
 the address and the code to enter.
 
+## A model on a computer in the house, through llm-gateway
+
+A router cannot run the model itself, but a computer in the house can: Ollama, llama-server
+or LM Studio on a desktop. [llm-gateway](https://github.com/TAIPANBOX/openwrt-llm-gateway)
+puts those servers behind one name on the router, with a key for every client. With it
+installed, switched on and serving the model in `hermes.main.model`, one option points the
+agent at it:
+
+```sh
+uci set hermes.main.llm_gateway=1 && uci commit hermes && service hermes-agent restart
+```
+
+Every start then makes sure the gateway has a client named `hermes` for that model, adds one
+when it has none, and keeps its key in `/etc/hermes-agent/llm-gateway.key`, readable by root
+only; the gateway itself keeps only the key's hash. The agent talks to the gateway on the
+router's own loopback, `http://127.0.0.1:8761/v1`, with that key. A lost key file, or a new
+`hermes.main.model`, issues the client again under a new key; a client you widened by hand
+to `*` keeps its own. `base_url` and `key_file` stay as you set them and are used again
+once the option is `0`. With the gateway missing, switched off, or serving no such model,
+the service does not start, and `logread -e hermes-agent` says which and how to put it right.
+
 ## Through a model gateway
 
 A gateway between the router and the provider can meter every model call, cap what a
