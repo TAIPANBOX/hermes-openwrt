@@ -119,10 +119,11 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
 
   Scenario: the agent is never installed beside an openwrt-mcp that does not redact
     Given the package installed with the openwrt-mcp it depends on
-    Then it requires openwrt-mcp 0.5.0.4 or later, the first version whose uci_get hides every secret,
-      whose uci_apply refuses every setting that runs code, and whose apk_add installs from the
-      official feeds only
-    And the openwrt-mcp installed beside it reports all three
+    Then it requires openwrt-mcp 0.5.0.8 or later, the first version whose uci_get hides every secret,
+      whose uci_apply refuses every setting that runs code, whose apk_add installs from the official
+      feeds only, which holds high-impact changes for the owner, and whose count of failed tries
+      outlives a restart
+    And the openwrt-mcp installed beside it reports all five
     # -> check_needs_an_openwrt_mcp_that_redacts
 
   Scenario: the agent's network limits leave with the package

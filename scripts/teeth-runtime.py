@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """@codex 2026-09-19: mutate only disposable-container copies, require targeted reds."""
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -645,6 +646,56 @@ mutants = [
      'test_owner_note_says_the_network_is_limited'),
     ('the include not held for the owner', 'hermes-agent.init', "MCP_HOLD_UCI='firewall.hermes_* firewall.@include*'", "MCP_HOLD_UCI=''",
      'test_owner_client_is_paired_and_the_policies_name_its_approval'),
+    # 0.21.5-r22: tries by someone else.
+    ('told at every listing of a delay', 'openwrt_unlock.py', '    if reached:\n        t["told"] = failures', '    pass',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('a failed send counted as told', 'openwrt_unlock.py', '    if reached:\n', '    if True:\n',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ("the owner's own tries taken for someone else's", 'openwrt_unlock.py', '    mine = str(user_id) in _owners()\n', '    mine = False\n',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ("another allowed id's tries taken for the owner's", 'openwrt_unlock.py', '    mine = str(user_id) in _owners()\n', '    mine = True\n',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('a listing read while a try is on its way back', 'openwrt_unlock.py', '    if _tries["carrying"]:\n        return  #', '    if False:\n        return  #',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('told with no delay in force', 'openwrt_unlock.py', 'if not others or not row.get("locked_out_until") or t["told"]', 'if not others or t["told"]',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ("the owner told of the owner's own tries", 'openwrt_unlock.py', 'if not others or not row.get("locked_out_until")', 'if not row.get("locked_out_until")',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('tries refused in a delay not counted', 'openwrt_unlock.py', 'others = t["others"] + t["others_refused"]', 'others = t["others"]',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ("another client's count read", 'openwrt_unlock.py', 'if isinstance(r, dict) and r.get("client") == _client()', 'if isinstance(r, dict)',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('what is not a number read as a count', 'openwrt_unlock.py', 'not all(type(row.get(k)) is int and row[k] >= 0 for k in ("failures", "refused", "limit"))', 'False',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('a cleared count remembered', 'openwrt_unlock.py', '        t.update(seen=0, refused=0, carried=0, others=0, others_refused=0, told=0)\n', '',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('a count cleared between listings remembered', 'openwrt_unlock.py', '    if failures < t["seen"]:  # cleared between two listings, and counting again\n        t.update(seen=0, refused=0, others=0, others_refused=0, told=0)\n    new = failures - t["seen"]\n',
+     '    new = max(failures - t["seen"], 0)\n', 'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('the text of the listing in the notice', 'openwrt_unlock.py', 'words["until"].format(until=when.astimezone().strftime("%H:%M")) if when else words["while"]',
+     'words["until"].format(until=row.get("locked_out_until"))', 'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('a count the disk would not take not said', 'openwrt_unlock.py', '    if row.get("persisted") is False:\n', '    if False:\n',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('every allowed id told with an approver there', 'openwrt_unlock.py', 'return [approver] if approver else sorted(', 'return sorted(',
+     'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('nobody told with no approver', 'openwrt_unlock.py', 'return [approver] if approver else sorted((i for i in _allowed_ids() if i.isdigit()), key=int)',
+     'return [approver] if approver else []', 'test_owner_told_with_no_approver_and_in_the_language_set'),
+    ('the listing not read for tries', 'openwrt_unlock.py', '                await _watch_tries(listing["throttle"])\n', '                pass\n',
+     'test_owner_told_with_no_approver_and_in_the_language_set'),
+    ('held changes shown with approvals off', 'openwrt_unlock.py', '                if _approvals_on():\n                    for a in listing["actions"]:',
+     '                if True:\n                    for a in listing["actions"]:', 'test_owner_told_with_no_approver_and_in_the_language_set'),
+    ('the language set not read', 'openwrt_unlock.py', 'words = TRIES_WORDS.get(language, TRIES_WORDS["en"])', 'words = TRIES_WORDS["en"]',
+     'test_owner_told_with_no_approver_and_in_the_language_set'),
+    ('the Ukrainian words gone', 'openwrt_unlock.py', '"uk": {"tried": "Хтось інший', '"xx": {"tried": "Хтось інший',
+     'test_owner_told_with_no_approver_and_in_the_language_set'),
+    ('the init says an empty option turns the connection off', 'hermes-agent.init', 'address unless UCI names another.',
+     'address unless UCI says otherwise (an option set to nothing turns the connection off).', 'test_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp'),
+    ('the owner profile loses the connection to an emptied option', 'hermes-agent.init',
+     '\t\tif [ -z "$mcp_url" ] && ! uci -q get hermes.main.router_mcp_url >/dev/null 2>&1; then\n\t\t\tmcp_url=$MCP_URL_DEFAULT\n\t\tfi\n', '',
+     'test_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp'),
+    ('the shipped file says an empty option turns the connection off', 'hermes-agent.config', 'so emptying it turns nothing off.',
+     'Empty disables this connection.', 'test_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp'),
+    ('the shipped file promises one flat wait', 'hermes-agent.config', 'each further wrong attempt doubles it, up to an', 'the lockout lasts that long, up to an',
+     'test_shipped_file_says_the_lockout_is_the_first_of_waits_that_grow'),
 ]
 installed = {'set-toolsets.py': Path('/usr/libexec/hermes-set-toolsets'),
              'memory-limit.py': Path('/usr/libexec/hermes-memory'),
@@ -679,6 +730,45 @@ for title, filename, before, after, test in mutants:
         if counterpart:
             counterpart.write_text(original_installed)
 
+# The companions' pins are repository files, read-only in this container, so their faults go into a
+# copy the test is pointed at. The commit in each case is the real one with its last digit changed.
+if not only or any(part in 'the pins' for part in only):
+    with tempfile.TemporaryDirectory() as tmp:
+        copies = ('.github/workflows/ci.yml', 'scripts/build-llm-gateway.sh', 'scripts/build-openwrt-mcp.sh')
+        for rel in copies:
+            (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / rel, Path(tmp) / rel)
+        os.environ['COMPANIONS_ROOT'] = tmp
+        test = 'test_companions_are_built_from_the_commits_ci_pins'
+
+        def another(path, pattern):
+            found = re.search(pattern, path.read_text(), re.M)
+            if not found:
+                sys.exit('measured nothing: no pin found by ' + pattern)
+            sha = found.group(1)
+            return sha, sha[:-1] + ('0' if sha[-1] != '0' else '1')
+        ci = Path(tmp) / copies[0]
+        faults = [('the workflow checks out another llm-gateway', copies[0],
+                   *another(ci, r'repository: TAIPANBOX/openwrt-llm-gateway\n\s+ref: ([0-9a-f]{40})$')),
+                  ('the workflow checks out another openwrt-mcp', copies[0],
+                   *another(ci, r'repository: TAIPANBOX/openwrt-mcp\n\s+ref: ([0-9a-f]{40})$')),
+                  ('a build that takes any checkout of llm-gateway', copies[1], '[ "$HEAD" = "$LLM_GATEWAY_COMMIT" ]', '[ "$HEAD" = "$HEAD" ]'),
+                  ('a build that takes any checkout of openwrt-mcp', copies[2], '[ "$HEAD" = "$OPENWRT_MCP_COMMIT" ]', '[ "$HEAD" = "$HEAD" ]'),
+                  ('llm-gateway built with cgo', copies[1], 'CGO_ENABLED=0 GOOS', 'CGO_ENABLED=1 GOOS'),
+                  ('openwrt-mcp built with cgo', copies[2], 'CGO_ENABLED=0 GOOS', 'CGO_ENABLED=1 GOOS')]
+        for title, rel, before, after in faults:
+            path = Path(tmp) / rel
+            original = path.read_text()
+            if original.count(before) != 1:
+                sys.exit('measured nothing: mutation target missing or ambiguous: ' + title)
+            path.write_text(original.replace(before, after))
+            result = run(test)
+            path.write_text(original)
+            if result.returncode == 0 or 'FAILED (' not in result.stderr:
+                sys.exit('TEETH FAIL: ' + title + '\n' + result.stdout + result.stderr)
+            print('teeth ok: ' + title + ' -> ' + test, flush=True)
+        del os.environ['COMPANIONS_ROOT']
+
 # Discovering no tests must fail, not report an empty green suite.
 with tempfile.TemporaryDirectory() as tmp:
     scripts = Path(tmp) / 'scripts'
@@ -695,4 +785,4 @@ sys.stdout.write(restored.stdout)
 sys.stderr.write(restored.stderr)
 if restored.returncode:
     sys.exit('TEETH FAIL: restored product is not green')
-print(f'teeth: {len(mutants) if not only else "selected"} product mutations caught; empty discovery refused; green restored')
+print(f'teeth: {len(mutants) + 6 if not only else "selected"} product mutations caught; empty discovery refused; green restored')

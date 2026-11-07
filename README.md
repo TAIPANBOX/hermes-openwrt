@@ -34,7 +34,8 @@ runs the `wget` line of [step 1](#install) once more: the feed has a new signing
   after you approve each one.
 - **Stays out of the rest of your house.** From 0.21.5-r21 its own connections reach the internet,
   its model and the router's tools, and not SSH, LuCI or the other devices at home, with nothing for
-  you to set up: [docs/security.md](docs/security.md#what-the-agents-own-connections-reach).
+  you to set up, and the Security page in LuCI changes it:
+  [docs/security.md](docs/security.md#what-the-agents-own-connections-reach).
 - **Uses a model on your own computer, if you have one.** With
   [llm-gateway](https://github.com/TAIPANBOX/openwrt-llm-gateway) on the same router, the agent asks
   Ollama or llama-server at home instead of a cloud provider: [below](#a-model-on-a-computer-in-your-house).
@@ -130,6 +131,11 @@ The agent always reads the router. To change it, it needs you:
 **Why a PIN and a code.** The PIN is something you know; the code comes from your phone and changes
 every 30 seconds. A stolen Telegram session has neither, a lost phone lacks the PIN, and the agent,
 whatever a web page told it, can approve nothing.
+
+**Wrong tries.** From 0.21.5-r22 five in a row cost a wait of 15 minutes, growing to an hour, and a
+reboot does not clear it. When tries that did not come from your chat start a wait, the bot tells
+you, once per wait. The Security page shows the count and ends a wait with **Reset**:
+[docs/security.md](docs/security.md#wrong-tries-and-who-hears-of-them).
 
 All of this is the default `owner` profile. The `root` profile, an explicit choice that warns at
 every start, runs the agent as root with none of these steps.

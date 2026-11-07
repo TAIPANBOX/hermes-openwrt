@@ -203,7 +203,11 @@ esac
 # router, other hosts of the house or the tailnet. A table of its own that hermes-net writes from UCI
 # and loads with nft before anything of the agent starts; hermes.security.agent_network=open turns it
 # off and `list lan_allow` adds a host. CLAUDE.md, invariant 28.
-PKGREL=${PKGREL:-21}
+# 0.21.5-r22: the owner hears in the chat when tries that did not come through it reach a delay, once
+# per delay, read from the listing the plugin already asks for (action_list's throttle, openwrt-mcp
+# 0.5.0.8), in upstream's language setting; the shipped file says the lockout is the first of waits
+# that grow; two comments no longer say router_mcp_url can be emptied. CLAUDE.md, invariant 29.
+PKGREL=${PKGREL:-22}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -222,14 +226,16 @@ PKGREL=${PKGREL:-21}
 # (apk_add_official_feed_only), which the init asks for before it writes the package policy. Since
 # r16 it is 0.5.0.5, the first that holds high-impact changes for the owner's approval and refuses
 # the agent's client its own unlock (actions_held_for_approval), without which the init writes no
-# change policy.
+# change policy. Since r22 it is 0.5.0.8, whose failed tries outlive a restart, whose action_list
+# gives the owner's client the throttle the plugin reads, and whose `mfa reset` the Security page
+# calls (second_factor_throttle_persisted).
 #
 # iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above). procd-ujail is
 # the sandbox the gateway runs in (r15, above); it is in OpenWrt's stock images, and named so an
 # image without it gets it rather than an agent that will not start.
 # firewall4 brings nft and the kernel's fib match, which the agent's network limits are made of (r21);
 # it is in OpenWrt's stock images, and named for the same reason.
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail firewall4"
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.8 iputils-ping procd-ujail firewall4"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

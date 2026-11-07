@@ -166,12 +166,15 @@ jobs:
       # merge of the fork's PR #10 (version 0.5.0.6): a code from the authenticator app keeps
       # working for 60 s after it leaves the app's screen. Since 0.21.5-r19 it is f05b176, the
       # merge of the fork's PR #11 (version 0.5.0.7): the same code built with Go 1.27.3, for
-      # GO-2026-6809. Before them, baf6669 (v0.5.0-taipanbox.1).
+      # GO-2026-6809. Since 0.21.5-r22 it is fde61df, the merge of the fork's PR #14 (version 0.5.0.8):
+      # a failed try costs a growing wait that a restart does not forgive, action_list gives the
+      # owner's client the count, and `mfa reset` ends a wait. Before them, baf6669
+      # (v0.5.0-taipanbox.1). scripts/build-openwrt-mcp.sh holds the same commit and refuses another.
       - uses: actions/checkout@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: f05b1765d4f017a8e9dc2a2568b89fd05a33f957
+          ref: fde61df14afcb1ce2c6aad2b17810f7d40c72998
           path: openwrt-mcp-src
       - uses: actions/setup-go@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
@@ -182,12 +185,15 @@ jobs:
         run: OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh ${{ matrix.arch }}
       # hermes.main.llm_gateway pairs the agent with llm-gateway, the router's own gateway to the
       # house's model servers, through that program's command line; the runtime gate runs the real
-      # one, built from a pinned commit like openwrt-mcp: 562ba8e, its main as published (v0.1.0).
+      # one, built from a pinned commit like openwrt-mcp: 6f623c4, its main, where the daemon has lost
+      # root (its own account, a jail, no capabilities, its own seccomp filter) and `prepare` does
+      # the root work. Before it, 562ba8e, as published (v0.1.0). scripts/build-llm-gateway.sh holds
+      # the same commit and refuses another.
       - uses: actions/checkout@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'runtime'
         with:
           repository: TAIPANBOX/openwrt-llm-gateway
-          ref: 562ba8e690cac3352f0f6384315b9fb4aed27b99
+          ref: 6f623c4415100709e47c81bacbdebdfd04178f52
           path: llm-gateway-src
       - name: build llm-gateway for the runtime gate
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && matrix.suite == 'runtime'
@@ -260,7 +266,7 @@ jobs:
         run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#usb-teeth-}/4 ./scripts/teeth-usb.sh
 
       # Every shard plants every fault and runs the gate for its own quarter of them, and each
-      # checks that 33 were planted, so a fault dropped from the script fails all four.
+      # checks the count of what was planted, so a fault dropped from the script fails all four.
       - name: the web interface's gate has teeth, quarter ${{ matrix.suite }}
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite) && startsWith(matrix.suite, 'luci-teeth-')
         run: ARCH=${{ matrix.arch }} SHARD=${MATRIX_SUITE#luci-teeth-}/4 ./scripts/teeth-luci.sh

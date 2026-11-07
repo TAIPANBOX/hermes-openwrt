@@ -52,7 +52,12 @@ set -eu
 # 0.21.5-r5: the settings page has a switch, "Model from llm-gateway" (hermes.main.llm_gateway, which
 # hermes-agent 0.21.5-r20 reads): the model then comes from the router's own gateway to the house's
 # model servers. The endpoint, model and key fields stay as they are and do not depend on it.
-PKGREL=${PKGREL:-5}
+# 0.21.5-r6: the Security page shows what the agent's own connections reach and sets it (set_network:
+# hermes.security.agent_network and lan_allow, which hermes-agent 0.21.5-r21 reads), shows the wrong
+# tries on record with a Reset (reset_tries, `openwrt-mcp mfa reset`, 0.5.0.8), warns beside PIN alone,
+# says the lockout is the first of waits that grow, and says why a common PIN was refused. It depends
+# on openwrt-mcp>=0.5.0.8 itself, so a plain upgrade of the page brings the `mfa reset` it calls.
+PKGREL=${PKGREL:-6}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
@@ -111,7 +116,7 @@ docker run --rm -i -v "$WORK:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:
 	--info "origin:luci-app-hermes" \
 	--info "url:https://github.com/TAIPANBOX/hermes-openwrt" \
 	--info "description:LuCI interface for the Hermes Agent service. Status, service control, log tail, write-only key fields, and the owner Security page." \
-	--info "depends:luci-base hermes-agent" \
+	--info "depends:luci-base hermes-agent openwrt-mcp>=0.5.0.8" \
 	--script "post-install:/work/post-install" \
 	--script "post-upgrade:/work/post-install" \
 	--script "pre-deinstall:/work/pre-deinstall" \

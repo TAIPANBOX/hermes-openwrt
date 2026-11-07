@@ -197,7 +197,7 @@ The `root` profile runs outside all of this by definition, and every start says 
 logread -e hermes-net                       # the address of what was refused, at most six lines a minute per rule
 ```
 
-Two settings, both optional, in `/etc/config/hermes`:
+Two settings, both optional, on the Security page in LuCI (below) or in `/etc/config/hermes`:
 
 ```sh
 uci add_list hermes.security.lan_allow='nas.lan:445'     # a host of your house, TCP and UDP
@@ -270,14 +270,15 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.7 today
-(`scripts/build-openwrt-mcp.sh`, which uses that repository's own `mkapk.sh`; the commit is the
-one in `.github/workflows/ci.yml`). Upstream has the code factor and its enrolment; the PIN, a
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.8 since
+0.21.5-r22 (`scripts/build-openwrt-mcp.sh`, which holds that commit, refuses another and uses that
+repository's own `mkapk.sh`; `.github/workflows/ci.yml` checks out the same one). Upstream has the code factor and its enrolment; the PIN, a
 factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the two-step enrolment, the
 redaction of every `uci_get` answer, the refusal of every `uci_apply` that would run code,
-`apk_add` from the official feeds only and the high-impact changes held for your approval are the
-fork's, and its README documents them. `hermes-agent` depends on `openwrt-mcp>=0.5.0.5`, the first
-version that does all of them, so an upgrade of the agent cannot leave an older one beside it.
+`apk_add` from the official feeds only, the high-impact changes held for your approval and a count
+of wrong tries that outlives a restart are the fork's, and its README documents them. `hermes-agent`
+depends on `openwrt-mcp>=0.5.0.8`, the first version that does all of them, so an upgrade of the
+agent cannot leave an older one beside it.
 
 At every start in the owner profile, as root, the package makes sure openwrt-mcp is
 enabled and running; pairs one client for the agent, `hermes-main`, if
@@ -401,7 +402,7 @@ apart from `rc.init`, which still needs the window.
 uci set hermes.security.factor=pin         # none (the default), pin, totp or pin+totp
 uci set hermes.security.window=15m         # how long one unlock keeps changes open
 uci set hermes.security.max_failures=5     # wrong attempts in a row, then
-uci set hermes.security.lockout=15m        # unlocking is refused this long
+uci set hermes.security.lockout=15m        # a first wait this long, doubling up to an hour
 uci commit hermes && /etc/init.d/hermes-agent restart
 ```
 
@@ -457,20 +458,31 @@ agent.
 
 **In LuCI**, Services -> Hermes Agent -> Security, in the owner profile. The page shows what is
 in force (the profile, the factor, whether a PIN is set, whether a phone is enrolled or being
-added, the window, the failure limit and the lockout) and does three things:
+added, the window, the failure limit, the first wait and what the agent's connections reach) and
+does these things:
 
 - **The PIN**, 4 to 8 digits, typed twice. Neither field is ever filled in from the router, and
   nothing can read the PIN back: the page can say that one is set, and that is all. Clear PIN is
-  refused while the factor in force asks for it.
+  refused while the factor in force asks for it. openwrt-mcp refuses the PINs a guesser tries first,
+  1234 among them, and the page says so.
 - **A phone.** The page shows a QR code, and the secret to type by hand, once, and asks for the
   code the app shows now. The phone counts only when that code is right. Until then the phone in
   force, if there is one, stays in force and the new secret unlocks nothing. Leaving the page, or
   Cancel, takes the QR off it; nothing keeps it, so starting again makes a new one.
 - **The factor**, none, PIN, app code or both, with the window, the number of wrong tries and the
-  lockout. A choice is open only when what it needs exists: PIN needs a PIN, app code needs an
+  first wait. A choice is open only when what it needs exists: PIN needs a PIN, app code needs an
   enrolled phone (one still being added does not count), and both need both. That is what keeps
   you from choosing something no unlock could satisfy. Saving writes `hermes.security` and asks
   procd to reload, which restarts the agent, which writes openwrt-mcp's change policy from it.
+  Beside PIN the page says what a PIN alone costs: there is no last try, so one try an hour gets
+  through every four-digit PIN in about fourteen months. With PIN alone in force that is an alert.
+- **Wrong tries** on record, with a Reset that runs `openwrt-mcp mfa reset hermes-main`. See
+  [Wrong tries](#wrong-tries-and-who-hears-of-them).
+- **What the agent reaches**: limited or open, and the hosts of your house it may also reach, one
+  `host:port` per line, the two settings of
+  [What the agent's own connections reach](#what-the-agents-own-connections-reach). A line the agent
+  could not read is refused and named, and nothing is saved. Saving restarts the agent, whose start
+  applies them.
 - **Package installs**, a switch, "Let the agent install packages from the official OpenWrt
   feed", off unless you turn it on. It can be turned on only while a factor is in force, and
   turned off at any time. What it does is the next section.
@@ -604,7 +616,8 @@ since 0.21.5-r16 (below), and answers only the outcome: open until what time, re
 until what time. The message never reaches the model and is written to no log and to no
 conversation. If the bot cannot delete it (a failed call to Telegram), it says so and asks
 you to delete it yourself. A wrong PIN is not told apart from a wrong code, and five wrong
-tries close unlocking for fifteen minutes, which openwrt-mcp counts, not the plugin. A
+tries close unlocking for fifteen minutes, which openwrt-mcp counts, not the plugin; what
+comes after that is under [Wrong tries](#wrong-tries-and-who-hears-of-them). A
 message that does not fit what the factor asks for (a PIN where a code is wanted) is held
 back, deleted and answered with what to send, and is not counted.
 
@@ -613,6 +626,43 @@ chatting: someone paired with the bot, or let in by `allow_all`, cannot use up y
 tries. Anyone else is dropped without an answer. In a group the answer is that
 `/unlock` works only in the private chat, where the bot can delete the message, and
 nothing is unlocked.
+
+#### Wrong tries, and who hears of them
+
+Since 0.21.5-r22, with openwrt-mcp 0.5.0.8, five wrong tries in a row cost fifteen minutes, the next
+one thirty, and every one after that an hour: `max_failures` and `lockout` are the first threshold and
+the first wait. Inside a wait a try checks nothing and counts nothing. The count is on the router's
+flash and outlives a restart and a reboot, which used to forgive it; a right answer clears it, and so
+does a day of uptime with no wrong try.
+
+There is no last try, so a wait ends by itself and a stranger cannot lock you out for good. The count
+is shared, though: someone who holds your client's token can take each hourly try the moment it
+opens, and for as long as that lasts you wait too, plus at most an hour once it stops. The agent's
+own token cannot do this: openwrt-mcp refuses it an unlock without counting a try. What it takes is
+the owner's client, whose token only the plugin holds, or an id you allowed to talk to the bot. The
+reasons, and the standards this departs from, are in openwrt-mcp's own `docs/security.md`.
+
+So you are told. Every 5 s the plugin lists the held changes, and the same answer says how the
+guessing goes. The plugin carried your own tries, so what it did not carry is someone else's. When
+a delay begins and some of the tries behind it did not come from your chat, or tries from elsewhere
+are refused inside a delay of yours, the bot says so in the private chat, once per delay: how many,
+the count and the limit, when the wait ends, and how to end it sooner. It goes to the approver, and
+with no approver chosen to every id allowed to talk to the bot, whose own tries then count as yours.
+A typo of your own brings no such message. What it says is numbers and a time from openwrt-mcp and
+nothing you typed. It speaks upstream's language setting, `display.language` in the agent's
+`config.yaml` or `HERMES_LANGUAGE`, in English, Ukrainian, German, Spanish or French, and any other
+language reads English. It stays in the chat and never reaches the model. A restart of the gateway
+forgets whose tries they were, so the first delay after one is told as someone else's.
+
+To end a wait: **Reset** on the Security page, or `openwrt-mcp mfa reset hermes-main` on the router.
+Setting a new PIN or enrolling a phone clears the count too. No MCP client can, and that is what
+keeps the agent, or anything else that holds a token, from clearing its own count. All of these need
+LuCI or SSH, so away from home a wait runs its course.
+
+Run on a virtual OpenWrt 25.12.5 router on 2026-11-07: five wrong tries with the owner's client, and
+the right PIN refused for 15 minutes; the same after a restart of openwrt-mcp, with the same end, and
+after a reboot, with a fresh 15 minutes and the count still 5; Reset through `ubus` answered, the count
+read 0 and the right PIN opened the window at once.
 
 How it is kept from the model, four times over, because the first line can fail to be
 wired without anyone noticing and each is tested alone (`scripts/gate-unlock.sh`):

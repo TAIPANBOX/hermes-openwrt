@@ -16,7 +16,12 @@
 #
 # The output directory is a sibling of the base package's build directory, for the same
 # reason the Telegram add-on's is: the base build starts with `rm -rf` on its own.
+#
+# Only the commit below is built, the one CI checks out; ANY_COMMIT=1 builds another by hand, for a
+# look at a change of that repository.
 set -eu
+
+OPENWRT_MCP_COMMIT=fde61df14afcb1ce2c6aad2b17810f7d40c72998
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${1:-aarch64_generic}
@@ -32,6 +37,10 @@ case "$ARCH" in
 	aarch64_*) GOARCH=arm64 ;;
 	*) echo "build-openwrt-mcp: unknown apk architecture $ARCH" >&2; exit 1 ;;
 esac
+
+HEAD=$(cd "$SRC" && git rev-parse HEAD 2>/dev/null || echo unknown)
+[ "$HEAD" = "$OPENWRT_MCP_COMMIT" ] || [ -n "${ANY_COMMIT:-}" ] || {
+	echo "build-openwrt-mcp: $SRC is at $HEAD, and this repository is tested against $OPENWRT_MCP_COMMIT" >&2; exit 1; }
 
 VERSION=$(sed -n 's/^var version = "\(.*\)"/\1/p' "$SRC/main.go")
 [ -n "$VERSION" ] || { echo "build-openwrt-mcp: no version in $SRC/main.go" >&2; exit 1; }

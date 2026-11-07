@@ -186,8 +186,13 @@ command or a firmware, and the high-impact changes below only once the owner app
 
 ```sh
 uci get hermes.security.factor     # none until the owner sets one
-ubus call hermes security_status   # facts only: pin_set, totp_enrolled, approver, approvals_ready
+ubus call hermes security_status   # facts only: pin_set, totp_enrolled, approver, approvals_ready, failed_tries
 ```
+
+Wrong tries cost a wait, for the owner too: 15 minutes after five, growing to an hour, and a restart
+does not clear it. If the person is waiting, say so: it ends by itself, and **Reset** on the Security
+page ends it at once. That is the person's call, and so is the PIN: `openwrt-mcp pin set` and the page
+refuse the PINs a guesser tries first, such as 1234.
 
 **High-impact changes** (a port opened to the internet, the firewall weakened, VPN, DNS or the time
 servers changed, a reboot) wait for the owner's approval of that one change, even inside a window.
