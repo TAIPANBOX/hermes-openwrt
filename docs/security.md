@@ -220,9 +220,11 @@ when the full rules are refused the agent gets minimal ones with no LAN host, an
 refused too it does not start. The table survives `fw4 reload` and `fw4 restart`. `service firewall
 stop` deletes every table of the router, so `firewall.hermes_net`, an include of type script, loads
 the same file again at the next start. The service works the rules out at every start and respawn,
-and again when an interface comes up, so a new guest network is in them and a name in UCI gets its
-new address. A LAN model whose address changes with nothing else happening gets it at the next
-start, and until then `logread -e hermes-net` names the address it is being refused.
+and again when an interface comes up or the router hands out a lease, so a new guest network is in
+them and a model named by its name gets its address, after a reboot of the router too, when that
+name answers nothing until the computer renews its lease. dnsmasq turns its lease script on when it
+starts, so that part begins at the first reboot after the install or `service dnsmasq restart`.
+Whatever is refused, `logread -e hermes-net` names the address.
 
 ### Profiles
 

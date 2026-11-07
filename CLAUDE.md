@@ -1017,8 +1017,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     profile is outside it by definition and every start says so. `@claude` 2026-11-07, how (0.21.5-r21):
     `/usr/libexec/hermes-net` (Python stdlib, as root) writes `/var/run/hermes-agent/net.nft`, checks it with
     `nft -c` and loads it with its own `nft -f`: at `start_service` before anything of the agent, in the
-    wrapper before every exec, and from `/etc/hotplug.d/iface/60-hermes-net` on ifup and ifupdate once the
-    rules exist. A table of its own, `inet hermes_agent`, and never a rule of fw4's: fw4's output chain opens
+    wrapper before every exec, and from `/etc/hotplug.d/iface/60-hermes-net` (ifup, ifupdate) and
+    `/etc/hotplug.d/dhcp/60-hermes-net` (a lease) once the rules exist. A table of its own, `inet hermes_agent`, and never a rule of fw4's: fw4's output chain opens
     with `oif "lo" accept`, so a rule there cannot see traffic to the router itself. One base chain at the
     output hook, policy accept, holding one rule, `meta skuid <uid> jump agent`, with every refusal inside
     chain `agent`: never `meta skuid != N return`, since the kernel answers the match only for a packet with a
@@ -1048,16 +1048,17 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     loopback's high ports: a real gateway in a vlab run, the agent's terminal included, was refused only what
     it was told to try.
     Limits named: `ping` is setuid root, so its ICMP is uid 0 and outside the rules, on purpose; DNS through the
-    router's resolver is a way out for what can be tunnelled in it, as plain HTTPS is; a LAN model whose address
-    changes with no interface event gets it at the next start, and the log names the address until then; a
-    zone's `masq` or a default route moved in an open window changes which devices count as the house, and only
+    router's resolver is a way out for what can be tunnelled in it, as plain HTTPS is; dnsmasq turns its lease
+    script on when it finds one at its own start, so the lease event begins at the first reboot or dnsmasq
+    restart after the install; a static address outside DHCP that changes gets its rule at the next start,
+    and the log names the address until then; a zone's `masq` or a default route moved in an open window changes which devices count as the house, and only
     the global IPv6 addresses depend on that; a device wildcard such as `tun+` in a zone is skipped; LuCI shows
     none of this yet. (gate: `scripts/gate-network.sh`, bound to `features/network.feature`, real nft, fw4 and
     sockets in OpenWrt's rootfs, in CI's `scenarios` job; `scripts/gate-runtime.sh`
     `check_limits_go_in_with_the_start_and_the_option_is_read`, `check_wrapper_applies_the_limits_before_every_exec`,
     `check_owner_note_says_the_network_is_limited`; `scripts/gate-unlock.sh`
     `check_window_cannot_lift_the_network_limits`, the real daemon; `scripts/gate-package.sh`
-    `check_network_limits_leave_with_the_package`; teeth: `scripts/teeth-network.py`, 46 faults with the
+    `check_network_limits_leave_with_the_package`; teeth: `scripts/teeth-network.py`, 47 faults with the
     negative skuid form, a rule in a fw4 chain, a `fw4 zone` in the include and an allow read from
     `config.yaml` first, two near misses that must stay green, and the missing subject; `scripts/teeth-runtime.py`,
     `scripts/teeth-unlock.sh` faults 87 and 88, `scripts/teeth.sh` fault 14.)

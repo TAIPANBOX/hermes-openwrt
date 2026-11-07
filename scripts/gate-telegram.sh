@@ -111,6 +111,10 @@ echo "PASS [1/8] check_base_lacks_the_library"
 # The main section has to be valid first, or the service refuses for a different reason
 # and this check passes on the wrong refusal.
 uci set hermes.main.enabled=1
+# This container is not privileged, so nft may do nothing in it, and a start that cannot have the
+# agent's network limits is refused before it opens an instance: check 6 would then see no instance
+# for the wrong reason (teeth-telegram.sh's third fault, on 2026-11-07). They are gate-network.sh's.
+uci set hermes.security.agent_network=open
 uci commit hermes
 mkdir -p /etc/hermes-agent && chmod 0700 /etc/hermes-agent
 printf '%s' 'sk-gate-not-a-real-key' > /etc/hermes-agent/provider.key

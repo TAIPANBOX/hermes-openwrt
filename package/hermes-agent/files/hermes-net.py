@@ -343,7 +343,7 @@ def collect(uid):
     allow = {(address, proto, 53) for address in resolvers() for proto in ("tcp", "udp")}
     for label, host, port, protocols in wanted:
         if host not in answers:
-            say(f"{label} names {host}, which does not resolve now, so it opens nothing until the next start")
+            say(f"{label} names {host}, which does not resolve now, so it opens nothing until it does")
         for address in answers.get(host, ()):
             allow.update((address, proto, port) for proto in protocols)
     return {"uid": uid, "local": sorted(local), "router": router_service_ports(),

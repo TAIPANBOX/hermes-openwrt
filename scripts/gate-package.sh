@@ -465,7 +465,8 @@ echo "PASS [16/17] check_needs_an_openwrt_mcp_that_redacts (openwrt-mcp>=0.5.0.5
 for f in /usr/libexec/hermes-net /usr/libexec/hermes-net-reapply; do
 	[ -x "$f" ] || fail "[17/17] check_network_limits_leave_with_the_package" "$f is not installed"
 done
-[ -f /etc/hotplug.d/iface/60-hermes-net ] || fail "[17/17] check_network_limits_leave_with_the_package" "the interface hotplug script is not installed"
+[ -f /etc/hotplug.d/iface/60-hermes-net ] && [ -f /etc/hotplug.d/dhcp/60-hermes-net ] \
+	|| fail "[17/17] check_network_limits_leave_with_the_package" "a hotplug script is not installed"
 out=$(/usr/bin/python3 -I -B /usr/libexec/hermes-net apply 2>&1) || { echo "$out"; fail "[17/17] check_network_limits_leave_with_the_package" "hermes-net apply failed"; }
 nft list table inet hermes_agent >/dev/null 2>&1 \
 	|| fail "[17/17] check_network_limits_leave_with_the_package" "measured nothing: no table to see leave"
@@ -475,8 +476,8 @@ apk del hermes-agent >/dev/null 2>&1 || fail "[17/17] check_network_limits_leave
 nft list table inet hermes_agent >/dev/null 2>&1 && fail "[17/17] check_network_limits_leave_with_the_package" "the table outlived the package"
 uci -q get firewall.hermes_net >/dev/null && fail "[17/17] check_network_limits_leave_with_the_package" "the firewall's include outlived the package"
 [ ! -e /var/run/hermes-agent/net.nft ] || fail "[17/17] check_network_limits_leave_with_the_package" "the rules file outlived the package"
-[ ! -e /usr/libexec/hermes-net ] && [ ! -e /etc/hotplug.d/iface/60-hermes-net ] \
-	|| fail "[17/17] check_network_limits_leave_with_the_package" "the program or its hotplug script was left behind"
+[ ! -e /usr/libexec/hermes-net ] && [ ! -e /etc/hotplug.d/iface/60-hermes-net ] && [ ! -e /etc/hotplug.d/dhcp/60-hermes-net ] \
+	|| fail "[17/17] check_network_limits_leave_with_the_package" "the program or a hotplug script was left behind"
 echo "PASS [17/17] check_network_limits_leave_with_the_package (table, rules and include gone with apk del)"
 CONTAINER
 

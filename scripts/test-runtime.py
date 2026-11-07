@@ -2410,9 +2410,8 @@ procd_close_service
         cli = Path("/usr/bin/hermes")
         original = cli.read_bytes()
         self.addCleanup(cli.write_bytes, original)
-        marker = self.home / "ruleset"
-        # What the gateway finds when it starts: the table already in force.
-        cli.write_text(f"#!/bin/sh\nnft list table inet hermes_agent > {marker} 2>&1\n"
+        marker = self.home / "started"
+        cli.write_text(f"#!/bin/sh\necho started > {marker}\n"
                        "exec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
         self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
         key = self.home / "key"
@@ -2432,7 +2431,8 @@ procd_close_service
                 marker.unlink(missing_ok=True)
                 result = wrapper(extra, drop)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(f"meta skuid {uid} jump agent", marker.read_text())
+                self.assertTrue(marker.exists(), "measured nothing: the gateway did not start")
+                self.assertIn(f"meta skuid {uid} jump agent", self.network_table().stdout)
                 self.assertNotIn("HERMES_OPENWRT_NETWORK", gateway_json(result.stdout))
         # open, and the root profile, run the gateway with nothing put in.
         for case, extra in (("open", {"HERMES_OPENWRT_NETWORK": "open"}),

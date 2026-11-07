@@ -180,6 +180,12 @@ Feature: The agent reaches the internet and its model, and not the router or the
     Then the hotplug script applies the rules again without being waited for
     # -> check_interface_event_reapplies_the_rules
 
+  Scenario: a name in the settings starts working when its lease comes
+    Given a model on the LAN named by a name that answers nothing yet, as after a reboot of the router
+    When that computer takes its lease
+    Then the hotplug script applies the rules again, and the agent reaches that port of that host
+    # -> check_a_lease_gives_a_name_in_uci_its_address
+
   Scenario: a start that changes nothing writes nothing
     Given the limits in force and the include section written
     When the limits are applied again

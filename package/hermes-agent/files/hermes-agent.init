@@ -286,6 +286,9 @@ mcp_policy_batch() {
 		printf 'set openwrt-mcp.%sapproval=approval\nset openwrt-mcp.%sapproval.client=%s\nset openwrt-mcp.%sapproval.approver=%s-owner\n' "$prefix" "$prefix" "$client" "$prefix" "$client"
 		printf 'set openwrt-mcp.%sapproval.factor=%s\nset openwrt-mcp.%sapproval.ttl=%s\nset openwrt-mcp.%sapproval.approvals=%s\n' \
 			"$prefix" "$MCP_APPROVAL_FACTOR" "$prefix" "$MCP_APPROVAL_TTL" "$prefix" "$approvals"
+		set -f
+		for scope in $MCP_HOLD_UCI; do printf "add_list openwrt-mcp.%sapproval.hold='uci_apply:%s'\n" "$prefix" "$scope"; done
+		set +f
 	fi
 	if [ "$may_packages" = yes ] && [ "$factor" != none ]; then
 		printf 'set openwrt-mcp.%spackages=policy\nset openwrt-mcp.%spackages.client=%s\nadd_list openwrt-mcp.%spackages.tools=apk_add\n' "$prefix" "$prefix" "$client" "$prefix"

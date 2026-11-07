@@ -33,6 +33,7 @@ FILES = Path(os.environ.get("PRODUCT_FILES", str(ROOT / "package/hermes-agent/fi
 NET = "/usr/libexec/hermes-net"
 REAPPLY = "/usr/libexec/hermes-net-reapply"
 HOTPLUG = "/etc/hotplug.d/iface/60-hermes-net"
+HOTPLUG_DHCP = "/etc/hotplug.d/dhcp/60-hermes-net"
 RUN_DIR = "/var/run/hermes-agent"
 RULES = RUN_DIR + "/net.nft"
 TABLE = "inet hermes_agent"
@@ -240,7 +241,7 @@ def account():
 
 def install_product():
     for source, target, mode in (("hermes-net.py", NET, 0o755), ("hermes-net-reapply", REAPPLY, 0o755),
-                                 ("hermes-net.hotplug", HOTPLUG, 0o644)):
+                                 ("hermes-net.hotplug", HOTPLUG, 0o644), ("hermes-net.hotplug", HOTPLUG_DHCP, 0o644)):
         path = FILES / source
         if path.exists():
             Path(target).parent.mkdir(parents=True, exist_ok=True)
@@ -762,6 +763,22 @@ class NetworkTests(unittest.TestCase):
         sh(f"ACTION=ifup INTERFACE=lan sh {shlex.quote(HOTPLUG)}")
         time.sleep(1)
         self.assertNotEqual(loaded().returncode, 0)
+
+    def test_a_lease_gives_a_name_in_uci_its_address(self):
+        # After a reboot of the router the name of a model on the LAN answers nothing until that
+        # computer renews its lease, by which time the service has long started. @measured on a vlab
+        # node, 2026-11-07. The lease is the event that makes the name work.
+        self.uci("set hermes.main.base_url=http://ollama.lan:11434/v1")
+        self.assertIn("does not resolve", apply("apply").stderr)
+        self.assertClosed("192.168.1.50", 11434)
+        Path("/etc/hosts").write_text(Path("/tmp/pristine/hosts").read_text() + "192.168.1.50 ollama.lan\n")
+        sh(f"ACTION=add MACADDR=02:00:00:00:00:50 IPADDR=192.168.1.50 HOSTNAME=ollama sh {shlex.quote(HOTPLUG_DHCP)}")
+        for _ in range(100):
+            if "192.168.1.50" in loaded().stdout:
+                break
+            time.sleep(0.1)
+        self.assertOpen("192.168.1.50", 11434)
+        self.assertClosed("192.168.1.50", 8080)
 
     def test_a_start_that_changes_nothing_writes_nothing(self):
         apply("apply")
