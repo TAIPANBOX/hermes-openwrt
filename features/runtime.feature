@@ -312,6 +312,7 @@ Feature: What is set on the router is what the gateway runs with
     When the init sets up the agent's way to the router
     Then hermes-<agent>-owner is paired into a root-only token file of its own, and openwrt-mcp's approval section names it as the approver, with the PIN and a code
     And both change policies name that section, a reboot is granted only to wait for approval and only when someone can approve, and openwrt-mcp's own parser loads it all
+    And what keeps the agent's network limits, the firewall's include by its name or by a selector, waits for that approval
     And a start that changes nothing writes nothing and keeps both tokens
     # -> check_owner_client_is_paired_and_the_policies_name_its_approval
 
@@ -755,3 +756,25 @@ Feature: What is set on the router is what the gateway runs with
     Then it does not start, the log says which and how to put it right, and the gateway is not touched
     And with the option off the service starts on the endpoint the owner set, the gateway untouched
     # -> check_llm_gateway_missing_or_off_refuses_the_start
+
+  Scenario: the agent's network limits go in with the start, and one option takes them out
+    Given the service in a profile that runs as hermes, with nothing set
+    When it starts
+    Then the limits are in force before the gateway is, and the owner was asked nothing
+    And hermes.security.agent_network=open takes them away and says so, the root profile runs outside them and says so, and any other value refuses the start
+    And a start that cannot have them does not happen, and says which option would let it
+    # -> check_limits_go_in_with_the_start_and_the_option_is_read
+
+  Scenario: every respawn gets the limits before the gateway
+    Given procd respawning the wrapper with the option as the init set it, or with it lost
+    When the wrapper runs
+    Then the gateway finds the table in force, and a respawn that cannot have it never reaches the gateway
+    And with the option open, or in the root profile, nothing is put in
+    # -> check_wrapper_applies_the_limits_before_every_exec
+
+  Scenario: the agent is told what its connections reach
+    Given the owner profile with the limits on
+    When the bridge writes the agent's note
+    Then it says what stays closed, what a refused connection looks like and that ping still answers, for a chat and for a scheduled job
+    And with the limits off it says nothing of them, and a value the start never passes is refused
+    # -> check_owner_note_says_the_network_is_limited

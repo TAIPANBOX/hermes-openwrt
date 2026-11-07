@@ -18,7 +18,7 @@ LINE=${LINE:-25.12}
 W="$ROOT/build/$LINE/$ARCH"
 ALPINE=${ALPINE:-alpine@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000}
 SITE="$W/tree/usr/lib/hermes-agent/site-packages"
-DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail"
+DEPS_OK="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail firewall4"
 
 [ -d "$W/tree" ] || {
 	echo "teeth: no build tree at $W/tree; build the package first:"
@@ -54,7 +54,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 # a backup is taken by the fault that changes its file; one left by an earlier run that
 # stopped half way would otherwise be restored over a fresh build's file
-rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak /tmp/env.bak /tmp/boot.bak /tmp/jail.bak
+rm -f /tmp/shim.bak /tmp/postinstall.bak /tmp/postupgrade.bak /tmp/wrap.bak /tmp/init.bak /tmp/env.bak /tmp/boot.bak /tmp/jail.bak /tmp/predeinstall.bak
 
 repack() {
 	docker run --rm -i -v "$W:/work" -v "$ROOT/scripts/mkpkg-root.sh:/mkpkg-root:ro" -e OWN="$(id -u):$(id -g)" -w /work "$ALPINE" sh /mkpkg-root \
@@ -94,7 +94,7 @@ cp /tmp/shim.bak "$SITE/webbrowser.py"
 # ---- fault 2: an undeclared runtime dependency ----
 # apk would not complain: the package installs fine without ffmpeg declared, and the
 # gap only shows the first time someone sends a voice message.
-repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail"
+repack "python3 python3-pip ca-bundle ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail firewall4"
 expect_red "ffmpeg undeclared" check_deps_resolve
 
 # ---- fault 3: a post-install that does not enable the service ----
@@ -186,7 +186,7 @@ cp /tmp/postinstall.bak "$W/post-install"; chmod 0755 "$W/post-install"
 # ---- fault 9: the package without iputils-ping ----
 # The shape r3 to r8 shipped in: the agent runs as `hermes`, BusyBox's ping needs root, and every
 # ping the agent ran answered "permission denied". Everything else installs and starts.
-repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 procd-ujail"
+repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 procd-ujail firewall4"
 expect_red "iputils-ping undeclared" check_agent_can_ping
 
 # ---- fault 10: hermes from a shell allowed to pip-install ----
@@ -216,7 +216,7 @@ cp /tmp/boot.bak "$BOOT"
 # The shape every release up to r10 had. With r11's init that is a router where an upgrade of
 # hermes-agent leaves an openwrt-mcp from before 0.5.0.3 (0.5.0.4 since r13, 0.5.0.5 since r16) in place; the init would then keep the
 # narrow reads, and a guest Wi-Fi would stay out of reach with nothing in apk to say why.
-repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping procd-ujail"
+repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping procd-ujail firewall4"
 expect_red "openwrt-mcp with no version floor" check_needs_an_openwrt_mcp_that_redacts
 
 # ---- fault 13: the sandbox's first process left dumpable ----
@@ -234,10 +234,20 @@ repack "$DEPS_OK"
 expect_red "the sandbox's first process left dumpable" check_gateway_keys_hidden_from_its_user
 cp /tmp/jail.bak "$JAILF"
 
+# ---- fault 14: the limits left behind by a removal ----
+# Until r21 the pre-deinstall had nothing to remove. A package that goes and leaves the table limits a
+# user nobody runs, and leaves a firewall include pointing at a script that is gone.
+cp "$W/pre-deinstall" /tmp/predeinstall.bak
+sed -i.tmp '/hermes-net remove/d' "$W/pre-deinstall" && rm -f "$W/pre-deinstall.tmp"
+grep -q 'hermes-net' "$W/pre-deinstall" && { echo "teeth: fault 14 planted nothing; the pre-deinstall still names hermes-net" >&2; exit 1; }
+repack "$DEPS_OK"
+expect_red "the table left behind by a removal" check_network_limits_leave_with_the_package
+cp /tmp/predeinstall.bak "$W/pre-deinstall"
+
 # ---- and green again, so the reds above were the faults and not the harness ----
 repack "$DEPS_OK"
 APK="$W/mutant.apk" ARCH="$ARCH" "$ROOT/scripts/gate-package.sh" >/tmp/teeth.out 2>&1 || {
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth.out; exit 1; }
 rm -f "$W/mutant.apk"
-echo "teeth: 13 faults, 12 distinct checks, green restored"
+echo "teeth: 14 faults, 13 distinct checks, green restored"

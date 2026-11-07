@@ -198,7 +198,12 @@ esac
 # in the house (hermes.main.llm_gateway, off unless set): the init pairs a client named hermes with it,
 # keeps that client's key in a root-only file and points the agent at the gateway's loopback port, and
 # leaves base_url and key_file as the owner set them. CLAUDE.md, invariant 27.
-PKGREL=${PKGREL:-20}
+# 0.21.5-r21: the agent's own connections are limited, with no step for the owner: the internet, DNS,
+# openwrt-mcp, llm-gateway and the endpoints UCI names, and not SSH, LuCI or other services of the
+# router, other hosts of the house or the tailnet. A table of its own that hermes-net writes from UCI
+# and loads with nft before anything of the agent starts; hermes.security.agent_network=open turns it
+# off and `list lan_allow` adds a host. CLAUDE.md, invariant 28.
+PKGREL=${PKGREL:-21}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
@@ -222,7 +227,9 @@ PKGREL=${PKGREL:-20}
 # iputils-ping is what lets the agent, running as `hermes`, ping at all (r9, above). procd-ujail is
 # the sandbox the gateway runs in (r15, above); it is in OpenWrt's stock images, and named so an
 # image without it gets it rather than an agent that will not start.
-DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail"
+# firewall4 brings nft and the kernel's fib match, which the agent's network limits are made of (r21);
+# it is in OpenWrt's stock images, and named for the same reason.
+DEPENDS="python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp>=0.5.0.5 iputils-ping procd-ujail firewall4"
 
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)
@@ -331,6 +338,9 @@ cat > "$WORK/pre-deinstall" <<'PRE'
 #!/bin/sh
 /etc/init.d/hermes-agent stop
 /etc/init.d/hermes-agent disable
+# The agent's network limits leave with it: the table, the file and the firewall's include, whose
+# script is about to go. What is left on the router is the firewall as it was.
+/usr/bin/python3 -I -B /usr/libexec/hermes-net remove || nft delete table inet hermes_agent 2>/dev/null
 # The hermes user and group stay, like the data directory and the keys: files that user owns
 # are left on disk, and a later user handed the same id would own the agent's sessions. A
 # reinstall finds the account and keeps its id. Remove it by hand with the data directory.

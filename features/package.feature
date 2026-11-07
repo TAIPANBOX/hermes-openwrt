@@ -124,3 +124,9 @@ Feature: The package installs, runs, keeps its keys out of sight, and leaves cle
       official feeds only
     And the openwrt-mcp installed beside it reports all three
     # -> check_needs_an_openwrt_mcp_that_redacts
+
+  Scenario: the agent's network limits leave with the package
+    Given the limits in force, with their table and the firewall's include
+    When the package is removed
+    Then the table, the rules file, the include, the program and its hotplug script are gone
+    # -> check_network_limits_leave_with_the_package

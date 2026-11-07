@@ -47,8 +47,12 @@ class RuntimeTests(unittest.TestCase):
         # profile), as the init leaves it: the wrapper runs its helpers and the gateway
         # as that user, so a directory root made would be one it cannot write in.
         shutil.chown(self.home, "hermes", "hermes")
-        self.env = dict(os.environ, HERMES_HOME=str(self.home),
+        # The agent's network limits are for the tests that name them (and scripts/gate-network.sh):
+        # the stand-ins here run on a loopback port no UCI names, and a table an earlier start left
+        # would refuse the agent's user there.
+        self.env = dict(os.environ, HERMES_HOME=str(self.home), HERMES_OPENWRT_NETWORK="open",
                         HERMES_DISABLE_LAZY_INSTALLS="1", PYTHONDONTWRITEBYTECODE="1")
+        subprocess.run(["nft", "delete", "table", "inet", "hermes_agent"], capture_output=True, check=False)
 
     def configure(self, tools="memory", mcp=None, endpoint=None, model="runtime-model", profile=None):
         if profile is not None and endpoint is None:
@@ -1434,6 +1438,9 @@ procd_close_service
                 self.assertEqual(got["openwrt-mcp.hermes_unit_approval.approver"], "'hermes-unit-owner'")
                 self.assertEqual(got["openwrt-mcp.hermes_unit_approval.factor"], "'pin+totp'")
                 self.assertEqual(got["openwrt-mcp.hermes_unit_approval.approvals"], "'%s'" % approvals)
+                # What keeps the agent's network limits waits for the owner, by name and by selector.
+                self.assertEqual(got["openwrt-mcp.hermes_unit_approval.hold"],
+                                 "'uci_apply:firewall.hermes_*' 'uci_apply:firewall.@include*'")
                 for sect in ("change", "change_ubus"):
                     self.assertEqual(got[f"openwrt-mcp.hermes_unit_{sect}.approval"], "'hermes_unit_approval'")
                 if approvals == "on":
@@ -2352,6 +2359,129 @@ procd_close_service
         self.addCleanup(subprocess.run, ["sh", "-c", "uci -q delete hermes.security; uci commit hermes"])
         env = dict(os.environ, PATH=path + ":" + os.environ["PATH"]) if path else None
         return subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True, env=env)
+
+    def network_table(self):
+        return subprocess.run(["nft", "list", "table", "inet", "hermes_agent"], capture_output=True, text=True, check=False)
+
+    def test_limits_go_in_with_the_start_and_the_option_is_read(self):
+        self.addCleanup(subprocess.run, ["python3", "-I", "-B", "/usr/libexec/hermes-net", "remove"], capture_output=True, check=False)
+        uid = pwd.getpwnam("hermes").pw_uid
+        match = f"meta skuid {uid} jump agent"
+
+        def env_of(result):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)["instances"]["instance1"]["env"]
+        # Unset is limited, for both profiles that run as hermes, with nothing asked of the owner.
+        for setup in ("", "uci set hermes.main.profile=assistant"):
+            with self.subTest(setup=setup):
+                subprocess.run(["nft", "delete", "table", "inet", "hermes_agent"], capture_output=True, check=False)
+                self.assertEqual(env_of(self._start(setup))["HERMES_OPENWRT_NETWORK"], "limited")
+                self.assertIn(match, self.network_table().stdout)
+        # open takes them away, and says so at every start.
+        opened = self._start("uci set hermes.security=security\nuci set hermes.security.agent_network=open")
+        self.assertEqual(env_of(opened)["HERMES_OPENWRT_NETWORK"], "open")
+        self.assertNotEqual(self.network_table().returncode, 0)
+        self.assertIn("agent_network is open", opened.stderr)
+        # The root profile is outside them by definition, and the start says that too.
+        self.assertEqual(self._start("").returncode, 0)
+        self.assertEqual(self.network_table().returncode, 0)
+        root = self._start("uci set hermes.main.profile=root")
+        self.assertEqual(root.returncode, 0, root.stderr)
+        self.assertNotEqual(self.network_table().returncode, 0)
+        self.assertIn("runs outside the agent's network limits", root.stderr)
+        for value in ("closed", "Limited", "on"):
+            with self.subTest(value=value):
+                refused = self._start(f"uci set hermes.security=security\nuci set hermes.security.agent_network={value}")
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("hermes.security.agent_network", refused.stderr)
+        # A start that cannot have them does not happen, and says what would let it.
+        with tempfile.TemporaryDirectory() as tmp:
+            stand_in = Path(tmp) / "nft"
+            stand_in.write_text("#!/bin/sh\nexit 1\n")
+            stand_in.chmod(0o755)
+            refused = self._start("", path=tmp)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("could not be applied", refused.stderr)
+        self.assertIn("agent_network=open", refused.stderr)
+        self.assertNotIn("instance1", refused.stdout)
+
+    def test_wrapper_applies_the_limits_before_every_exec(self):
+        self.addCleanup(subprocess.run, ["python3", "-I", "-B", "/usr/libexec/hermes-net", "remove"], capture_output=True, check=False)
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        marker = self.home / "ruleset"
+        # What the gateway finds when it starts: the table already in force.
+        cli.write_text(f"#!/bin/sh\nnft list table inet hermes_agent > {marker} 2>&1\n"
+                       "exec python3 -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        self.assertEqual(self.configure(endpoint="http://127.0.0.1:9/v1").returncode, 0)
+        key = self.home / "key"
+        key.write_text("provider-runtime-canary")
+        env = dict(self.env, OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
+                   HERMES_MEM_MAX_MB="0", HERMES_OPENWRT_TOOLSETS="memory")
+
+        def wrapper(extra=None, drop=()):
+            run_env = {k: v for k, v in dict(env, **(extra or {})).items() if k not in drop}
+            return subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)], env=run_env, check=False,
+                                  capture_output=True, text=True)
+        uid = pwd.getpwnam("hermes").pw_uid
+        # A respawn with the option as the init set it, and one that lost the variable: both limited.
+        for case, extra, drop in (("limited", {"HERMES_OPENWRT_NETWORK": "limited"}, ()), ("unset", None, ("HERMES_OPENWRT_NETWORK",))):
+            with self.subTest(case=case):
+                subprocess.run(["nft", "delete", "table", "inet", "hermes_agent"], capture_output=True, check=False)
+                marker.unlink(missing_ok=True)
+                result = wrapper(extra, drop)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"meta skuid {uid} jump agent", marker.read_text())
+                self.assertNotIn("HERMES_OPENWRT_NETWORK", gateway_json(result.stdout))
+        # open, and the root profile, run the gateway with nothing put in.
+        for case, extra in (("open", {"HERMES_OPENWRT_NETWORK": "open"}),
+                            ("root", {"HERMES_OPENWRT_NETWORK": "limited", "HERMES_OPENWRT_PROFILE": "root"})):
+            with self.subTest(case=case):
+                subprocess.run(["nft", "delete", "table", "inet", "hermes_agent"], capture_output=True, check=False)
+                result = wrapper(extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotEqual(self.network_table().returncode, 0)
+        # A respawn that cannot have them does not reach the gateway.
+        marker.unlink(missing_ok=True)
+        subprocess.run(["nft", "delete", "table", "inet", "hermes_agent"], capture_output=True, check=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            stand_in = Path(tmp) / "nft"
+            stand_in.write_text("#!/bin/sh\nexit 1\n")
+            stand_in.chmod(0o755)
+            result = wrapper({"HERMES_OPENWRT_NETWORK": "limited", "PATH": tmp + ":" + os.environ["PATH"]})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not be applied", result.stderr)
+        self.assertFalse(marker.exists(), "the gateway started without the limits")
+
+    def test_owner_note_says_the_network_is_limited(self):
+        url = "http://127.0.0.1:8730/mcp"
+
+        def note(network, profile="owner"):
+            (self.home / "config.yaml").unlink(missing_ok=True)
+            env = {k: v for k, v in self.env.items() if k != "HERMES_OPENWRT_NETWORK"}
+            env["HERMES_OPENWRT_FACTOR"] = "pin"
+            if network is not None:
+                env["HERMES_OPENWRT_NETWORK"] = network
+            args = ["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", url,
+                    "http://127.0.0.1:9/v1", "runtime-model", profile]
+            result = subprocess.run(args, env=env, check=False, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            config = self.config()
+            return (config.get("agent") or {}).get("system_prompt", ""), ((config.get("platform_hints") or {}).get("cron") or {}).get("append", "")
+        said = ("No route to host", "closed to them on purpose", "ping still answers")
+        for where in note("limited"):
+            for sentence in said:
+                self.assertIn(sentence, where)
+        for network in ("open", None):
+            for where in note(network):
+                self.assertTrue(where)
+                self.assertNotIn(said[0], where)
+        bad = subprocess.run(["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", url,
+                              "http://127.0.0.1:9/v1", "runtime-model", "owner"],
+                             env=dict(self.env, HERMES_OPENWRT_FACTOR="pin", HERMES_OPENWRT_NETWORK="maybe"),
+                             check=False, capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
 
     def test_security_options_refuse_bad_values(self):
         good = self._start("uci set hermes.security=security\nuci set hermes.security.factor=pin+totp\n"

@@ -37,6 +37,9 @@ legs_for() {
 			echo "" ;;
 		scripts/gate-scenarios-bound.sh|scripts/gate-named-routers.sh|scripts/teeth-named-routers.sh|scripts/gate-figures.sh|scripts/teeth-figures.sh|scripts/figures.py|scripts/docs_links.py|scripts/gate-upstream-watch.sh|scripts/teeth-upstream-watch.sh|scripts/upstream-watch.sh|scripts/test-apk-retry.sh|scripts/test-ci-subjects.sh|scripts/test-hw-flow.sh)
 			echo "" ;;
+		# the agent's network limits, whose gate needs no built package and runs in the scenarios job
+		scripts/gate-network.sh|scripts/test-network.py|scripts/teeth-network.py)
+			echo "" ;;
 		# the LuCI app: its gate and teeth, and the unlock gate, whose Security checks call its backend
 		package/luci-app-hermes/*|scripts/gate-luci.sh|scripts/teeth-luci.sh|scripts/test-luci-views.mjs)
 			echo "core $LUCI_TEETH $UNLOCK" ;;

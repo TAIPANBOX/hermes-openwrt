@@ -11,6 +11,7 @@ dump` from a file a test writes; fw4 itself talks to the real ubusd the gate sta
 
 `test-network.py --listen tcp,ports udp,ports` is the listener, in whatever namespace it is started.
 """
+import ast
 import errno
 import json
 import os
@@ -344,7 +345,9 @@ class NetworkTests(unittest.TestCase):
         # A link-local address, which only the interface says how to reach.
         local = sh("ip netns exec lan ip -6 -o addr show dev eth0 scope link").stdout.split()[3].split("/")[0]
         bridge = socket.if_nametoindex("br-lan")
-        self.assertEqual(probe(local, 22, scope=bridge), "blocked")
+        # Refused all the same, and the answer to a link-local source does not get back to the socket,
+        # so here the connection waits and the host sees nothing.
+        self.assertIn(probe(local, 22, scope=bridge), ("blocked", "timeout"))
         self.assertEqual(probe(local, 22, user="root", scope=bridge), "open")
 
     def test_zones_decide_what_counts_as_the_house(self):
@@ -384,7 +387,9 @@ class NetworkTests(unittest.TestCase):
             for port in (443, 80):
                 with self.subTest(address=address, port=port):
                     self.assertOpen(address, port)
-            self.assertOpen(address, 8080, "udp")
+        # The two on the cable itself: the listener answers a datagram from its interface's address.
+        self.assertOpen("203.0.113.10", 8080, "udp")
+        self.assertOpen("2001:db8:f::10", 8080, "udp")
         self.assertTrue(Path(RULES).exists(), "measured nothing: no rules were written")
 
     def test_lan_endpoint_from_uci_works_without_a_step(self):
@@ -423,15 +428,16 @@ class NetworkTests(unittest.TestCase):
         apply("apply")
         self.assertOpen("127.0.0.1", 9100)
         self.assertClosed("127.0.0.1", 8761)
-        # The port the settings name for openwrt-mcp, and none when they name no connection.
+        # The port the settings name for openwrt-mcp, and its default when they name none, as the init
+        # has it (uci keeps no option with an empty value, so there is no way to name none).
         self.uci("set hermes.main.router_mcp_url=http://127.0.0.1:7432/mcp")
         apply("apply")
         self.assertOpen("127.0.0.1", 7432)
         self.assertClosed("127.0.0.1", 8730)
-        self.uci("set hermes.main.router_mcp_url=")
+        self.uci("delete hermes.main.router_mcp_url")
         apply("apply")
         self.assertClosed("127.0.0.1", 7432)
-        self.assertClosed("127.0.0.1", 8730)
+        self.assertOpen("127.0.0.1", 8730)
         # A loopback model the settings name, which is how a tunnel to one looks.
         self.uci("set hermes.main.base_url=http://localhost:11434/v1")
         apply("apply")
@@ -457,10 +463,14 @@ class NetworkTests(unittest.TestCase):
         apply("apply")
         self.assertClosed("192.168.1.50", 8080)
         self.assertNotIn("192.168.1.50", Path(RULES).read_text())
-        # The program opens neither file: its text names no such path.
-        source = Path(NET).read_text()
-        for word in ("config.yaml", "HERMES_HOME", ".env"):
-            self.assertNotIn(word, source)
+        # And by what the program is made of, comments aside: it names no such file and no data
+        # directory, and reads no other configuration than the router's own.
+        tree = ast.parse(Path(NET).read_text())
+        words = " ".join(node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                         and node is not tree.body[0].value)
+        self.assertGreater(len(words), 100, "measured nothing: the program holds no strings")
+        for word in ("config.yaml", ".env", "HERMES_HOME", "data_dir", "environ"):
+            self.assertNotIn(word, words)
 
     def test_open_turns_the_limits_off(self):
         apply("apply")
@@ -536,31 +546,31 @@ class NetworkTests(unittest.TestCase):
         self.agent_is_still_limited()
 
     def test_bad_rules_leave_the_firewall_alone(self):
+        self.uci("set hermes.main.base_url=http://192.168.1.50:11434/v1")
         apply("apply")
         good = Path(RULES).read_text()
         before = fw4_rules()
         source = Path(NET).read_text()
+        self.assertIn("def render(plan):\n", source, "measured nothing: the fault has no place to go")
         self.addCleanup(install_product)
-        # A defect in the full rules: the set of the house's devices gets a line nft refuses.
-        self.assertIn("\t\ttype ifname\n", source, "measured nothing: the planted line has no place")
-        Path(NET).write_text(source.replace("\t\ttype ifname\n", "\t\ttype ifname\n\t\tthis is no nft\n")
-                             .replace("def render(plan):", "def render(plan, _real=None):", 1))
-        self.uci("set hermes.main.base_url=http://192.168.1.50:11434/v1")
-        # Planted so that only the full plan is broken: the minimal one drops the allow rule's host.
-        Path(NET).write_text(source.replace("elements = {{ {members} }}", "elements = {{ {members} }}\\n\\t\\tbroken here"))
+        # Rules nft refuses, whatever the plan: the check stops them, nothing is loaded, and the
+        # command says so, which is what stops the start.
+        Path(NET).write_text(source.replace("def render(plan):\n",
+                                            "def render(plan):\n    return 'table inet hermes_agent { this is no nft }\\n'\n"))
         result = apply("apply", check=False)
         self.assertNotEqual(result.returncode, 0, "rules nft refuses reported as applied")
-        self.assertIn("not", result.stderr)
+        self.assertIn("nft refused the rules", result.stderr)
         self.assertEqual(fw4_rules(), before, "fw4's own table changed")
         self.assertEqual(Path(RULES).read_text(), good, "a refused file took the place of the rules in force")
-        # The full plan refused and the minimal one not: the fallback goes in, without the LAN host.
-        install_product()
-        Path(NET).write_text(source.replace("def render(plan):\n", "def render(plan):\n"
-                                            "    if plan[\"allow\"]:\n        return 'table inet hermes_agent { this is no nft }'\n"))
+        self.assertClosed("127.0.0.1", 22)
+        # The full rules refused and the minimal ones not: the minimal ones go in, without the host
+        # of the LAN and without anything that was ever fw4's.
+        Path(NET).write_text(source.replace("def render(plan):\n", "def render(plan):\n    if plan['allow']:\n"
+                                            "        return 'table inet hermes_agent { this is no nft }\\n'\n"))
         result = apply("apply", check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("minimal rules", result.stderr)
         self.assertEqual(loaded().returncode, 0)
-        self.assertIn("minimal", result.stderr)
         self.assertClosed("192.168.1.50", 11434)
         self.assertClosed("127.0.0.1", 22)
         self.assertOpen("127.0.0.1", 8730)
@@ -575,8 +585,8 @@ class NetworkTests(unittest.TestCase):
                          ["table inet fw4", "table inet hermes_agent"])
         text = Path(RULES).read_text()
         self.assertNotIn("fw4", text)
-        tables = set(re.findall(r"^\s*(?:add |delete |flush )?(?:table|chain|rule) (\S+ \S+)", text, re.M))
-        self.assertEqual(tables, {TABLE})
+        self.assertEqual(set(re.findall(r"^(?:delete )?table (\S+ \S+)", text, re.M)), {TABLE})
+        self.assertNotRegex(text, r"(?m)^\s*(add|insert) ")
 
     def test_packets_with_no_socket_still_leave(self):
         apply("apply")
@@ -713,11 +723,16 @@ class NetworkTests(unittest.TestCase):
         for marker in ("policy drop", "chain z", "99999", "a b;c", ";drop"):
             self.assertNotIn(marker, rules)
         self.assertEqual(loaded().returncode, 0)
-        self.assertIn("evil", "".join(line for line in result.stderr.splitlines() if "not a device name" in line) or "evil")
+        self.assertIn("not a device name", result.stderr)
+        self.assertIn("is not host:port", result.stderr)
         self.assertEqual(set(chains(rules)), set(chains(clean)), "the rules grew a chain")
 
     def test_a_name_that_does_not_resolve_is_named_and_left_out(self):
         self.uci("set hermes.main.base_url=http://no-such-host.invalid:8080/v1")
+        # A resolver nobody answers at, as at a boot with the WAN down: left alone, the question would
+        # take twenty seconds of every start.
+        for path in ("/etc/resolv.conf", "/tmp/resolv.conf"):
+            Path(path).write_text("nameserver 198.51.100.77\noptions timeout:20 attempts:1\n")
         started = time.monotonic()
         result = apply("apply")
         self.assertLess(time.monotonic() - started, 10, "a name nobody answers for held the start up")
@@ -732,13 +747,15 @@ class NetworkTests(unittest.TestCase):
         dump = json.loads(json.dumps(DUMP))
         dump["interface"].append({"interface": "guest", "up": True, "device": "br-guest", "l3_device": "br-guest", "route": []})
         UBUS_DUMP.write_text(json.dumps(dump))
-        for action, seen in (("ifdown-ignored", False), ("ifup", True)):
-            sh(f"ACTION={action.split('-', maxsplit=1)[0] if action == 'ifup' else 'iflink'} INTERFACE=guest sh {shlex.quote(HOTPLUG)}")
-            for _ in range(50):
-                if ('"br-guest"' in Path(RULES).read_text()) == seen and seen:
-                    break
-                time.sleep(0.1)
-            self.assertEqual('"br-guest"' in Path(RULES).read_text(), seen, action)
+        # An event that changes nothing about addresses is left alone.
+        sh(f"ACTION=iflink INTERFACE=guest sh {shlex.quote(HOTPLUG)}")
+        time.sleep(1)
+        self.assertNotIn('"br-guest"', Path(RULES).read_text())
+        sh(f"ACTION=ifup INTERFACE=guest sh {shlex.quote(HOTPLUG)}")
+        for _ in range(100):
+            if '"br-guest"' in loaded().stdout:
+                break
+            time.sleep(0.1)
         self.assertIn('"br-guest"', loaded().stdout)
         # With no rules written the event does nothing: the limits are the service's to start.
         apply("off")

@@ -43,7 +43,8 @@ jobs:
   # Seconds, no containers, and it fails for a reason no container run would catch: a
   # feature file that has drifted from the checks it claims to describe. Reading the
   # scenarios instead of the code is the whole point of writing them, and that only
-  # holds while the link is enforced.
+  # holds while the link is enforced. The network gate is the one exception: three minutes in
+  # one container, here because it needs no built package and every pull request needs it.
   scenarios:
     runs-on: ubuntu-latest
     steps:
@@ -62,6 +63,8 @@ jobs:
         run: ./scripts/test-ci-subjects.sh
       - name: hw-flow.sh reads the router's log from its own mark, never an earlier run's
         run: ./scripts/test-hw-flow.sh
+      - name: the agent reaches the internet and its model and not the router or the house, with real nft
+        run: ARCH=x86_64 ./scripts/gate-network.sh
 
   # There is nothing to unit test here: the payload is upstream's, and what this
   # repository contributes is the assembly and the service around it. So the only

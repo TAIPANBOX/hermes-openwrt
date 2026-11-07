@@ -1,0 +1,8 @@
+# An interface that came up may be a new device of the house, an address a new route, and a name in
+# UCI a new answer, so the agent's network limits are worked out again. Only once the service has
+# written them: before that, or with the limits off, they are not this script's to start. In the
+# background, because hotplug runs one script after another; hermes-net ends itself after 40 s,
+# since OpenWrt ships no `timeout` to do it from here.
+case "$ACTION" in ifup|ifupdate) ;; *) exit 0 ;; esac
+[ -e /var/run/hermes-agent/net.nft ] || exit 0
+( /usr/bin/python3 -I -B /usr/libexec/hermes-net apply 2>&1 </dev/null | logger -t hermes-net ) &
