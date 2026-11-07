@@ -551,6 +551,13 @@ Feature: The agent changes the router only when its owner unlocks it
     And with nobody chosen to approve, the same change is refused rather than held
     # -> check_high_impact_change_held_in_window
 
+  Scenario: An agent in an open window cannot lift its own network limits
+    Given the owner has unlocked changes and someone is chosen to approve
+    When the agent asks to delete or retype the firewall's include that keeps its limits, by its name or by a selector
+    Then nothing is applied, the change waits for the owner's approval of that one change, and an option of the include is refused as code
+    And an ordinary firewall change still runs in the window, and with nobody to approve the deletion is refused
+    # -> check_window_cannot_lift_the_network_limits
+
   Scenario: The owner approves a held change from the chat, and the PIN and code never reach the model
     When the agent proposes a port forward from the internet in the chat
     Then the owner gets the card from the bot with Approve and Reject

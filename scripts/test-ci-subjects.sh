@@ -22,6 +22,7 @@ case_() {  # $1 name, $2 expected JSON, rest: changed files
 run_cases() {
 	case_ "documentation only" '[]' README.md docs/security.md CLAUDE.md features/unlock.feature
 	case_ "the README's figures" '[]' docs/measurements/figures.json scripts/figures.py docs/boxes.svg
+	case_ "the network gate, which the scenarios job runs" '[]' scripts/gate-network.sh scripts/test-network.py scripts/teeth-network.py
 	case_ "the hourly watch the unlock gate runs" "[$UNLOCK]" docs/examples/router_check.sh
 	case_ "a hermes-agent file" "[\"core\",\"runtime\",\"teeth\",$USB,$UNLOCK]" package/hermes-agent/files/hermes-jail.py
 	case_ "the Telegram add-on" "[\"core\",\"runtime\",\"teeth\",$USB,$UNLOCK]" package/hermes-agent-telegram/build-in-container.sh

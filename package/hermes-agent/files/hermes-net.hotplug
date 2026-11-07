@@ -1,0 +1,10 @@
+# The rules are worked out again when what they are made from may have moved. In /etc/hotplug.d/iface:
+# an interface came up, so a new device of the house, or a resolver. In /etc/hotplug.d/dhcp: a lease,
+# which is when a name in UCI gets its address, after a reboot of the router too, where the name of a
+# model on the LAN answers nothing until that computer next renews its lease. Only once the service
+# has written the rules: before that, or with the limits off, they are not this script's to start. In
+# the background, because hotplug runs one script after another; hermes-net ends itself after 40 s,
+# since OpenWrt ships no `timeout` to do it from here.
+case "$ACTION" in ifup|ifupdate|add|update) ;; *) exit 0 ;; esac
+[ -e /var/run/hermes-agent/net.nft ] || exit 0
+( /usr/bin/python3 -I -B /usr/libexec/hermes-net apply 2>&1 </dev/null | logger -t hermes-net ) &

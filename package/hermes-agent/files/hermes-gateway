@@ -25,6 +25,12 @@ KEY_FILE=${1:?hermes-gateway: no key file given}
 . /usr/lib/hermes-agent/hermes-usb-check
 why=$(hermes_data_ok "$HERMES_HOME") || { echo "hermes-gateway: $why. Not starting." >&2; exit 1; }
 /usr/bin/python3 /usr/libexec/hermes-memory "${HERMES_MEM_MAX_MB:-512}"
+# procd respawns this wrapper, not the init: the agent's network limits are worked out again before
+# anything of the agent runs, so a respawn gets the addresses of now, and one that cannot have them
+# does not run. Unset means limited, for the same reason an unset profile above means owner.
+if [ "$run_user" != root ] && [ "${HERMES_OPENWRT_NETWORK:-limited}" != open ]; then
+	/usr/bin/python3 -I -B /usr/libexec/hermes-net apply || { echo "hermes-gateway: the agent's network limits could not be applied. Not starting." >&2; exit 1; }
+fi
 
 read_required() {
 	local path label value
@@ -117,6 +123,7 @@ fi
 export CUSTOM_BASE_URL="$OPENAI_BASE_URL"
 # HERMES_OPENWRT_PACKAGES (granted or off) comes from procd's environment, as the init read it back
 # from openwrt-mcp's policies: the bridge offers the model apk_add only when it is granted.
+# HERMES_OPENWRT_NETWORK (limited or open) comes the same way, and the bridge tells the agent.
 # Unset, same as a router upgraded from before profiles existed, means owner:
 # the init's own default applies here too, not only at its first start.
 # Both helpers run as the user the agent runs as (see the top): they read and write the
@@ -132,7 +139,7 @@ PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 # HERMES_OPENWRT_APPROVER_ID stay in the environment for it too; none is a secret.
 export HERMES_OPENWRT_UNLOCK_URL="$mcp_effective"
 [ -z "${owner:-}" ] || export OPENWRT_MCP_OWNER_TOKEN="$owner"
-unset key token owner value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_MCP_OWNER_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_PACKAGES providers_ready entry p_name p_label p_url p_key_file p_model
+unset key token owner value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_MCP_OWNER_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_PACKAGES HERMES_OPENWRT_NETWORK providers_ready entry p_name p_label p_url p_key_file p_model
 # The root profile asks for root, so the launcher must not second-guess it from who owns
 # the data directory (see /usr/bin/hermes).
 [ "$run_user" != root ] || export HERMES_OPENWRT_AS_ROOT=1

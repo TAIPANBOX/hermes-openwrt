@@ -76,6 +76,10 @@ plugins.entries.openwrt-unlock.allow_gateway_injection is set, so the plugin can
 that tells the agent the owner's answer; the other profiles take it out again, when this bridge
 was what set it (the same marker as the plugin's).
 
+@decided 2026-11-07: the agent's own connections are limited (see /usr/libexec/hermes-net). The owner
+note says so while they are on (HERMES_OPENWRT_NETWORK limited), or the agent reports a refused
+connection as a dead network.
+
 @decided 2026-09-25: more than one provider on one router. Every chat starts on the
 UCI main model; the others are offered by /model and switch that chat only.
 
@@ -172,6 +176,15 @@ OWNER_NOTE_HELD_OFF = (" Some changes need the owner's approval of that one chan
                        "guards the router, a reboot. Nobody is chosen to approve them on this router, so "
                        "they are refused: say so, and that the owner chooses who approves in LuCI "
                        "(Services -> Hermes Agent -> Security), or makes the change by hand.")
+# Only while the limits are on (HERMES_OPENWRT_NETWORK, see the docstring): since 0.21.5-r21 a refused
+# connection fails with one of these, and without this the agent reports a dead network.
+OWNER_NOTE_NETWORK = (" Your own connections reach the internet, DNS, openwrt-mcp and the model "
+                      "endpoints the router's settings name. This router's own ports (SSH, LuCI and "
+                      "the rest) and the other devices of the house, IPv4 and IPv6, are closed to "
+                      "them on purpose: connecting there fails within a second with 'No route to host', "
+                      "'Permission denied' or 'Operation not permitted', while ping still answers. That "
+                      "is not a fault: say that it is closed, and read the router through the openwrt "
+                      "tools instead.")
 OWNER_NOTE_NO_FACTOR = ("No second factor is set up on this router, so every change is refused. "
                         "When a change is refused, tell the owner that a factor has to be set up "
                         "in LuCI (Services -> Hermes Agent -> Security) first, and do not look for "
@@ -181,11 +194,14 @@ OWNER_NOTE_NO_FACTOR = ("No second factor is set up on this router, so every cha
 FACTORS = ("none", "pin", "totp", "pin+totp")
 # What the init passes as HERMES_OPENWRT_PACKAGES: whether it wrote the package policy.
 PACKAGE_GRANTS = ("off", "granted")
+# What the init passes as HERMES_OPENWRT_NETWORK: hermes.security.agent_network.
+NETWORKS = ("limited", "open")
 
 
-def _note_for(profile, factor: str, packages: bool = False, approvals=None):
+def _note_for(profile, factor: str, packages: bool = False, approvals=None, network=None):
     """The note a profile puts in agent.system_prompt, or None when it puts none. approvals is
-    "on" or "off" in the owner profile with a factor, and None where held changes do not arise."""
+    "on" or "off" in the owner profile with a factor, and None where held changes do not arise.
+    network is what the init passes as HERMES_OPENWRT_NETWORK, and None says nothing either way."""
     if profile == "assistant":
         text = ASSISTANT_NOTE
     elif profile == "owner":
@@ -196,6 +212,8 @@ def _note_for(profile, factor: str, packages: bool = False, approvals=None):
             text += OWNER_NOTE_HELD
         elif factor != "none" and approvals == "off":
             text += OWNER_NOTE_HELD_OFF
+        if network == "limited":
+            text += OWNER_NOTE_NETWORK
     else:
         return None
     opening, closing = _markers(profile)
@@ -646,8 +664,11 @@ def main() -> int:
             approvals = os.environ.get("HERMES_OPENWRT_APPROVALS")
             if approvals is not None and approvals not in APPROVALS:
                 raise ValueError("HERMES_OPENWRT_APPROVALS must be off or on")
+            network = os.environ.get("HERMES_OPENWRT_NETWORK")
+            if network is not None and network not in NETWORKS:
+                raise ValueError("HERMES_OPENWRT_NETWORK must be limited or open")
             mcp_on = len(sys.argv) >= 4 and bool(sys.argv[3])
-            note = _note_for(profile, factor, packages_on, approvals if mcp_on else None)
+            note = _note_for(profile, factor, packages_on, approvals if mcp_on else None, network)
             agent_cfg = config.get("agent")
             if agent_cfg is None and note:
                 agent_cfg = config["agent"] = {}

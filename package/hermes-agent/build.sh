@@ -147,6 +147,16 @@ chmod 0755 "$OUT/usr/libexec/hermes-drop"
 # The sandbox the gateway of the owner and assistant profiles runs in, since r15 (see the file).
 cp "$SRC/files/hermes-jail.py" "$OUT/usr/libexec/hermes-jail"
 chmod 0755 "$OUT/usr/libexec/hermes-jail"
+# What the agent's own connections reach, since r21 (see the file): the program, the script the
+# firewall's include runs, and the hotplug script that works the rules out again, for interfaces and
+# for leases. dnsmasq turns its lease script on when it finds a script there at its own start.
+cp "$SRC/files/hermes-net.py" "$OUT/usr/libexec/hermes-net"
+chmod 0755 "$OUT/usr/libexec/hermes-net"
+cp "$SRC/files/hermes-net-reapply" "$OUT/usr/libexec/hermes-net-reapply"
+chmod 0755 "$OUT/usr/libexec/hermes-net-reapply"
+mkdir -p "$OUT/etc/hotplug.d/iface" "$OUT/etc/hotplug.d/dhcp"
+cp "$SRC/files/hermes-net.hotplug" "$OUT/etc/hotplug.d/iface/60-hermes-net" && chmod 0644 "$OUT/etc/hotplug.d/iface/60-hermes-net"
+cp "$SRC/files/hermes-net.hotplug" "$OUT/etc/hotplug.d/dhcp/60-hermes-net" && chmod 0644 "$OUT/etc/hotplug.d/dhcp/60-hermes-net"
 # Which profile is which account; sourced by the init and the wrapper, so it is said once.
 cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
 cp "$SRC/files/hermes-usb-check" "$OUT/usr/lib/hermes-agent/hermes-usb-check" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-usb-check"

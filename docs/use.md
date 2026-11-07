@@ -71,6 +71,11 @@ agent's own system prompt is thousands of tokens, and a router CPU spends minute
 it before answering a word. Cortex-A53 in particular is ARMv8.0 with neither dotprod nor
 i8mm, exactly the case llama.cpp has no fast path for.
 
+**It will not open the other devices of your house.** From 0.21.5-r21 its own connections stop at
+the internet, its model and the router's tools. It can ping a device and read what the router knows
+about it, and it cannot log in to your NAS, your printer or the router's own SSH, unless you add a
+host: [docs/security.md](security.md#what-the-agents-own-connections-reach).
+
 **It will not fit a small router.** About 400 MB of flash on a new router, Python and the
 first-run helper included, rules out anything without real storage, and
 the gateway wants about 200 MB of RAM before it does any work. Below 1 GB,

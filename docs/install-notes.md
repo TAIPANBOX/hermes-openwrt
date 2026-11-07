@@ -41,7 +41,8 @@ stick.
 apk del luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp
 ```
 
-That removes the programs and the Python they brought. What stays is what the package made
+That removes the programs and the Python they brought, and the agent's network limits with them:
+the `inet hermes_agent` table and the firewall include `firewall.hermes_net`. What stays is what the package made
 at install and what changed while it ran: the data directory, the keys in
 `/etc/hermes-agent`, `/etc/config/hermes` and `/etc/config/openwrt-mcp` once either was
 changed (the owner profile rewrites the second at every start), openwrt-mcp's state in

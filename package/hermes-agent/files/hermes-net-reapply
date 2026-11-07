@@ -1,0 +1,7 @@
+#!/bin/sh
+# fw4 runs this at every start and reload of the firewall (firewall.hermes_net, an include of type
+# script), which is what brings the agent's network limits back after `service firewall stop`,
+# since that deletes every table of the router. It loads what hermes-net wrote and does nothing else.
+# fw4 holds its lock while it runs includes, so asking fw4 anything from here would sit on that
+# lock until fw4 gave up on this script. Nothing written yet, as at boot: nothing to load.
+[ ! -r /var/run/hermes-agent/net.nft ] || nft -f /var/run/hermes-agent/net.nft

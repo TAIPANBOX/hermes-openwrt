@@ -1009,6 +1009,84 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     provider.key, no key file was written, four refusals started), and the LuCI check failed on "the
     settings page has no switch for the model from llm-gateway".
 
+28. `@decided 2026-11-07`: the agent's own connections reach the internet, its model, DNS, openwrt-mcp and
+    llm-gateway, and not SSH, LuCI or ubus on any address of the router, other services of the router, other
+    hosts of the house over IPv4 or IPv6, or the tailnet. An endpoint on the LAN that UCI names works with
+    nothing added by hand, as `@decided 2026-10-05` (invariant 8) has it. No step for the owner:
+    `hermes.security.agent_network=open` turns it off, `list lan_allow 'host:port'` adds a host. The root
+    profile is outside it by definition and every start says so. `@claude` 2026-11-07, how (0.21.5-r21):
+    `/usr/libexec/hermes-net` (Python stdlib, as root) writes `/var/run/hermes-agent/net.nft`, checks it with
+    `nft -c` and loads it with its own `nft -f`: at `start_service` before anything of the agent, in the
+    wrapper before every exec, and from `/etc/hotplug.d/iface/60-hermes-net` (ifup, ifupdate) and
+    `/etc/hotplug.d/dhcp/60-hermes-net` (a lease) once the rules exist. A table of its own, `inet hermes_agent`, and never a rule of fw4's: fw4's output chain opens
+    with `oif "lo" accept`, so a rule there cannot see traffic to the router itself. One base chain at the
+    output hook, policy accept, holding one rule, `meta skuid <uid> jump agent`, with every refusal inside
+    chain `agent`: never `meta skuid != N return`, since the kernel answers the match only for a packet with a
+    full socket, and every reset and ICMP error of the router would reach the refusals. The uid is read at
+    every apply. Allow rules come from UCI only (`hermes.main.base_url`, `router_mcp_url`, `provider` sections,
+    `llm-gateway.main.loopback_port`, `lan_allow`) and `resolv.conf`, never from the agent's `config.yaml` or
+    `.env`, and a value that would otherwise be written into a rule goes through `ipaddress` or a device-name
+    pattern first. Chain `agent` refuses SSH and LuCI on every address of the router (`fib daddr type local`,
+    the ports from `ROUTER_PORTS`, `dropbear` and `uhttpd`) before it reads any allow rule, so what UCI or a
+    name that resolves to the router says cannot open them. `firewall.hermes_net`, an include of type script,
+    brings the table back after `service firewall stop`, which deletes every table: its script
+    `/usr/libexec/hermes-net-reapply` runs `nft -f` and nothing else, since fw4 holds its lock while includes
+    run. The section is written through a copy of the file under another name, so nobody's staged firewall
+    changes are committed with it. A set of the rules nft refuses leaves the rules in force as they were and
+    falls back to minimal ones with no LAN host; when those are refused too the start is refused, with one
+    line that names the option. `hermes-agent` depends on `firewall4` for nft and the fib match. The owner
+    note says what is closed. In an open window: `hermes` is out of the agent's reach already (invariant 18),
+    an option of the include is refused as code by openwrt-mcp, and the approval section holds
+    `uci_apply:firewall.hermes_*` and `uci_apply:firewall.@include*` for the owner, because openwrt-mcp lets a
+    whole section's deletion through and a rule on the name does not cover a selector. Package removal
+    deletes the table, the file and the include (`hermes-net remove` in the pre-deinstall).
+    `@claude` 2026-11-07, three things this does not follow from the design it came from, each measured: refusals
+    are `reject with icmpx admin-prohibited`, not `drop`, because a TCP connect under `drop` waits out the
+    SYN retries (still waiting after 6 s in `openwrt/rootfs:x86-64-25.12.5`; EHOSTUNREACH at once under
+    reject; UDP answers EPERM either way), and an agent waiting two minutes on a dead endpoint is not
+    diagnosable; OpenWrt 25.12.5 ships no `timeout` command, so hermes-net bounds itself; and no rule opens the
+    loopback's high ports: a real gateway in a vlab run, the agent's terminal included, was refused only what
+    it was told to try.
+    Limits named: `ping` is setuid root, so its ICMP is uid 0 and outside the rules, on purpose; DNS through the
+    router's resolver is a way out for what can be tunnelled in it, as plain HTTPS is; dnsmasq turns its lease
+    script on when it finds one at its own start, so the lease event begins at the first reboot or dnsmasq
+    restart after the install; a static address outside DHCP that changes gets its rule at the next start,
+    and the log names the address until then; a zone's `masq` or a default route moved in an open window changes which devices count as the house, and only
+    the global IPv6 addresses depend on that; a device wildcard such as `tun+` in a zone is skipped; LuCI shows
+    none of this yet. (gate: `scripts/gate-network.sh`, bound to `features/network.feature`, real nft, fw4 and
+    sockets in OpenWrt's rootfs, in CI's `scenarios` job; `scripts/gate-runtime.sh`
+    `check_limits_go_in_with_the_start_and_the_option_is_read`, `check_wrapper_applies_the_limits_before_every_exec`,
+    `check_owner_note_says_the_network_is_limited`; `scripts/gate-unlock.sh`
+    `check_window_cannot_lift_the_network_limits`, the real daemon; `scripts/gate-package.sh`
+    `check_network_limits_leave_with_the_package`; teeth: `scripts/teeth-network.py`, 47 faults with the
+    negative skuid form, a rule in a fw4 chain, a `fw4 zone` in the include and an allow read from
+    `config.yaml` first, two near misses that must stay green, and the missing subject; `scripts/teeth-runtime.py`,
+    `scripts/teeth-unlock.sh` faults 87 and 88, `scripts/teeth.sh` fault 14.)
+    Red first, the checks committed alone (a954ee6): `@measured` `RED_FIRST=1 ./scripts/gate-network.sh` 2026-11-07
+    in `openwrt/rootfs:x86-64-25.12.5`, 29 tests, 90 failures and 4 errors, the agent reaching 127.0.0.1:22
+    and every other port and host it should not; and `gh run view` of PR #84's first run, gate-unlock 56 passed
+    and 1 failed, the real daemon in an open window applying the deletion of `firewall.hermes_net`, because a
+    fault of mine kept the hold from being written.
+    `@measured` 2026-11-07 on a vlab node (OpenWrt 25.12.5 x86-64, kernel 6.12.94, real procd, netifd, fw4 and
+    dnsmasq; a LAN host on `br-house`, a host on the WAN side, 192.168.1.0/24, a ULA and a global prefix
+    there), `hermes-agent` 0.21.5-r21 built from this tree, openwrt-mcp 0.5.0.7 and llm-gateway 562ba8e, the
+    gateway running in ujail as uid 32768, one connection per target through `hermes-drop hermes`: the model
+    on the LAN by name and by address, openwrt-mcp, llm-gateway, DNS over UDP and TCP on 127.0.0.1 and ::1,
+    1.1.1.1, openwrt.org, api.telegram.org and a global IPv6 host on the WAN side answered; SSH, uhttpd and
+    8080 on every address of the router and the LAN host, IPv4, ULA and global, the WAN side's private hosts and
+    100.100.100.100 failed with EHOSTUNREACH at once over IPv4 and EACCES after a second over IPv6, and each
+    answered root; 29 refusals counted, and the kernel log named each address. The table stayed through `fw4
+    reload` and `service firewall restart`, went with `service firewall stop`, and came back with `start`
+    through the include. `list lan_allow`, `agent_network=open` and the root profile did what they say, a new
+    bridge came into the set on its ifup, a host of the LAN got the router's reset for a closed port, and `apk del`
+    left no table, no include and no file. A `fw4 zone` planted in the include made `fw4 reload` take 30 s, until
+    fw4 killed the script (exit -9), against 0 s without it. One scheduled job through the real gateway
+    in its sandbox: the request reached the model on the LAN, and the agent's terminal printed `Failed to send
+    request: Operation not permitted` for `wget http://127.0.0.1/`, an address for `nslookup`, a ping of
+    127.0.0.1 answered, and uid 32768, with those two packets the only refusals of the run. After a reboot the
+    table was back with the service, the name of the model answered nothing and it was refused, and once that
+    host renewed its lease the rule was there and the model answered, with no restart.
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

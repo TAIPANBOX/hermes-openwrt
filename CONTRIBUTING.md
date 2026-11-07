@@ -57,6 +57,7 @@ running system. Run them with `ARCH=aarch64_generic`, after the builds above.
 | the LuCI app | `./scripts/gate-luci.sh` and `./scripts/teeth-luci.sh` |
 | the owner unlock, the second factor, Telegram `/unlock` | `./scripts/gate-unlock.sh` and `./scripts/teeth-unlock.sh` |
 | `hermes-usb` or anything about the stick | `./scripts/gate-usb.sh` and `./scripts/teeth-usb.sh` |
+| what the agent's own connections reach (`hermes-net`) | `./scripts/gate-network.sh`, whose teeth it runs itself; it needs no built package |
 | the Telegram add-on | `./scripts/gate-telegram.sh` and `./scripts/teeth-telegram.sh` |
 | the upstream pin or its libraries | `./scripts/gate-upstream.sh` and `./scripts/teeth-upstream.sh` |
 | file ownership in a package | `./scripts/gate-apk-owner.sh` and `./scripts/teeth-apk-owner.sh` |

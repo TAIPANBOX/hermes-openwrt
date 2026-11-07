@@ -50,7 +50,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only check_agent_cannot_unlock_itself check_no_change_policy_without_held_capability check_high_impact_change_held_in_window check_held_change_approved_from_the_chat check_held_change_rejected_from_the_chat check_owner_token_never_reaches_the_agent'
+IMPLEMENTED='check_window_cannot_lift_the_network_limits check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only check_agent_cannot_unlock_itself check_no_change_policy_without_held_capability check_high_impact_change_held_in_window check_held_change_approved_from_the_chat check_held_change_rejected_from_the_chat check_owner_token_never_reaches_the_agent'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -1205,6 +1205,57 @@ check_high_impact_change_held_in_window() {
 	pass "in an open window a port forward from the internet and a WireGuard interface were held, the card named tcp 2222 to 192.168.77.20:22, the agent could neither read nor approve it, the owner's client approved it with the PIN and a code and the agent confirmed it; with nobody to approve it was refused"
 }
 
+# The agent's network limits are the agent's own to want gone, and a window opens the firewall's
+# config to it. openwrt-mcp refuses a change to an include's options, as code, and lets a whole
+# section's deletion through, since that runs nothing; so the include is held for the owner's
+# approval, by its name and by the selector that names it another way, and the table itself is
+# nothing openwrt-mcp can reach. Each change goes in on its own, and is withdrawn to make room for
+# the next, since openwrt-mcp holds one at a time.
+check_window_cannot_lift_the_network_limits() {
+	reset; configure - pin; with_approver; real_firewall
+	started
+	nft list table inet hermes_agent >/dev/null 2>&1 || fail "measured nothing: the start put no limits in"
+	[ "$(uci -q get firewall.hermes_net.path)" = /usr/libexec/hermes-net-reapply ] || fail "measured nothing: the start wrote no include"
+	[ "$(uci -q get openwrt-mcp.hermes_main_approval.approvals)" = on ] || fail "measured nothing: approvals are off, so nothing can be held"
+	set_pin hermes-main 4821
+	python3 /harness.py factor totp >/tmp/harness.out || fail "$(last_line < /tmp/harness.out)"
+	daemon_start
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "the owner's client could not open the window"
+	before=$(md5sum < /etc/config/firewall)
+	for change in '{"config":"firewall","section":"hermes_net","delete":true}' \
+		'{"config":"firewall","section":"@include[0]","delete":true}' \
+		'{"config":"firewall","section":"@include[-1]","delete":true}' \
+		'{"config":"firewall","section":"hermes_net","type":"rule"}'; do
+		out=$(mcp "$TOKEN" uci_apply "{\"changes\":[$change]}") || fail "refused and not held, so the owner never saw it: $change: $out"
+		id=$(echo "$out" | sed -n 's/^HELD \([A-Z]\{5\}\) until .*/\1/p')
+		[ -n "$id" ] || fail "applied in an open window: $change: $out"
+		[ "$(md5sum < /etc/config/firewall)" = "$before" ] || fail "the held change altered the firewall file: $change"
+		mcp "$TOKEN" action_withdraw "{\"id\":\"$id\"}" >/dev/null || fail "could not withdraw $id"
+	done
+	# An option of the section is refused outright, as code, before anything is held.
+	if out=$(mcp "$TOKEN" uci_apply '{"changes":[{"config":"firewall","section":"hermes_net","option":"enabled","value":"0"}]}'); then
+		fail "the include was switched off in an open window: $out"; fi
+	echo "$out" | grep -q 'run code' || fail "refused, but not as code: $out"
+	[ "$(uci -q get firewall.hermes_net.path)" = /usr/libexec/hermes-net-reapply ] || fail "the include is gone"
+	# Not vacuous: an ordinary firewall change runs in the same window, with its rollback armed.
+	out=$(mcp "$TOKEN" uci_apply '{"changes":[{"config":"firewall","section":"gatezone","type":"zone"},{"config":"firewall","section":"gatezone","option":"name","value":"gatenet"}]}') \
+		|| fail "an ordinary firewall change was refused in the window: $out"
+	echo "$out" | grep -q 'ROLLBACK ARMED' || fail "an ordinary firewall change did not run: $out"
+	# Nobody chosen to approve: refused, not held, and not run either.
+	daemon_stop
+	reset; configure - pin; real_firewall
+	started
+	[ "$(uci -q get openwrt-mcp.hermes_main_approval.approvals)" = off ] || fail "approvals are on with no Telegram"
+	set_pin hermes-main 4821
+	daemon_start
+	unlock_main '{"pin":"4821"}' >/dev/null || fail "could not unlock"
+	if out=$(mcp "$TOKEN" uci_apply '{"changes":[{"config":"firewall","section":"hermes_net","delete":true}]}'); then
+		fail "with nobody to approve, the include was deleted or held: $out"; fi
+	echo "$out" | grep -q 'approval is switched off' || fail "refused, but not as needing an approval: $out"
+	[ "$(uci -q get firewall.hermes_net.path)" = /usr/libexec/hermes-net-reapply ] || fail "the include is gone"
+	pass "in an open window the firewall's include, by name and by selector, deleted or retyped, was held for the owner with the file unchanged, an option of it refused as code, an ordinary firewall change ran, and with nobody to approve the deletion was refused"
+}
+
 # A change policy only from an openwrt-mcp that refuses an apply that would run code (0.5.0.3 on,
 # `uci_apply_refuses_code_exec` in its status). The installed binary behind a stand-in whose
 # status lacks that one key; a PIN is the factor, so without the check a change policy is written.
@@ -1677,6 +1728,10 @@ unlock_up() {
 	uci set hermes.main.base_url=http://127.0.0.1:8742/v1
 	uci set hermes.main.model=gate-model
 	[ -z "$window" ] || uci set hermes.security.window="$window"
+	# The Bot API's stand-in sits on the router's loopback, where a real one is on the internet: the
+	# network limits are in force in these runs, and this is how an owner would add a host.
+	uci set hermes.security=security
+	uci add_list hermes.security.lan_allow=127.0.0.1:8741
 	uci set hermes.telegram.enabled=1
 	uci -q delete hermes.telegram.allow_user_id || true
 	uci add_list hermes.telegram.allow_user_id=4242

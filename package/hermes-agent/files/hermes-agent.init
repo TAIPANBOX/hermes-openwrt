@@ -24,6 +24,8 @@ CONF=/etc/hermes-agent
 . /usr/lib/hermes-agent/hermes-profile
 # Runs a command as another user having given up root; see its own header.
 DROP="/usr/bin/python3 -I -B /usr/libexec/hermes-drop"
+# What the agent's own connections reach; see its own header.
+NET="/usr/bin/python3 -I -B /usr/libexec/hermes-net"
 
 # openwrt-mcp: the owner profile's whole way to the router. The agent reads through it and
 # changes through it, and it runs as root and decides. The package manages one client per
@@ -122,6 +124,11 @@ MCP_APPROVAL_TTL=10m
 # What a change policy cannot undo is granted only so that it waits for the owner's approval of
 # each call (a policy with hold 1): a reboot, which no rollback brings back.
 MCP_HOLD_UBUS='system.reboot'
+# What keeps the agent's network limits in place, held for the owner's approval of that one change
+# even in an open window: the include that brings them back, by its name or by the selector that
+# names it another way (openwrt-mcp refuses a change to an include's options, but deleting a whole
+# section runs nothing, so it lets that through). See /usr/libexec/hermes-net.
+MCP_HOLD_UCI='firewall.hermes_* firewall.@include*'
 
 # What the openwrt-mcp that will answer this agent guarantees, printed on stdout as words:
 # `redacts` when its status reports uci_get_redacts_credentials (every config may then be read,
@@ -279,6 +286,9 @@ mcp_policy_batch() {
 		printf 'set openwrt-mcp.%sapproval=approval\nset openwrt-mcp.%sapproval.client=%s\nset openwrt-mcp.%sapproval.approver=%s-owner\n' "$prefix" "$prefix" "$client" "$prefix" "$client"
 		printf 'set openwrt-mcp.%sapproval.factor=%s\nset openwrt-mcp.%sapproval.ttl=%s\nset openwrt-mcp.%sapproval.approvals=%s\n' \
 			"$prefix" "$MCP_APPROVAL_FACTOR" "$prefix" "$MCP_APPROVAL_TTL" "$prefix" "$approvals"
+		set -f
+		for scope in $MCP_HOLD_UCI; do printf "add_list openwrt-mcp.%sapproval.hold='uci_apply:%s'\n" "$prefix" "$scope"; done
+		set +f
 	fi
 	if [ "$may_packages" = yes ] && [ "$factor" != none ]; then
 		printf 'set openwrt-mcp.%spackages=policy\nset openwrt-mcp.%spackages.client=%s\nadd_list openwrt-mcp.%spackages.tools=apk_add\n' "$prefix" "$prefix" "$client" "$prefix"
@@ -494,6 +504,7 @@ start_service() {
 	local enabled data_dir base_url model key_file mem_max respawn llm_gateway
 	local mcp_url mcp_token_file key profile profile_set run_user max_turns
 	local sec_factor sec_window sec_max sec_lockout sec_packages sec_approver approvals pkg_grant v
+	local agent_network
 	local toolsets providers providers_bad
 	local tg_on tg_token_file tg_token tg_allow_all tg_home tg_allow
 	# tg_allow and toolsets are declared here and filled by the append_* helpers
@@ -583,6 +594,14 @@ start_service() {
 		case "$sec_max" in ''|*[!0-9]*|0) echo "$NAME: hermes.security.max_failures must be a whole number of at least 1, not '$sec_max'" >&2; return 1 ;; esac
 		case "$sec_approver" in *[!0-9]*) echo "$NAME: hermes.security.approver_id must be a numeric Telegram id, not '$sec_approver'" >&2; return 1 ;; esac
 	fi
+
+	# What the agent's own connections reach, for every profile that runs as hermes: limited unless
+	# the owner says open. See /usr/libexec/hermes-net, which does the work further down.
+	config_get agent_network security agent_network 'limited'
+	case "$agent_network" in
+		limited|open) ;;
+		*) echo "$NAME: hermes.security.agent_network must be limited or open, not '$agent_network'" >&2; return 1 ;;
+	esac
 
 	# Refuse rather than flap. Each branch names the one thing to fix, because the
 	# person reading this in logread has no other source of truth.
@@ -715,6 +734,21 @@ start_service() {
 	chmod 0700 "$data_dir" 2>/dev/null
 	hand_over_data_dir "$data_dir" "$run_user" || return 1
 
+	# The agent's network limits go in before anything of the agent starts, and a start that cannot
+	# have them does not happen: the agent's user is the one thing they are about, so the router
+	# itself loses nothing by this refusal. The root profile runs as uid 0, outside them by
+	# definition, and a table left from another profile would only say otherwise.
+	if [ "$run_user" = root ]; then
+		$NET off
+		echo "$NAME: profile 'root' runs outside the agent's network limits: it reaches everything the router reaches." >&2
+	elif [ "$agent_network" = open ]; then
+		$NET off
+		echo "$NAME: hermes.security.agent_network is open: the agent reaches the router's own ports and the hosts of the house." >&2
+	elif ! $NET apply; then
+		echo "$NAME: the agent's network limits could not be applied, so it is not starting. 'uci set hermes.security.agent_network=open && uci commit hermes' starts it without them." >&2
+		return 1
+	fi
+
 	# The owner profile's connection to the router. Its URL is openwrt-mcp's own loopback
 	# address unless UCI says otherwise (an option set to nothing turns the connection off),
 	# its token is paired here the first time, and its policies are written here, every
@@ -772,6 +806,7 @@ start_service() {
 		HERMES_OPENWRT_FACTOR="$sec_factor" \
 		HERMES_OPENWRT_PACKAGES="$pkg_grant" \
 		HERMES_OPENWRT_APPROVALS="$approvals" \
+		HERMES_OPENWRT_NETWORK="$agent_network" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}" \
 		PYTHONDONTWRITEBYTECODE=1 $DROP "$run_user" /usr/bin/python3 /usr/libexec/hermes-set-toolsets \
 		"$data_dir" "${toolsets#,}" "$mcp_url" "$base_url" "$model" "$profile" || return 1
@@ -804,6 +839,7 @@ start_service() {
 		HERMES_OPENWRT_PACKAGES="$pkg_grant" \
 		HERMES_OPENWRT_APPROVALS="$approvals" \
 		HERMES_OPENWRT_APPROVER_ID="$sec_approver" \
+		HERMES_OPENWRT_NETWORK="$agent_network" \
 		HERMES_OPENWRT_READ_UBUS="$(printf '%s' "$MCP_READ_UBUS" | tr ' ' ',')" \
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}"

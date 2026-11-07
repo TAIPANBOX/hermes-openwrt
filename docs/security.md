@@ -128,8 +128,9 @@ which OpenWrt itself runs hostapd in). The wrapper starts it last, through
 | a `/tmp` of its own, emptied at every start | `/var` and the router's `/tmp` |
 | its own `/proc`, the router's `/sys` read-only, the router's `resolv.conf` | ubus and the router's own processes |
 
-The network is the router's, so ping (setuid, which the sandbox keeps), DNS, routes and the
-connections to the model and to Telegram work as before, and the hourly watch in
+The network is the router's, limited as the next section says, so ping (setuid, which the sandbox
+keeps), DNS, routes and the connections to the model and to Telegram work as before, and the hourly
+watch in
 [use.md](use.md#scheduled-jobs-in-practice) runs unchanged except that it asks the data directory
 for free flash, since the sandbox has no `/` of the router's. The agent reads the router's
 settings, log and services through openwrt-mcp, as before; the owner note tells it its terminal
@@ -166,6 +167,72 @@ the rest with unprivileged ICMP closed as on a router; `check_stop_leaves_nothin
 gateway that ignores SIGTERM. Eleven planted faults in `teeth-unlock.sh` turn those red, and
 `teeth.sh` fault 13 turns `check_gateway_keys_hidden_from_its_user` red with the sandbox's first
 process left dumpable.
+
+### What the agent's own connections reach
+
+Before 0.21.5-r21 the sandbox above stopped at the network: the agent's terminal could try the
+router's SSH password on `127.0.0.1:22`, open LuCI on any address of the router, and talk to the
+NAS, the printer and the cameras. From r21 the user `hermes` reaches what it has a reason to reach,
+with nothing for you to set up.
+
+| reaches | does not reach |
+|---|---|
+| the public internet, IPv4 and IPv6 (your model provider, Telegram, what its tools fetch) | SSH, LuCI and `/ubus` on any address of the router, on the ports the router's own settings give them too |
+| DNS, wherever `resolv.conf` says the resolver is | any other service of the router (rollcall, what you installed) |
+| openwrt-mcp and llm-gateway on the router's loopback | every other host of the house, on every network that does not face the internet |
+| any model endpoint `hermes.main.base_url` or a `provider` section names, on the LAN too, at that host and port only | the house's IPv6: ULA, link-local and the global addresses of its devices |
+| a host you list yourself in `hermes.security.lan_allow` | your tailnet and 100.64.0.0/10, and the private ranges whichever way they route (a modem on the WAN side) |
+
+`ping` still reaches everything: it is setuid root, so it is not the agent's user that sends it,
+and diagnosing the network is what the agent is for. A refused connection fails within a second,
+with `No route to host` over IPv4 and `Permission denied` over IPv6, or `Operation not permitted`
+for UDP and for the router's own `wget`, and the agent is told what that means. Your own SSH and LuCI are not touched, since the rules match the user `hermes` and nothing
+else, and neither is anything the router forwards. The agent is no server for the house either: a
+listener it opens answers on the router's loopback and no further.
+
+The `root` profile runs outside all of this by definition, and every start says so.
+
+```sh
+/usr/libexec/hermes-net status              # in force or not, and how many connections were refused
+logread -e hermes-net                       # the address of what was refused, at most six lines a minute per rule
+```
+
+Two settings, both optional, in `/etc/config/hermes`:
+
+```sh
+uci add_list hermes.security.lan_allow='nas.lan:445'     # a host of your house, TCP and UDP
+uci set hermes.security.agent_network=open               # no limits at all
+uci commit hermes && service hermes-agent restart
+```
+
+An endpoint or a `lan_allow` entry cannot open SSH or LuCI on the router: those two are refused
+before any allow rule is read, by the kernel's own view of what is local, so a name that resolves to
+the router opens nothing there. `config.yaml` and `.env` play no part, because the agent can write
+those; what it may reach comes from UCI, which it cannot. An unlock window does not change that:
+openwrt-mcp refuses `hermes` itself, and the firewall include that keeps the limits waits for your
+approval of that one change, however the agent names it.
+
+How it holds. The rules are a table of their own, `inet hermes_agent`, with one base chain at the
+output hook and one rule in it, `meta skuid <uid> jump agent`. They are not in fw4's chains, because
+fw4's output chain accepts loopback first and most of this is about loopback. They are loaded by
+their own `nft -f`, after `nft -c` has passed them, so a defect here cannot take your firewall down;
+when the full rules are refused the agent gets minimal ones with no LAN host, and when those are
+refused too it does not start. The table survives `fw4 reload` and `fw4 restart`. `service firewall
+stop` deletes every table of the router, so `firewall.hermes_net`, an include of type script, loads
+the same file again at the next start. The service works the rules out at every start and respawn,
+and again when an interface comes up or the router hands out a lease, so a new guest network is in
+them and a model named by its name gets its address, after a reboot of the router too, when that
+name answers nothing until the computer renews its lease. dnsmasq turns its lease script on when it
+starts, so that part begins at the first reboot after the install or `service dnsmasq restart`.
+Whatever is refused, `logread -e hermes-net` names the address.
+
+Run on a virtual OpenWrt 25.12.5 router on 2026-11-07, with a real procd, netifd, fw4 and dnsmasq, the
+gateway in its sandbox, a host on the LAN and one on the WAN side: everything in the table above did
+what it says from the agent's uid, IPv4 and IPv6, and answered root. A scheduled job through the real
+gateway reached a model on the LAN by name, its terminal got `Operation not permitted` from `wget
+http://127.0.0.1/`, an answer from `nslookup` and from `ping`, and those two packets were all that was
+refused in the run. The table stayed through `fw4 reload` and `service firewall restart`, came back
+after `stop` and `start`, came back with the service after a reboot, and left with `apk del`.
 
 ### Profiles
 

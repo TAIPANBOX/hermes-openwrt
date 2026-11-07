@@ -32,6 +32,9 @@ runs the `wget` line of [step 1](#install) once more: the feed has a new signing
   something is wrong.
 - **Changes the router only with you.** Settings after you unlock it; the risky changes only
   after you approve each one.
+- **Stays out of the rest of your house.** From 0.21.5-r21 its own connections reach the internet,
+  its model and the router's tools, and not SSH, LuCI or the other devices at home, with nothing for
+  you to set up: [docs/security.md](docs/security.md#what-the-agents-own-connections-reach).
 - **Uses a model on your own computer, if you have one.** With
   [llm-gateway](https://github.com/TAIPANBOX/openwrt-llm-gateway) on the same router, the agent asks
   Ollama or llama-server at home instead of a cloud provider: [below](#a-model-on-a-computer-in-your-house).

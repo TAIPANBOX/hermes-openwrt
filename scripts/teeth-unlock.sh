@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (eighty-six in all, over fifty checks). Each is a change a
+# or have several ways to go wrong (eighty-eight in all, over fifty-one checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -593,6 +593,14 @@ plant "$PLUGIN" '        if not m or str(user) != _approver() or getattr(chat, "
 	'        if not m or getattr(chat, "type", "") != "private" or not _approvals_on():'
 expect_red "a stranger's Reject taken" check_held_change_rejected_from_the_chat
 
+# ---- 87. the include held by no name: the agent deletes what brings its limits back ----
+plant "$INIT" "MCP_HOLD_UCI='firewall.hermes_* firewall.@include*'" "MCP_HOLD_UCI='firewall.@include*'"
+expect_red "the include not held by its name" check_window_cannot_lift_the_network_limits
+
+# ---- 88. and the same through a selector, which a rule on the section's name does not cover ----
+plant "$INIT" "MCP_HOLD_UCI='firewall.hermes_* firewall.@include*'" "MCP_HOLD_UCI='firewall.hermes_*'"
+expect_red "the include not held by selector" check_window_cannot_lift_the_network_limits
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -627,6 +635,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 86 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 86 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 88 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 88 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 86 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 88 faults (shard $SHARD), $N distinct checks, controls green"
