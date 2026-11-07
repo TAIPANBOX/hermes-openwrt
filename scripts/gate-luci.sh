@@ -843,6 +843,10 @@ echo "PASS check_security_network_limits_written_only_as_the_agent_reads_them"
 # `mfa reset`, and touches neither the file nor anything else. Without the capability the binary has
 # no such command, so the page is told and the call refuses.
 ft() { fail check_security_failed_tries_reset_through_openwrt_mcp "$1"; }
+# The page calls `mfa reset`, so it asks for the first openwrt-mcp that has it, whatever the agent asks.
+deps=$( { apk info -R luci-app-hermes 2>/dev/null; sed -n '/^P:luci-app-hermes$/,/^$/s/^D://p' /lib/apk/db/installed 2>/dev/null; } | tr ' ' '\n')
+echo "$deps" | grep -qx luci-base || ft "measured nothing: the page's dependencies could not be read"
+echo "$deps" | grep -qx 'openwrt-mcp>=0.5.0.8' || ft "the page does not require openwrt-mcp 0.5.0.8 or later: $(echo "$deps" | grep openwrt-mcp | sort -u | tr '\n' ' ')"
 $MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || ft "could not pair"
 uci set hermes.main.profile=owner; uci commit hermes
 rm -f /etc/openwrt-mcp/throttle

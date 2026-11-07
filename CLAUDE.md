@@ -220,7 +220,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `check_security_failed_tries_reset_through_openwrt_mcp`, `scripts/test-luci-views.mjs`
     `check_security_network_limits_offered_on_the_page`, `check_security_failed_tries_shown_with_a_reset`,
     `check_security_pin_alone_is_warned`; `scripts/gate-unlock.sh` `check_luci_reset_ends_the_wait`, the
-    real daemon and rpcd, `check_luci_pin_write_only`; teeth: `scripts/teeth-luci.sh` faults 49 to 64,
+    real daemon and rpcd, `check_luci_pin_write_only`; teeth: `scripts/teeth-luci.sh` faults 49 to 65,
     `scripts/teeth-unlock.sh` faults 93 to 95).
     `@claude` 2026-10-08, LuCI 0.21.5-r2: set_factor announces `config.change` for hermes itself
     whenever reload_config cannot: the sum reload_config holds for hermes is read from
@@ -1126,7 +1126,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     with approvals off stops the poller, since each refusal would be an audit line on flash.
     The shipped file says what lockout means now, and neither it nor the init says `router_mcp_url` can
     be emptied: UCI keeps no empty option, from `uci set`, LuCI or the file.
-    `hermes-agent` depends on `openwrt-mcp>=0.5.0.8`. Each companion's commit is in its build script,
+    `hermes-agent` and `luci-app-hermes` depend on `openwrt-mcp>=0.5.0.8`. Each companion's commit is in its build script,
     which refuses another checkout unless ANY_COMMIT is set, and the workflow must check out that one.
     (gate: `scripts/gate-runtime.sh` `check_owner_told_of_tries_by_someone_else_once_per_delay`,
     `check_owner_told_with_no_approver_and_in_the_language_set`,

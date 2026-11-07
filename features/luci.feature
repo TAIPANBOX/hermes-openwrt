@@ -323,7 +323,8 @@ Feature: The web page manages the agent and never hands a key back
 
   Scenario: the failed tries on record come from openwrt-mcp, and the reset goes to it
     Given failed tries in openwrt-mcp's own record, for this client and another
-    Then the status reads this client's count
+    Then the package asks for openwrt-mcp 0.5.0.8 or later, the first with that record
+    And the status reads this client's count
     When reset_tries is called
     Then openwrt-mcp mfa reset clears this client's and leaves the other's
     And an openwrt-mcp that keeps no count is said to and is asked for nothing, and a reset that fails is reported
