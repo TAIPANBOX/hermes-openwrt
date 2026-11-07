@@ -599,7 +599,7 @@ expect_red "set_network left out of the write permission" check_security_page_ca
 cp "$SRC_ACL" "$ACL"
 
 # ---- fault 63: reset_tries left out of the write permission ----
-plant "$ACL" '"set_factor", "reset_tries" ],' '"set_factor" ],' "fault 63"
+plant "$ACL" '"set_network", "reset_tries",' '"set_network",' "fault 63"
 repack_luci
 expect_red "reset_tries left out of the write permission" check_security_page_calls_are_granted
 cp "$SRC_ACL" "$ACL"
