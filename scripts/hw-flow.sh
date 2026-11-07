@@ -18,7 +18,8 @@
 #
 # Steps, in order when none are named: clean install model start telegram ask watch admin upgrade.
 # `admin` probes the agent's own openwrt-mcp token: reads, a refused change, and with FLOW_PIN (a
-# throwaway PIN it sets and clears) the unlock window and the rollback of an unconfirmed change.
+# throwaway PIN it sets and clears) the unlock window, opened through the owner's client as only it
+# may since 0.21.5-r16, and the rollback of an unconfirmed change, which must be seen applied first.
 # WATCH_DELIVER=local for a router whose Telegram is off (one bot polls from one router at a time).
 # FEED_BASE=http://<host>:<port> installs from a release candidate signed with the feed's key and
 # served from that address, before it is published; the step `clean` also drops that line.
@@ -60,7 +61,21 @@ gateway_up() { # seconds to wait
 	i=0; while [ "$i" -lt "$1" ]; do
 		on "pgrep -f '[m]ain.py gateway' >/dev/null" && return 0; sleep 2; i=$((i + 2)); done; return 1; }
 
+# The script `clean` sends to find what is left of a data directory: nothing for a directory that is
+# not there, the directory for one that is, and for a mount point (the USB stick's, which the owner
+# configured and `clean` must not unmount) only what is left inside it. $2 is the mounts file.
+clean_leftovers_script() {
+	cat <<EOF
+d='$1'
+if [ -e "\$d" ]; then
+	if grep -q " \$d " '$2'; then [ -z "\$(ls -A "\$d")" ] || echo "\$d(not empty)"
+	else echo "\$d"; fi
+fi
+EOF
+}
+
 step_clean() {
+	dd=$(on "uci -q get hermes.main.data_dir"); dd=${dd:-/srv/hermes}
 	run <<'EOF'
 /etc/init.d/hermes-agent stop 2>/dev/null
 # Only what is installed: apk del refuses the whole list over one name it does not know, and on a
@@ -69,14 +84,16 @@ step_clean() {
 pkgs=""; for p in luci-app-hermes hermes-agent-telegram hermes-agent openwrt-mcp iputils-ping; do apk info -e "$p" >/dev/null 2>&1 && pkgs="$pkgs $p"; done
 if [ -n "$pkgs" ]; then apk del $pkgs 2>&1 | tail -n 1; fi
 for p in $pkgs; do apk info -e "$p" >/dev/null 2>&1 && { echo "CLEAN-ABORT: $p is still installed"; exit 1; }; done
-d=$(uci -q get hermes.main.data_dir); rm -rf "${d:-/srv/hermes}"
+d=$(uci -q get hermes.main.data_dir); d=${d:-/srv/hermes}
+# a mount point (the USB stick) stays; what is inside it goes
+if grep -q " $d " /proc/mounts; then rm -rf "$d"/* "$d"/.[!.]* "$d"/..?*; else rm -rf "$d"; fi
 rm -rf /etc/hermes-agent /etc/openwrt-mcp
 rm -f /etc/config/hermes /etc/config/openwrt-mcp /etc/apk/keys/hermes-openwrt.pem
 sed -i '/taipanbox.github.io\/hermes-openwrt/d; /\/25.12\/aarch64[a-z0-9_-]*\/packages.adb/d' /etc/apk/repositories.d/customfeeds.list
 sed -i '/^hermes:/d' /etc/passwd /etc/shadow /etc/group
 /etc/init.d/rpcd restart
 EOF
-	left=$(on "apk info 2>/dev/null | grep -cE '^(hermes|luci-app-hermes|openwrt-mcp|python3-base)'; ls /etc/rc.d | grep -c hermes; id hermes >/dev/null 2>&1 && echo user; ls -d /srv/hermes 2>/dev/null" | tr '\n' ' ')
+	left=$(on "apk info 2>/dev/null | grep -cE '^(hermes|luci-app-hermes|openwrt-mcp|python3-base)'; ls /etc/rc.d | grep -c hermes; id hermes >/dev/null 2>&1 && echo user; $(clean_leftovers_script "$dd" /proc/mounts)" | tr '\n' ' ')
 	[ "$left" = "0 0 " ] && pass clean "no package, start link, account or data left" || fail clean "left behind: $left"
 }
 
@@ -203,9 +220,19 @@ step_watch() { # docs/use.md's hourly watch, with docs/examples/router_check.sh,
 		|| fail watch "router_check.sh output not as expected (see $OUT/watch.md)"
 }
 
+# What the rollback check says: the change was applied (`now`), and the router put the value back by
+# itself (`after` is what it was before, `orig`). A change that never happened has nothing to roll back.
+check_rollback() { # orig now after
+	[ "$2" = hw-flow ] || { fail admin-rollback "the change was never applied (value '$2'), so there was nothing to roll back"; return; }
+	[ "$3" = "$1" ] && pass admin-rollback "ROLLBACK ARMED, then the change was undone by itself (now '$3')" \
+		|| fail admin-rollback "still '$3' after the deadline, was '$1'"
+}
+
 step_admin() { # what the agent's own token may do to the router, through openwrt-mcp, as the agent would
 	on 'cat > /tmp/mcp-probe.py' < "$ROOT/scripts/mcp-probe.py"
 	probe() { on "python3 /tmp/mcp-probe.py '$1' '$2'"; }
+	# The owner's own client, as the Telegram plugin drives it: since 0.21.5-r16 only it opens the window.
+	probe_owner() { on "MCP_TOKEN_FILE=/etc/hermes-agent/router-mcp-owner.token python3 /tmp/mcp-probe.py '$1' '$2'"; }
 	r=$(probe ubus_call '{"object":"luci-rpc","method":"getDHCPLeases"}')
 	case "$r" in OK*) pass admin-read-clients "DHCP leases readable without unlocking" ;; *) fail admin-read-clients "$r" ;; esac
 	r=$(probe ubus_call '{"object":"network.interface","method":"dump"}')
@@ -225,18 +252,27 @@ step_admin() { # what the agent's own token may do to the router, through openwr
 	say "admin: the change policy written with factor pin grants scopes: ${scopes:-<none>}"
 	r=$(probe uci_apply "$CHANGE")
 	case "$r" in ERROR*"second factor"*) pass admin-needs-unlock "with a PIN set, a change waits for the owner's unlock" ;; *) fail admin-needs-unlock "$r" ;; esac
-	r=$(probe mfa_unlock '{"pin":"00000000"}')
+	r=$(probe mfa_unlock "{\"client\":\"hermes-main\",\"pin\":\"$FLOW_PIN\"}")
+	case "$r" in ERROR*) pass admin-agent-cannot-unlock "the agent's own client is refused its unlock, even with the right PIN" ;; *) fail admin-agent-cannot-unlock "$r" ;; esac
+	r=$(probe_owner mfa_unlock '{"client":"hermes-main","pin":"00000000"}')
 	case "$r" in ERROR*) pass admin-wrong-pin "a wrong PIN is refused" ;; *) fail admin-wrong-pin "$r" ;; esac
-	r=$(probe mfa_unlock "{\"pin\":\"$FLOW_PIN\"}")
-	case "$r" in OK*Unlocked*) pass admin-unlock "${r#OK }" ;; *) fail admin-unlock "$r" ;; esac
+	r=$(probe_owner mfa_unlock "{\"client\":\"hermes-main\",\"pin\":\"$FLOW_PIN\"}")
+	case "$r" in OK*) pass admin-unlock "the owner's client opened the window: ${r#OK }" ;; *) fail admin-unlock "$r" ;; esac
+	orig=$(on "uci -q get system.@system[0].description || echo unset")
 	r=$(probe uci_apply "$CHANGE")
 	now=$(on "uci -q get system.@system[0].description")
-	case "$r" in OK*"ROLLBACK ARMED"*) pass admin-change-in-window "applied (value now '$now'), rollback armed" ;; *) fail admin-change-in-window "$r" ;; esac
+	case "$r" in OK*"ROLLBACK ARMED"*) [ "$now" = hw-flow ] && pass admin-change-in-window "applied (value now '$now'), rollback armed" \
+		|| fail admin-change-in-window "rollback armed but the value is '$now'" ;; *) fail admin-change-in-window "$r" ;; esac
 	secs=$(echo "$r" | sed -n 's/.*(in \([0-9]*\)m\([0-9]*\)s).*/\1 \2/p' | awk '{print $1*60+$2+20}')
 	sleep "${secs:-110}"
 	after=$(on "uci -q get system.@system[0].description || echo unset")
-	[ "$after" != "hw-flow" ] && pass admin-rollback "unconfirmed change undone by itself (now '$after')" || fail admin-rollback "still '$after' after the deadline"
-	probe mfa_lock '{}' >/dev/null
+	check_rollback "$orig" "$now" "$after"
+	# a rollback that did not fire must not leave the test value on the router
+	if [ "$after" = hw-flow ]; then
+		if [ "$orig" = unset ]; then on "uci -q delete system.@system[0].description; uci commit system"
+		else on "uci set system.@system[0].description='$orig'; uci commit system"; fi
+	fi
+	probe_owner mfa_lock '{"client":"hermes-main"}' >/dev/null
 	on 'uci set hermes.security.factor=none; uci commit hermes; openwrt-mcp pin clear hermes-main >/dev/null 2>&1; /etc/init.d/hermes-agent restart >/dev/null 2>&1; rm -f /tmp/mcp-probe.py'
 	say "admin: test PIN cleared, factor back to none"
 }

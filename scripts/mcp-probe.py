@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # mcp-probe.py -- call one openwrt-mcp tool with the agent's own token, as the agent would.
 # Runs ON the router, as root (to read the root-only token). hw-flow.sh copies it there.
+# MCP_TOKEN_FILE names another client's token file (the owner's), the agent's own by default.
 #   python3 mcp-probe.py <tool> '<json arguments>'
 # Prints one line: "OK <text>" or "ERROR <text>", cut to 300 characters.
 import json
+import os
 import sys
 import urllib.request
 
 URL = "http://127.0.0.1:8730/mcp"
-TOKEN = open("/etc/hermes-agent/router-mcp.token").read().strip()
+TOKEN = open(os.environ.get("MCP_TOKEN_FILE", "/etc/hermes-agent/router-mcp.token")).read().strip()
 session = None
 
 
