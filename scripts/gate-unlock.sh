@@ -50,7 +50,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_window_cannot_lift_the_network_limits check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only check_agent_cannot_unlock_itself check_no_change_policy_without_held_capability check_high_impact_change_held_in_window check_held_change_approved_from_the_chat check_held_change_rejected_from_the_chat check_owner_token_never_reaches_the_agent'
+IMPLEMENTED='check_window_cannot_lift_the_network_limits check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only check_luci_reset_ends_the_wait check_owner_told_of_tries_by_someone_else check_owner_told_with_nobody_to_approve check_agent_cannot_unlock_itself check_no_change_policy_without_held_capability check_high_impact_change_held_in_window check_held_change_approved_from_the_chat check_held_change_rejected_from_the_chat check_owner_token_never_reaches_the_agent'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -1092,6 +1092,7 @@ with_approver() {
 	uci set hermes.telegram.enabled=1
 	uci -q delete hermes.telegram.allow_user_id || true
 	uci add_list hermes.telegram.allow_user_id=4242
+	[ -z "${ALLOW_ALSO:-}" ] || uci add_list hermes.telegram.allow_user_id="$ALLOW_ALSO"
 	uci commit hermes
 	printf '%s' "$TGTOKEN" > /etc/hermes-agent/telegram.token
 	chmod 600 /etc/hermes-agent/telegram.token
@@ -1735,6 +1736,7 @@ unlock_up() {
 	uci set hermes.telegram.enabled=1
 	uci -q delete hermes.telegram.allow_user_id || true
 	uci add_list hermes.telegram.allow_user_id=4242
+	[ -z "${ALLOW_ALSO:-}" ] || uci add_list hermes.telegram.allow_user_id="$ALLOW_ALSO"
 	uci commit hermes
 	printf '%s' "$TGTOKEN" > /etc/hermes-agent/telegram.token
 	chmod 600 /etc/hermes-agent/telegram.token
@@ -1789,6 +1791,8 @@ check_code_alone_unlocks()                                { scenario "$CUR_NAME"
 check_pin_and_code_both_required()                        { scenario "$CUR_NAME" pin+totp; }
 check_pin_stored_as_slow_hash()                           { scenario "$CUR_NAME" pin; }
 check_wrong_attempts_lock_out()                           { scenario "$CUR_NAME" pin+totp; }
+check_owner_told_of_tries_by_someone_else()               { scenario "$CUR_NAME" pin+totp; }
+check_owner_told_with_nobody_to_approve()                 { ALLOW_ALSO=5151 scenario "$CUR_NAME" pin; }
 check_code_works_once()                                   { scenario "$CUR_NAME" totp; }
 check_unlock_window_ends()                                { scenario "$CUR_NAME" pin 5s; }
 check_lock_closes_at_once()                               { scenario "$CUR_NAME" pin; }
@@ -1909,6 +1913,33 @@ check_luci_pin_write_only() {
 	out=$(unlock_main '{"pin":"07310528"}') || fail "the PIN set through the page did not unlock: $out"
 	security_scenario scan 07310528
 	pass "$summary; it then unlocked, a PIN one digit off did not, and still no file held it"
+}
+
+# The wait the wrong tries started, ended from the page: the page's own call, through rpcd and the
+# real `openwrt-mcp mfa reset`, reaches the running daemon with no restart.
+check_luci_reset_ends_the_wait() {
+	reset; configure - pin
+	started
+	set_pin hermes-main 4821
+	daemon_start
+	rpc_up
+	for i in 1 2 3 4 5; do
+		if out=$(unlock_main '{"pin":"4820"}'); then fail "a wrong PIN opened changes: $out"; fi
+	done
+	if out=$(unlock_main '{"pin":"4821"}'); then fail "the right PIN opened changes inside the delay: $out"; fi
+	echo "$out" | grep -q 'locked out until' || fail "the refusal inside the delay does not say so: $out"
+	# A restart forgives nothing.
+	daemon_stop; daemon_start
+	if out=$(unlock_main '{"pin":"4821"}'); then fail "a restart of the daemon got round the delay: $out"; fi
+	echo "$out" | grep -q 'locked out until' || fail "after the restart the refusal does not say so: $out"
+	st=$(ubus call hermes security_status)
+	[ "$(echo "$st" | jsonfilter -e '@.failed_tries')" = 5 ] || fail "the page is told $(echo "$st" | jsonfilter -e '@.failed_tries') failed tries, not 5"
+	[ "$(echo "$st" | jsonfilter -e '@.tries_counted')" = true ] || fail "the page is not told that tries are counted: $st"
+	out=$(ubus call hermes reset_tries) || fail "reset_tries failed: $out"
+	[ "$(echo "$out" | jsonfilter -e '@.ok')" = true ] || fail "reset_tries refused: $out"
+	[ "$(ubus call hermes security_status | jsonfilter -e '@.failed_tries')" = 0 ] || fail "after the reset the page still reads a count"
+	out=$(unlock_main '{"pin":"4821"}') || fail "after the reset from the page the right PIN was refused: $out"
+	pass "five wrong tries and a restart left the owner waiting, the page read 5, its reset went through rpcd and openwrt-mcp mfa reset to the running daemon, and the right PIN opened at once"
 }
 
 # ---- what this stage does not prove yet ----

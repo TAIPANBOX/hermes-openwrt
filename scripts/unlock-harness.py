@@ -32,6 +32,8 @@ import urllib.parse, urllib.request
 TG_PORT, MODEL_PORT, CTL_PORT = 8741, 8742, 8743
 FAKE_DIR = os.environ.get("FAKE_DIR", "/tmp/fakes")
 OWNER, STRANGER = 4242, 9999
+# A second id allowed to talk to the agent, in the one check that needs nobody to approve.
+SECOND = 5151
 # The PIN is eight digits, and neither it nor the wrong one is a number that turns up in a log
 # by chance; the code is whatever the phone would say now.
 PIN, WRONG_PIN = "73918260", "11223344"
@@ -625,6 +627,80 @@ def check_wrong_attempts_lock_out():
     need(PIN not in reply, "the answer repeats the PIN")
     no_trace([PIN, WRONG_PIN], "the PIN")
     return "five wrong tries, then the right PIN and code refused in the chat and at the daemon, locked out for %.1f minutes, and the owner told" % ((until - started) / 60)
+
+
+# What the plugin says when tries reach a delay that did not come from the chat.
+NOTICE = "Someone else tried"
+
+
+def notices():
+    return [c for c in jsonl("tg_calls.jsonl") if c["method"] == "sendMessage" and NOTICE in c["params"].get("text", "")]
+
+
+def wrong_try_at_the_daemon(code=None):
+    """One wrong try that never passed through the chat, the way a stolen token of the owner's
+    client would make it."""
+    args = {"client": "hermes-main", "pin": WRONG_PIN}
+    if code:
+        args["code"] = code
+    return mcp("mfa_unlock", args, OWNER_TOKEN_FILE)
+
+
+def check_owner_told_of_tries_by_someone_else():
+    gateway_is_wired()
+    secret = totp_secret()
+    for i in range(4):
+        ok, text = wrong_try_at_the_daemon(totp(secret))
+        need(not ok, "a wrong PIN opened changes: " + text[:120])
+    time.sleep(7)  # past a listing: under the limit there is no delay and nothing to tell
+    need(not notices(), "the owner was told before any delay began: " + str(notices()[:1]))
+    wrong_try_at_the_daemon(totp(secret))
+    told = wait_for(notices, "the owner to be told of the tries", timeout=20)[0]["params"]
+    text = told["text"]
+    need(str(told.get("chat_id")) == str(OWNER), "the notice went to %s, not the owner" % told.get("chat_id"))
+    need("did not come from this chat: 5." in text, "the notice does not say how many: " + text)
+    need("Wrong tries in a row: 5, limit: 5." in text, "the notice does not give the count and the limit: " + text)
+    need(re.search(r"closed until \d\d:\d\d", text), "the notice does not say when the wait ends: " + text)
+    need("openwrt-mcp mfa reset hermes-main" in text, "the notice does not say how to end the wait: " + text)
+    # More tries inside the delay are refused without a check, and it stays one notice for one delay.
+    for _ in range(3):
+        ok, reply = wrong_try_at_the_daemon()
+        need(not ok and "locked out" in reply, "a try inside the delay was not refused as locked out: " + reply[:120])
+    time.sleep(7)
+    need(len(notices()) == 1, "%d notices for one delay" % len(notices()))
+    need(not model_text_with([NOTICE]), "the notice reached the model")
+    need(locked(), "the tries opened changes")
+    no_trace([PIN, WRONG_PIN], "the PIN")
+    # The owner ends the wait on the router, and unlocks at once.
+    run(["openwrt-mcp", "mfa", "reset", "hermes-main"])
+    unlock("/unlock %s %s" % (PIN, totp(secret)))
+    n = len(bot_sent())
+    say("/lock")
+    wait_for(answered("Locked", n), "the bot to answer /lock", timeout=20)
+    time.sleep(7)  # a listing sees the count at zero, so the five below start a delay of their own
+    # The owner's own five wrong tries in the chat are the owner's: told as the answer, and no notice.
+    for i in range(5):
+        n = len(bot_sent())
+        say("/unlock %s %s" % (WRONG_PIN, totp(secret)))
+        wait_for(answered("", n), "the answer to wrong try %d" % (i + 1), timeout=20)
+    n = len(bot_sent())
+    say("/unlock %s %s" % (PIN, totp(secret)))
+    wait_for(answered("Unlocking is closed until", n), "the delay to be reported in the chat", timeout=20)
+    time.sleep(7)
+    need(len(notices()) == 1, "a wrong try of the owner's own was told as someone else's: " + str(notices()[-1:]))
+    return "five wrong tries past the chat brought one notice to the owner, with the count, the limit and the end of the wait; three more in the delay brought none; openwrt-mcp mfa reset let the owner in at once; the owner's own five brought none, and neither the model nor any log saw a PIN"
+
+
+def check_owner_told_with_nobody_to_approve():
+    gateway_is_wired()
+    need(subprocess.run(["uci", "-q", "get", "openwrt-mcp.hermes_main_approval.approvals"], capture_output=True, text=True).stdout.strip() == "off",
+         "measured nothing: approvals are not off in this run")
+    for _ in range(5):
+        wrong_try_at_the_daemon()
+    told = wait_for(notices, "the allowed ids to be told of the tries", timeout=20)
+    need(sorted(str(c["params"].get("chat_id")) for c in told) == sorted([str(OWNER), str(SECOND)]),
+         "the notice went to %s" % [c["params"].get("chat_id") for c in told])
+    return "with two ids allowed and no approver, approvals off, five wrong tries past the chat brought the notice to both"
 
 
 def check_code_works_once():

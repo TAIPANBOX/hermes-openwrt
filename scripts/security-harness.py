@@ -345,6 +345,15 @@ def scenario_pin():
         need(not any("pin set" in a for a, _ in shim_calls()), "a PIN with %s reached openwrt-mcp" % why)
         need(status()["pin_set"] is False, "pin_set after a PIN with %s" % why)
         need(not os.path.exists("/etc/openwrt-mcp/pin") or CLIENT not in open("/etc/openwrt-mcp/pin").read(), "a PIN with %s was stored" % why)
+    # one of the PINs a guesser tries first is refused by openwrt-mcp, and the page is told that, in
+    # the page's own words and never with the PIN in them, not that something went wrong
+    for pin in ("1234", "0000", "123456", "87654321"):
+        r, text = ubus("set_pin", {"pin": pin, "again": pin})
+        need(r.get("ok") is False, "set_pin took the common PIN %s" % pin)
+        need("most common" in r.get("error", ""), "the refusal of a common PIN does not say why: %s" % r.get("error"))
+        need(pin not in r.get("error", ""), "the refusal repeats the PIN")
+        need(status()["pin_set"] is False, "pin_set after a common PIN")
+    open(SHIM_LOG, "w").close()
     # and a factor that needs a PIN cannot be chosen while none exists
     r, _ = ubus("set_factor", {"factor": "pin", "window": "15m", "max_failures": 5, "lockout": "15m"})
     need(r.get("ok") is False, "set_factor pin was accepted with no PIN set")

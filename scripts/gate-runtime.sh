@@ -35,7 +35,7 @@ RUNTIME_TESTS="$*"
 # This privileged container has a PRIVATE cgroup namespace and no writable host
 # mounts. Its root cgroup is the disposable container, never the host namespace.
 docker run -v "$ROOT/scripts/apk-retry.sh:/apk-retry.sh:ro" ${APK_CACHE:+-v "$APK_CACHE:/apk-cache"} --rm -i --platform "linux/$ARCH" --privileged --cgroupns private --memory 1g \
-    -e RUNTIME_TESTS="$RUNTIME_TESTS" -e LLM_GATEWAY_DIR=/llm-gateway -v "$LLMGW:/llm-gateway:ro" \
+    -e RUNTIME_TESTS="$RUNTIME_TESTS" -e TEETH_ONLY="${TEETH_ONLY:-}" -e LLM_GATEWAY_DIR=/llm-gateway -v "$LLMGW:/llm-gateway:ro" \
     -v "$ROOT:/src:ro" -v "$BUILD:/build:ro" -v "$BUILD-telegram:/addon:ro" -v "$MCP:/openwrt-mcp.apk:ro" "$IMAGE" sh -s <<'CONTAINER'
 . /apk-retry.sh  # apk retries a download the feed cut off; see the file
 set -eu
@@ -60,6 +60,8 @@ export PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1
 # Assert tests use precisely the code installed from the archive.
 mkdir /tmp/product
 cp /usr/sbin/hermes-gateway /tmp/product/hermes-gateway
+# As shipped: the file under /etc/config loses its comments at the first `uci commit`.
+cp /etc/config/hermes /tmp/product/hermes-agent.config
 cp /etc/init.d/hermes-agent /tmp/product/hermes-agent.init
 cp /usr/libexec/hermes-set-toolsets /tmp/product/set-toolsets.py
 cp /usr/libexec/hermes-memory /tmp/product/memory-limit.py

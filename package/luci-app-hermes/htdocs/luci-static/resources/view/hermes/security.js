@@ -36,6 +36,11 @@
  * servers, an open Wi-Fi into a trusted network, a guard stopped, a reboot) until that one change is
  * approved in Telegram with the PIN and an app code. The approver is one of the Telegram ids allowed to talk to the agent, and the
  * page offers only those; with exactly one allowed, that one approves unless another is chosen.
+ *
+ * What the agent's own connections reach (hermes-agent 0.21.5-r21): limited or open, and the hosts of
+ * the house the owner adds, as host:port lines the page holds to the shape the agent reads. And the
+ * wrong tries on record (openwrt-mcp 0.5.0.8), which survive a restart: the count, and a Reset that
+ * runs `openwrt-mcp mfa reset`, the way out for an owner a guesser has left waiting.
  */
 
 var callStatus   = rpc.declare({ object: 'hermes', method: 'security_status' });
@@ -46,11 +51,19 @@ var callActivate = rpc.declare({ object: 'hermes', method: 'enrol_activate', par
 var callFactor   = rpc.declare({ object: 'hermes', method: 'set_factor', params: ['factor', 'window', 'max_failures', 'lockout'] });
 var callPackages = rpc.declare({ object: 'hermes', method: 'set_packages', params: ['packages'] });
 var callApprover = rpc.declare({ object: 'hermes', method: 'set_approver', params: ['approver_id'] });
+var callNetwork  = rpc.declare({ object: 'hermes', method: 'set_network', params: ['agent_network', 'lan_allow'] });
+var callReset    = rpc.declare({ object: 'hermes', method: 'reset_tries' });
 
 /* The same shapes the backend and the init accept, so nothing is sent that would be refused. */
 var PIN = /^[0-9]{4,8}$/;
 var CODE = /^[0-9]{6}$/;
 var DURATION = /^([0-9]+(\.[0-9]+)?(s|m|h))+$|^[0-9]+(\.[0-9]+)?d$/;
+var LAN_ALLOW = /^([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\]):([0-9]{1,5})$/;
+
+function lanAllowOk(line) {
+	var m = LAN_ALLOW.exec(line);
+	return !!m && +m[3] >= 1 && +m[3] <= 65535;
+}
 
 function factors() {
 	return [
@@ -163,12 +176,13 @@ return view.extend({
 			[_('PIN'), pill(st.pin_set, _('set'), _('not set'))],
 			[_('Phone'), E('span', {}, phone)],
 			[_('Unlock window'), E('span', {}, st.window)],
-			[_('Wrong tries before a lockout'), E('span', {}, String(st.max_failures))],
-			[_('Lockout'), E('span', {}, st.lockout)],
+			[_('Wrong tries before the first wait'), E('span', {}, String(st.max_failures))],
+			[_('First wait after them'), E('span', {}, st.lockout)],
 			[_('Package installs'), E('span', {}, st.packages === 'official' ? _('on: the official OpenWrt feed only') : (st.packages === 'invalid' ? _('not a value the service accepts') : _('off')))],
 			[_('Who approves high-impact changes'), st.approver
 				? E('span', {}, [ _('Telegram id %s').format(st.approver), ' ', pill(!!st.approvals_ready, _('ready'), _('needs a PIN and a phone')) ])
-				: pill(false, '', _('nobody: they are refused'))]
+				: pill(false, '', _('nobody: they are refused'))],
+			[_("The agent's network"), E('span', {}, st.agent_network === 'open' ? _('open: nothing is limited') : (st.agent_network === 'invalid' ? _('not a value the service accepts') : _('limited')))]
 		];
 		var table = E('table', { 'class': 'table' }, facts.map(function (r) {
 			return E('tr', { 'class': 'tr' }, [
@@ -229,7 +243,7 @@ return view.extend({
 		var pinSection = E('div', { 'class': 'cbi-section', 'id': 'hermes-sec-pin-section' }, [
 			E('h3', {}, _('PIN')),
 			E('p', { 'class': 'cbi-section-descr' }, (st.pin_set ? _('A PIN is set. ') : _('No PIN is set. ')) +
-				_('4 to 8 digits. The router keeps only a salted hash of it, so this page can say that a PIN is set and never what it is.')),
+				_('4 to 8 digits. The router keeps only a salted hash of it, so this page can say that a PIN is set and never what it is. It refuses the PINs a guesser tries first, such as 1234.')),
 			row(st.pin_set ? _('New PIN') : _('PIN'), pinA),
 			row(_('Again'), pinB),
 			E('div', { 'class': 'cbi-page-actions' }, [ setPin, ' ', clearPin, clearWhy ? E('p', { 'class': 'cbi-value-description' }, clearWhy) : '' ])
@@ -339,8 +353,8 @@ return view.extend({
 				/* A stale tab, a script or a hand-edited page can tick what is disabled; it goes no further. */
 				if (!allowed(f, st)) return fail(_('That choice needs something that is not set up yet, so it cannot be saved.'));
 				if (!DURATION.test(win)) return fail(_('The unlock window is a duration such as 15m, 1h or 1d.'));
-				if (!/^[0-9]{1,2}$/.test(max) || +max < 1) return fail(_('Wrong tries before a lockout is a whole number from 1 to 99.'));
-				if (!DURATION.test(lock)) return fail(_('The lockout is a duration such as 15m, 1h or 1d.'));
+				if (!/^[0-9]{1,2}$/.test(max) || +max < 1) return fail(_('Wrong tries before the first wait is a whole number from 1 to 99.'));
+				if (!DURATION.test(lock)) return fail(_('The first wait is a duration such as 15m, 1h or 1d.'));
 				return callFactor(f, win, +max, lock).then(function (r) {
 					if (!r || r.ok === false)
 						return fail((r && r.error) || _('The choice was not saved.'));
@@ -348,6 +362,12 @@ return view.extend({
 					window.location.reload();
 				}, function () { fail(_('The choice was not saved: the router did not answer.')); });
 			}) }, _('Save'));
+
+		/* Beside the choice, and an alert when it is the factor in force. There is no last try: a
+		 * PIN of four digits falls to one try an hour in about fourteen months. */
+		var pinAlone = E('div', { 'id': 'hermes-sec-pin-alone', 'style': 'margin-left:1.6em',
+			'class': st.factor === 'pin' ? 'alert-message warning' : 'cbi-value-description' },
+			_('A PIN alone is the weakest choice. Wrong tries cost a wait of up to an hour and there is no last try, so someone patient gets through every four-digit PIN in about fourteen months. PIN and app code does not have this problem.'));
 
 		var factorSection = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('What unlocking asks for')),
@@ -358,13 +378,14 @@ return view.extend({
 				E('div', { 'class': 'cbi-value-field' }, radios.map(function (r) {
 					return E('div', { 'style': 'margin-bottom:.4em' }, [
 						E('label', { 'for': 'hermes-sec-factor-' + r.value }, [ r.node, ' ', r.label[1] ]),
-						(allowed(r.value, st) && r.value !== 'none') ? '' : E('div', { 'class': 'cbi-value-description', 'style': 'margin-left:1.6em' }, r.label[2])
+						(allowed(r.value, st) && r.value !== 'none') ? '' : E('div', { 'class': 'cbi-value-description', 'style': 'margin-left:1.6em' }, r.label[2]),
+						r.value === 'pin' ? pinAlone : ''
 					]);
 				}))
 			]),
 			row(_('Unlock window'), inWindow, _('How long one unlock keeps changes open, such as 15m.')),
-			row(_('Wrong tries'), inMax, _('Wrong tries in a row before unlocking is refused, 1 to 99.')),
-			row(_('Lockout'), inLockout, _('How long unlocking is refused after that, such as 15m.')),
+			row(_('Wrong tries'), inMax, _('Wrong tries in a row before the first wait, 1 to 99.')),
+			row(_('First wait'), inLockout, _('How long unlocking is refused after them, such as 15m. Each further wrong try doubles it, up to an hour, and there is no last try: a wait ends by itself.')),
 			E('div', { 'class': 'cbi-page-actions' }, [ save ])
 		]);
 
@@ -451,6 +472,67 @@ return view.extend({
 			E('div', { 'class': 'cbi-page-actions' }, [ apSave ])
 		]);
 
+		/* ---- wrong tries on record ---- */
+		var triesSection = '';
+		if (st.tries_counted) {
+			var resetAttrs = { 'class': 'cbi-button cbi-button-action', 'id': 'hermes-sec-tries-reset',
+				'click': ui.createHandlerFn(this, function () {
+					return callReset().then(function (r) {
+						if (!r || r.ok === false)
+							return fail((r && r.error) || _('The count was not cleared.'));
+						flash.keep(_('Cleared. Unlocking is open again, at once.'), 'info');
+						window.location.reload();
+					}, function () { fail(_('The count was not cleared: the router did not answer.')); });
+				}) };
+			if (!st.failed_tries) resetAttrs.disabled = 'disabled';
+			triesSection = E('div', { 'class': 'cbi-section', 'id': 'hermes-sec-tries-section' }, [
+				E('h3', {}, _('Wrong tries')),
+				E('p', { 'class': 'cbi-section-descr' }, _('Wrong tries in a row count against unlocking and approving, yours and anyone else\'s alike. Past the limit each one costs a wait that doubles up to an hour, for you too, and neither a restart nor a reboot clears them. A right answer does, and so does a day with none. If some of them did not come from your Telegram chat, the bot tells you there.')),
+				row(_('On record'), E('strong', { 'id': 'hermes-sec-tries' }, String(st.failed_tries))),
+				st.tries_saved === false ? E('div', { 'class': 'alert-message warning' }, _('openwrt-mcp cannot save this count right now, its storage may be full, so it counts in memory and this number can be behind.')) : '',
+				E('div', { 'class': 'cbi-page-actions' }, [ E('button', resetAttrs, _('Reset')) ])
+			]);
+		}
+
+		/* ---- what the agent's own connections reach ---- */
+		var netSel = E('select', { 'id': 'hermes-sec-network', 'class': 'cbi-input-select' }, [
+			E('option', { 'value': 'limited' }, _('Limited')),
+			E('option', { 'value': 'open' }, _('Open'))
+		]);
+		netSel.value = st.agent_network === 'open' ? 'open' : 'limited';
+		/* A textarea takes its text as a value, not as an attribute. */
+		var netHosts = E('textarea', { 'id': 'hermes-sec-lan-allow', 'class': 'cbi-input-textarea', 'rows': '3', 'style': 'width:100%',
+			'autocomplete': 'off', 'spellcheck': 'false', 'placeholder': 'nas.lan:445' });
+		netHosts.value = (st.lan_allow || []).join('\n');
+		var netSave = E('button', { 'class': 'cbi-button cbi-button-save', 'id': 'hermes-sec-network-save',
+			'click': ui.createHandlerFn(this, function () {
+				var want = netSel.value;
+				var hosts = netHosts.value.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l !== ''; });
+				var bad = hosts.filter(function (l) { return !lanAllowOk(l); })[0];
+				/* A stale tab or a script can put anything here; only what the service accepts goes. */
+				if (want !== 'limited' && want !== 'open') return fail(_('The agent\'s network is limited or open.'));
+				if (bad !== undefined) return fail(_('%s is not host:port, or [IPv6 address]:port, with a port from 1 to 65535.').format(bad));
+				return callNetwork(want, hosts).then(function (r) {
+					if (!r || r.ok === false)
+						return fail((r && r.error) || _('The choice was not saved.'));
+					flash.keep(_('Saved. The agent restarts to apply it.'), 'info');
+					window.location.reload();
+				}, function () { fail(_('The choice was not saved: the router did not answer.')); });
+			}) }, _('Save'));
+		var netWhy = '';
+		if (st.agent_network === 'invalid')
+			netWhy = E('div', { 'class': 'alert-message warning' }, _('hermes.security.agent_network holds a value the service does not accept, so it will not start. Save here to put it back to limited or open.'));
+		else if (st.agent_network === 'open')
+			netWhy = E('div', { 'class': 'alert-message warning', 'id': 'hermes-sec-network-open' }, _('The agent\'s connections are not limited: it reaches SSH and LuCI on this router, its other services and every host of your house.'));
+		var networkSection = E('div', { 'class': 'cbi-section', 'id': 'hermes-sec-network-section' }, [
+			E('h3', {}, _('What the agent reaches')),
+			E('p', { 'class': 'cbi-section-descr' }, _('Limited needs nothing from you: the agent keeps the internet, DNS, openwrt-mcp, llm-gateway and the model endpoints named in its settings, wherever they are, and loses SSH, LuCI and everything else on this router\'s own addresses, the other hosts of your house, over IPv4 or IPv6, and your tailnet. This is about the agent alone: your own SSH and LuCI are not touched.')),
+			netWhy,
+			row(_('The agent\'s network'), netSel),
+			row(_('Hosts it may also reach'), netHosts, _('One host of your house per line, as host:port or [IPv6 address]:port, over TCP and UDP. Not for a model endpoint: the ones named in the settings already work. SSH and LuCI on this router stay closed whatever a line says.')),
+			E('div', { 'class': 'cbi-page-actions' }, [ netSave ])
+		]);
+
 		var note = E('p', { 'class': 'cbi-section-descr' }, _('The unlock window that is open right now cannot be shown here: openwrt-mcp keeps it in memory only. /lock in the Telegram chat closes it at once.'));
 		var plain = window.location.protocol === 'http:'
 			? E('div', { 'class': 'alert-message warning' }, _('This page is not served over HTTPS, so a PIN or a QR code sent from here crosses your network unencrypted. On a network you do not trust, use the SSH way in the README instead.'))
@@ -465,7 +547,9 @@ return view.extend({
 			pinSection,
 			phoneSection,
 			factorSection,
+			triesSection,
 			approverSection,
+			networkSection,
 			packagesSection
 		]);
 	},

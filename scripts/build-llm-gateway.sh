@@ -14,7 +14,13 @@
 # option is the owner's choice, and the gate installs what a test needs and takes it away after.
 # The Go binary is cross-compiled on the host, as that repository's mkapk.sh is handed one;
 # nothing is installed: only `go` is used, which build-openwrt-mcp.sh already needs.
+#
+# Static, CGO_ENABLED=0: the rootfs is musl, and Go's own os/user is what finds the program's account
+# in /etc/passwd. Only the commit below is built, the one CI checks out; ANY_COMMIT=1 builds another
+# by hand, for a look at a change of that repository.
 set -eu
+
+LLM_GATEWAY_COMMIT=6f623c4415100709e47c81bacbdebdfd04178f52
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${1:-aarch64_generic}
@@ -31,6 +37,9 @@ case "$ARCH" in
 	*) echo "build-llm-gateway: unknown apk architecture $ARCH" >&2; exit 1 ;;
 esac
 
+HEAD=$(cd "$SRC" && git rev-parse HEAD 2>/dev/null || echo unknown)
+[ "$HEAD" = "$LLM_GATEWAY_COMMIT" ] || [ -n "${ANY_COMMIT:-}" ] || {
+	echo "build-llm-gateway: $SRC is at $HEAD, and this repository is tested against $LLM_GATEWAY_COMMIT" >&2; exit 1; }
 COMMIT=$(cd "$SRC" && git rev-parse --short HEAD 2>/dev/null || echo unknown)
 rm -rf "$OUT"
 mkdir -p "$OUT"

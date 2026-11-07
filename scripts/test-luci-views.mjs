@@ -358,7 +358,8 @@ check('check_llm_gateway_switch_leaves_the_endpoint_alone', async () => {
 
 const READY = { applies: true, profile: 'owner', mcp_ok: true, paired: true, factor: 'none', factor_ready: true,
 	window: '15m', max_failures: 5, lockout: '15m', pin_set: false, totp_enrolled: false, totp_pending: false, packages: 'off',
-	approver_id: '', approver_choices: [], approver: '', approvals_ready: false };
+	approver_id: '', approver_choices: [], approver: '', approvals_ready: false,
+	agent_network: 'limited', lan_allow: [], failed_tries: 0, tries_counted: true, tries_saved: true };
 const statusOf = (over) => ({ ...READY, ...over });
 const clickOf = (w, id) => { const n = byId(w.page, id); assert(n, `the page has no #${id}`); return n; };
 const press = (w, id) => clickOf(w, id).attrs.click({ currentTarget: {}, target: {} });
@@ -722,6 +723,136 @@ check('check_security_approver_offered_only_from_the_allowed_ids', async () => {
 	await press(w, 'hermes-sec-approver-save');
 	assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('the router said no')), 'a refused choice was not reported');
 	assert(w.reloads === 0, 'a refused choice reloaded the page');
+});
+
+check('check_security_network_limits_offered_on_the_page', async () => {
+	// What the agent's own connections reach (0.21.5-r21, LuCI r6): limited or open, and the hosts of
+	// the house the owner adds. The page sends limited or open and well-formed host:port lines, one
+	// per line of the field, or nothing, and it says what open means.
+	const sel = (w) => byId(w.page, 'hermes-sec-network');
+	const area = (w) => byId(w.page, 'hermes-sec-lan-allow');
+	const sent = (w) => w.calls.filter(c => c.method === 'hermes.set_network').map(c => c.args);
+
+	let w = world({ 'hermes.security_status': statusOf({ lan_allow: ['nas.lan:445', '[fd00:1::50]:8080'] }), 'hermes.set_network': { ok: true } });
+	await open(w, 'security');
+	assert(sel(w), 'the page has no #hermes-sec-network');
+	assert(area(w), 'the page has no #hermes-sec-lan-allow');
+	assert(JSON.stringify(sel(w).children.map(o => o.attrs.value)) === '["limited","open"]', 'the page offers something other than limited and open');
+	assert(sel(w).value === 'limited', `the choice reads ${sel(w).value}, not limited`);
+	assert(area(w).value === 'nas.lan:445\n[fd00:1::50]:8080', `the field holds ${JSON.stringify(area(w).value)}`);
+	const section = () => textOf(byId(w.page, 'hermes-sec-network-section'));
+	assert(/SSH/.test(section()) && /LuCI/.test(section()) && /house/.test(section()), 'the section does not say what limited closes');
+	assert(!byId(w.page, 'hermes-sec-network-open'), 'limited is warned about as if it were open');
+
+	// A line hermes-net could not read goes nowhere, and the page names it.
+	for (const bad of ['nas.lan', 'x:y', 'nas lan:445', '1.2.3.4:99999', 'nas.lan:0', 'nas.lan:445;reboot', '[fd00::5:80']) {
+		area(w).value = 'nas.lan:445\n' + bad;
+		w.notes.length = 0;
+		await press(w, 'hermes-sec-network-save');
+		assert(!sent(w).length, `the line "${bad}" was sent: ${JSON.stringify(sent(w))}`);
+		assert(w.notes.some(n => n.kind === 'danger' && n.text.includes(bad)), `the refusal does not name "${bad}"`);
+	}
+
+	// Blank lines and spaces around a line are not entries; what is left is sent, and the page reloads.
+	sel(w).value = 'open';
+	area(w).value = '  nas.lan:445 \n\n[fd00:1::50]:8080\n';
+	await press(w, 'hermes-sec-network-save');
+	assert(JSON.stringify(sent(w)) === '[["open",["nas.lan:445","[fd00:1::50]:8080"]]]', `the page sent ${JSON.stringify(sent(w))}`);
+	assert(w.reloads === 1, 'a saved choice did not reload the page');
+
+	// An empty field is an empty list; a value a script puts in the select goes nowhere.
+	w = world({ 'hermes.security_status': statusOf(), 'hermes.set_network': { ok: true } });
+	await open(w, 'security');
+	await press(w, 'hermes-sec-network-save');
+	assert(JSON.stringify(sent(w)) === '[["limited",[]]]', `an empty field sent ${JSON.stringify(sent(w))}`);
+	w = world({ 'hermes.security_status': statusOf(), 'hermes.set_network': { ok: true } });
+	await open(w, 'security');
+	sel(w).value = 'off';
+	await press(w, 'hermes-sec-network-save');
+	assert(!sent(w).length, 'a choice that is neither limited nor open was sent');
+
+	// Open is said to be open; a value the service refuses is said to be one.
+	w = world({ 'hermes.security_status': statusOf({ agent_network: 'open' }) });
+	await open(w, 'security');
+	assert(sel(w).value === 'open', 'open reads as something else');
+	assert(byId(w.page, 'hermes-sec-network-open'), 'open is not warned about');
+	w = world({ 'hermes.security_status': statusOf({ agent_network: 'invalid' }) });
+	await open(w, 'security');
+	assert(/does not accept/.test(textOf(byId(w.page, 'hermes-sec-network-section'))), 'a value the service refuses is not said to be one');
+
+	// What the router refuses is shown, and nothing reloads.
+	w = world({ 'hermes.security_status': statusOf(), 'hermes.set_network': { ok: false, error: 'the router said no' } });
+	await open(w, 'security');
+	await press(w, 'hermes-sec-network-save');
+	assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('the router said no')), 'a refused save was not reported');
+	assert(w.reloads === 0, 'a refused save reloaded the page');
+
+	// Outside the owner profile there is none of it.
+	w = world({ 'hermes.security_status': statusOf({ applies: false, profile: 'root' }) });
+	await open(w, 'security');
+	assert(!sel(w) && !area(w), 'the root profile page offers the network limits');
+});
+
+check('check_security_failed_tries_shown_with_a_reset', async () => {
+	// Wrong tries on record, for the owner who is waiting or wants to know (openwrt-mcp 0.5.0.8): the
+	// count, what it does, and a Reset that calls the backend. Nothing to reset, nothing to press.
+	const button = (w) => byId(w.page, 'hermes-sec-tries-reset');
+	const sent = (w) => w.calls.filter(c => c.method === 'hermes.reset_tries').length;
+
+	let w = world({ 'hermes.security_status': statusOf({ failed_tries: 7 }), 'hermes.reset_tries': { ok: true, failed_tries: 0 } });
+	await open(w, 'security');
+	assert(button(w), 'the page has no #hermes-sec-tries-reset');
+	assert(!button(w).disabled, 'with seven failed tries Reset cannot be pressed');
+	const section = () => textOf(byId(w.page, 'hermes-sec-tries-section'));
+	assert(/\b7\b/.test(section()), `the section does not show the count: ${section().slice(0, 120)}`);
+	assert(/hour/.test(section()) && /restart/.test(section()), 'the section does not say the wait grows to an hour and that a restart does not clear it');
+	await press(w, 'hermes-sec-tries-reset');
+	assert(sent(w) === 1, 'Reset did not call reset_tries');
+	assert(w.reloads === 1, 'a reset did not reload the page');
+
+	w = world({ 'hermes.security_status': statusOf({ failed_tries: 0 }), 'hermes.reset_tries': { ok: true } });
+	await open(w, 'security');
+	assert(button(w).disabled, 'with nothing on record Reset can be pressed');
+
+	// What the router refuses is shown, and nothing reloads.
+	w = world({ 'hermes.security_status': statusOf({ failed_tries: 2 }), 'hermes.reset_tries': { ok: false, error: 'the router said no' } });
+	await open(w, 'security');
+	await press(w, 'hermes-sec-tries-reset');
+	assert(w.notes.some(n => n.kind === 'danger' && n.text.includes('the router said no')), 'a refused reset was not reported');
+	assert(w.reloads === 0, 'a refused reset reloaded the page');
+
+	// A count the disk would not take is said to be behind, and an openwrt-mcp with no count shows none.
+	w = world({ 'hermes.security_status': statusOf({ failed_tries: 2, tries_saved: false }) });
+	await open(w, 'security');
+	assert(/memory/.test(textOf(byId(w.page, 'hermes-sec-tries-section'))), 'a count that is not reaching the disk is not said to be behind');
+	w = world({ 'hermes.security_status': statusOf({ tries_counted: false }) });
+	await open(w, 'security');
+	assert(!button(w), 'an openwrt-mcp that keeps no count offers a Reset');
+	// The lockout's own field says what it now is.
+	w = world({ 'hermes.security_status': statusOf() });
+	await open(w, 'security');
+	assert(/doubl/i.test(textOf(w.page)) && /up to an hour/i.test(textOf(w.page)), 'the lockout is still described as one fixed wait');
+});
+
+check('check_security_pin_alone_is_warned', async () => {
+	// A PIN alone has no last try, so a patient guesser gets through every four digits in about
+	// fourteen months at one an hour; a PIN and an app code do not have that problem. The warning stands
+	// beside the choice, and turns into an alert when that is the factor in force.
+	const near = (w) => byId(w.page, 'hermes-sec-pin-alone');
+	let w = world({ 'hermes.security_status': statusOf({ pin_set: true }) });
+	await open(w, 'security');
+	assert(near(w), 'the page has no #hermes-sec-pin-alone');
+	assert(/fourteen months/.test(textOf(near(w))), `the warning does not say what it costs: ${textOf(near(w)).slice(0, 120)}`);
+	assert(/PIN and app code/i.test(textOf(near(w))), 'the warning does not say what to choose instead');
+	assert(near(w).attrs.class !== 'alert-message warning', 'the warning is an alert with another factor in force');
+	const inPlace = find(w.page, n => n.tag === 'div' && n.children.includes(near(w)) && walk(n).some(x => x.attrs?.id === 'hermes-sec-factor-pin'));
+	assert(inPlace.length, 'the warning is not beside the PIN choice');
+	w = world({ 'hermes.security_status': statusOf({ pin_set: true, factor: 'pin' }) });
+	await open(w, 'security');
+	assert(near(w).attrs.class === 'alert-message warning', 'with PIN alone in force the warning is not an alert');
+	w = world({ 'hermes.security_status': statusOf({ pin_set: true, totp_enrolled: true, factor: 'pin+totp' }) });
+	await open(w, 'security');
+	assert(near(w).attrs.class !== 'alert-message warning', 'with a PIN and an app code in force the warning is an alert');
 });
 
 for (const [name, fn] of Object.entries(checks)) {

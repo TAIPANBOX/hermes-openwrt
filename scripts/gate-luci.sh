@@ -25,7 +25,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_packages_written_only_with_a_factor check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_chosen_only_from_the_allowed_ids check_security_approver_offered_only_from_the_allowed_ids check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_packages_written_only_with_a_factor check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_chosen_only_from_the_allowed_ids check_security_approver_offered_only_from_the_allowed_ids check_security_network_limits_written_only_as_the_agent_reads_them check_security_network_limits_offered_on_the_page check_security_failed_tries_reset_through_openwrt_mcp check_security_failed_tries_shown_with_a_reset check_security_pin_alone_is_warned check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -482,9 +482,10 @@ st=$(sec_get) || sf "the call failed"
 want "$st" profile owner; want "$st" applies true; want "$st" mcp_ok true; want "$st" paired true
 want "$st" factor none; want "$st" factor_ready true; want "$st" window 15m; want "$st" max_failures 5; want "$st" lockout 15m
 want "$st" pin_set false; want "$st" totp_enrolled false; want "$st" totp_pending false; want "$st" packages off
+want "$st" agent_network limited; want "$st" failed_tries 0; want "$st" tries_counted true; want "$st" tries_saved true
 # Exactly these facts and no other key: a debugging field added later is the way a secret gets in.
 keys_of() { ( set +u; . /usr/share/libubox/jshn.sh; json_load "$1"; json_get_keys k; echo "$k" | tr ' ' '\n' | sort | tr '\n' ' ' ); }
-[ "$(keys_of "$st")" = "applies approvals_ready approver approver_choices approver_id factor factor_ready lockout max_failures mcp_ok packages paired pin_set profile totp_enrolled totp_pending window " ] \
+[ "$(keys_of "$st")" = "agent_network applies approvals_ready approver approver_choices approver_id factor factor_ready failed_tries lan_allow lockout max_failures mcp_ok packages paired pin_set profile totp_enrolled totp_pending tries_counted tries_saved window " ] \
 	|| sf "the reply carries other keys than the facts: $(keys_of "$st")"
 # It follows what openwrt-mcp holds.
 SECRETPIN=73195028
@@ -788,6 +789,91 @@ rm -rf /etc/openwrt-mcp/pin /etc/openwrt-mcp/mfa*; $MCP unpair hermes-main >/dev
 { uci -q delete hermes.security.approver_id || true; }; { uci -q delete hermes.telegram.allow_user_id || true; }; uci commit hermes
 echo "PASS check_security_approver_chosen_only_from_the_allowed_ids"
 
+# ---- 18e. what the agent's own connections reach: limited or open, and the hosts the owner adds ----
+# hermes.security.agent_network is limited or open, and anything else refuses the start, so this page
+# must not save anything else; lan_allow holds host:port lines, and an entry hermes-net cannot read
+# opens nothing, so the page must not store one and say it was saved. They are written the way
+# set_factor writes, a list replaced whole, without another session's staged changes, and procd is
+# told once, which restarts the agent, whose start applies the rules.
+nw() { fail check_security_network_limits_written_only_as_the_agent_reads_them "$1"; }
+$MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || nw "could not pair"
+uci set hermes.main.profile=owner; { uci -q delete hermes.security.agent_network || true; }; { uci -q delete hermes.security.lan_allow || true; }; uci commit hermes
+service_standin check_security_network_limits_written_only_as_the_agent_reads_them
+sn_call() { ubus call hermes set_network "$1" 2>&1; }
+nw_get() { ubus call hermes security_status 2>/dev/null | jsonfilter -e "@.$1"; }
+nw_list() { ubus call hermes security_status 2>/dev/null | jsonfilter -e '@.lan_allow[*]' | tr '\n' ' '; }
+[ "$(nw_get agent_network)" = limited ] || nw "with nothing set the page reads '$(nw_get agent_network)', not limited"
+before=$(md5sum < /etc/config/hermes)
+for v in closed Open '' '$(id)' 'open;reboot' 'limited open'; do
+	out=$(sn_call "{\"agent_network\":\"$v\",\"lan_allow\":[]}"); echo "$out" | grep -q '"ok": false' || { echo "$out"; nw "agent_network '$v' was accepted"; }
+done
+for v in nas.lan 'nas.lan:' ':445' 'nas lan:445' 'nas.lan:445;reboot' 'nas.lan:99999' 'nas.lan:0' 'x:y' '$(id):80' 'nas.lan:445/x' '[fd00::5:8080' '[zz]:80' "nas'lan:80" '-x.lan:80'; do
+	out=$(sn_call "{\"agent_network\":\"limited\",\"lan_allow\":[\"nas.lan:445\",\"$v\"]}"); echo "$out" | grep -q '"ok": false' || { echo "$out"; nw "the entry '$v' was accepted"; }
+	echo "$out" | grep -qi 'host:port' || nw "the refusal of '$v' does not say what an entry looks like: $out"
+done
+sleep 1
+[ "$(md5sum < /etc/config/hermes)" = "$before" ] || nw "a refused set_network changed /etc/config/hermes"
+[ "$(hermes_events)" = 0 ] || nw "a refused set_network told procd the config changed"
+rm -f /tmp/service-events
+out=$(sn_call '{"agent_network":"open","lan_allow":["nas.lan:445","192.168.1.50:80","[fd00:1::50]:8080"]}'); echo "$out" | grep -q '"ok": true' || { echo "$out"; nw "a good set_network was refused"; }
+[ "$(uci -q get hermes.security.agent_network)" = open ] || nw "open was answered ok and not written"
+[ "$(uci -q get hermes.security.lan_allow)" = "nas.lan:445 192.168.1.50:80 [fd00:1::50]:8080" ] || nw "the list reads '$(uci -q get hermes.security.lan_allow)'"
+[ "$(nw_get agent_network)" = open ] && [ "$(nw_list)" = "nas.lan:445 192.168.1.50:80 [fd00:1::50]:8080 " ] || nw "the status does not read back what was saved: $(nw_list)"
+i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+sleep 1; [ "$(hermes_events)" = 1 ] || nw "one save told procd $(hermes_events) times that hermes changed, not once"
+# A list saved again replaces the old one, and another page's staged edit is left staged.
+uci set hermes.main.max_turns=34
+out=$(sn_call '{"agent_network":"limited","lan_allow":["nas.lan:445"]}'); echo "$out" | grep -q '"ok": true' || { echo "$out"; nw "the second save was refused"; }
+[ "$(uci -q get hermes.security.lan_allow)" = nas.lan:445 ] || nw "the list was not replaced: $(uci -q get hermes.security.lan_allow)"
+grep -q "max_turns '34'" /etc/config/hermes && nw "set_network committed another page's staged change with its own"
+[ -n "$(uci changes hermes)" ] || nw "set_network swallowed another page's staged change"
+uci revert hermes
+out=$(sn_call '{"agent_network":"limited","lan_allow":[]}'); echo "$out" | grep -q '"ok": true' || { echo "$out"; nw "an empty list was refused"; }
+[ -z "$(uci -q get hermes.security.lan_allow)" ] || nw "an empty list left '$(uci -q get hermes.security.lan_allow)'"
+# A value the service would refuse to start on is shown as one, never as limited or open.
+uci set hermes.security.agent_network=bogus; uci commit hermes
+[ "$(nw_get agent_network)" = invalid ] || nw "an unknown agent_network reads '$(nw_get agent_network)', not invalid"
+service_standin_gone
+$MCP unpair hermes-main >/dev/null 2>&1 || true
+{ uci -q delete hermes.security.agent_network || true; }; uci commit hermes
+echo "PASS check_security_network_limits_written_only_as_the_agent_reads_them"
+
+# ---- 18f. failed tries on record, read from openwrt-mcp and reset through it ----
+# The count is openwrt-mcp's, on its own file, and only root ends it: the page asks `status` and runs
+# `mfa reset`, and touches neither the file nor anything else. Without the capability the binary has
+# no such command, so the page is told and the call refuses.
+ft() { fail check_security_failed_tries_reset_through_openwrt_mcp "$1"; }
+# The page calls `mfa reset`, so it asks for the first openwrt-mcp that has it, whatever the agent asks.
+deps=$( { apk info -R luci-app-hermes 2>/dev/null; sed -n '/^P:luci-app-hermes$/,/^$/s/^D://p' /lib/apk/db/installed 2>/dev/null; } | tr ' ' '\n')
+echo "$deps" | grep -qx luci-base || ft "measured nothing: the page's dependencies could not be read"
+echo "$deps" | grep -qx 'openwrt-mcp>=0.5.0.8' || ft "the page does not require openwrt-mcp 0.5.0.8 or later: $(echo "$deps" | grep openwrt-mcp | sort -u | tr '\n' ' ')"
+$MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || ft "could not pair"
+uci set hermes.main.profile=owner; uci commit hermes
+rm -f /etc/openwrt-mcp/throttle
+out=$(ubus call hermes reset_tries 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ft "a reset with nothing on record was refused"; }
+printf '# openwrt-mcp second-factor throttle, format 1. Do not edit; use: openwrt-mcp mfa reset <client>\nhermes-main 7 0\nsomeone-else 3 0\n' > /etc/openwrt-mcp/throttle
+chmod 600 /etc/openwrt-mcp/throttle
+st=$(sec_get); [ "$(echo "$st" | jsonfilter -e '@.failed_tries')" = 7 ] || ft "the page reads $(echo "$st" | jsonfilter -e '@.failed_tries') failed tries, not 7"
+out=$(ubus call hermes reset_tries 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ft "the reset was refused"; }
+[ "$(sec_get | jsonfilter -e '@.failed_tries')" = 0 ] || ft "after the reset the page reads a count"
+grep -q '^hermes-main 0 ' /etc/openwrt-mcp/throttle || ft "the reset did not reach openwrt-mcp's file: $(cat /etc/openwrt-mcp/throttle)"
+grep -q '^someone-else 3 ' /etc/openwrt-mcp/throttle || ft "the reset took another client's count with it"
+# A binary with no such guarantee: the page is told, and the call refuses and runs nothing.
+mv $MCP $MCP.real
+{ printf '%s\n' '#!/bin/sh' 'echo "$*" >> /tmp/mcp-calls' 'if [ "$1" = status ]; then' \
+	"	$MCP.real \"\$@\" | sed '/second_factor_throttle_persisted/d'" '	exit' 'fi' "exec $MCP.real \"\$@\""; } > $MCP
+chmod 755 $MCP
+: > /tmp/mcp-calls
+[ "$(sec_get | jsonfilter -e '@.tries_counted')" = false ] || ft "tries_counted reads true from a binary that does not report it"
+out=$(ubus call hermes reset_tries 2>&1); echo "$out" | grep -q '"ok": false' || { echo "$out"; ft "the reset was not refused by an openwrt-mcp with no count"; }
+grep -q 'mfa reset' /tmp/mcp-calls && ft "the reset ran a command that binary does not have"
+# A reset the binary refuses is reported, never answered ok.
+{ printf '%s\n' '#!/bin/sh' 'if [ "$1 $2" = "mfa reset" ]; then' '	echo "the throttle could not be saved" >&2; exit 1' 'fi' "exec $MCP.real \"\$@\""; } > $MCP
+out=$(ubus call hermes reset_tries 2>&1); echo "$out" | grep -q '"ok": false' || { echo "$out"; ft "a failed reset was answered ok"; }
+mv -f $MCP.real $MCP
+rm -f /etc/openwrt-mcp/throttle /tmp/mcp-calls; $MCP unpair hermes-main >/dev/null 2>&1 || true
+echo "PASS check_security_failed_tries_reset_through_openwrt_mcp"
+
 # ---- 19. outside the owner profile the Security calls refuse ----
 # The page says it offers nothing there, and that is the page. The backend is what a script, an
 # old tab or a hand-made request reaches, and in the root and assistant profiles the agent has no
@@ -798,7 +884,7 @@ service_standin check_security_refused_outside_the_owner_profile
 for prof in root admin assistant nonsense; do
 	uci set hermes.main.profile=$prof; uci commit hermes
 	before=$(md5sum /etc/config/hermes | cut -d' ' -f1)
-	for call in 'set_pin {"pin":"4821","again":"4821"}' 'clear_pin' 'enrol_start' 'enrol_activate {"code":"123456"}' 'set_factor {"factor":"none","window":"15m","max_failures":5,"lockout":"15m"}' 'set_packages {"packages":"off"}'; do
+	for call in 'set_pin {"pin":"4821","again":"4821"}' 'clear_pin' 'enrol_start' 'enrol_activate {"code":"123456"}' 'reset_tries' 'set_network {"agent_network":"open","lan_allow":[]}' 'set_factor {"factor":"none","window":"15m","max_failures":5,"lockout":"15m"}' 'set_packages {"packages":"off"}'; do
 		m=${call%% *}; a=; [ "$m" = "$call" ] || a=${call#* }
 		if [ -n "$a" ]; then out=$(ubus call hermes "$m" "$a" 2>&1); else out=$(ubus call hermes "$m" 2>&1); fi
 		echo "$out" | grep -q '"ok": false' || { echo "$out" | head -c 300; po "$m was not refused in the $prof profile"; }
@@ -850,7 +936,7 @@ for m in $page_methods; do
 		*) [ "$inw" = 1 ] || ag "$m is not in the write block"; [ "$inr" = 0 ] || ag "$m, which writes a secret or returns enrolment material, is in the read block" ;;
 	esac
 done
-for m in set_pin clear_pin enrol_start enrol_activate set_factor set_packages; do
+for m in set_pin clear_pin enrol_start enrol_activate set_factor set_packages set_network reset_tries; do
 	case " $page_methods " in *" $m "*) ;; *) ag "the page does not call $m" ;; esac
 done
 echo "PASS check_security_page_calls_are_granted ($(echo $page_methods | wc -w | tr -d ' ') calls read off the page)"
@@ -873,7 +959,7 @@ CONTAINER
 # (LuCI then does not reload), and an old message is not shown.
 echo "-- the views, on the installed files --"
 docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
-	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_offered_only_from_the_allowed_ids
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_offered_only_from_the_allowed_ids check_security_network_limits_offered_on_the_page check_security_failed_tries_shown_with_a_reset check_security_pin_alone_is_warned
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

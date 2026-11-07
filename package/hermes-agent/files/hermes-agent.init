@@ -750,9 +750,12 @@ start_service() {
 	fi
 
 	# The owner profile's connection to the router. Its URL is openwrt-mcp's own loopback
-	# address unless UCI says otherwise (an option set to nothing turns the connection off),
-	# its token is paired here the first time, and its policies are written here, every
-	# start, from hermes.security. A daemon that cannot be reached costs the agent its
+	# address unless UCI names another. UCI keeps no empty option: `uci set` with nothing deletes
+	# it, LuCI does the same with an empty field, and an `option router_mcp_url ''` in the file
+	# reads as not there. So that address is what an emptied option gives, and the owner profile,
+	# which reaches the router only through this, has no value that turns it off. Its token is
+	# paired here the first time, and its policies are written here, every start, from
+	# hermes.security. A daemon that cannot be reached costs the agent its
 	# router tools and not the service, like a missing token (invariant 3).
 	if [ "$profile" = owner ]; then
 		[ -n "$mcp_token_file" ] || mcp_token_file="$CONF/router-mcp.token"

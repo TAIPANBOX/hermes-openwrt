@@ -9,6 +9,7 @@ import json
 import os
 import pwd
 import random
+import re
 import shlex
 import shutil
 import subprocess
@@ -1624,6 +1625,197 @@ print(json.dumps({"seen": seen, "edits": Bot.edits, "told": told, "kept": sorted
         self.assertEqual(got["told"], [["chat-session", "[The owner approved KQWPT and it was app"],
                                        ["third-session", "[The owner rejected LATER; it was not ap"]])
 
+    TRIES_PROBE = r"""
+import asyncio, json, openwrt_unlock as u
+sent = []
+class Bot:
+    failing = 0
+    async def send_message(self, **k):
+        if Bot.failing:
+            Bot.failing -= 1
+            raise OSError("telegram is away")
+        sent.append([k["chat_id"], k["text"]])
+u._BOT = Bot()
+UNTIL = "2026-11-07T19:30:00Z"
+def row(failures, delay=True, refused=0, persisted=True, client="hermes-main", until=UNTIL):
+    r = {"client": client, "failures": failures, "limit": 5, "refused": refused, "persisted": persisted}
+    if delay:
+        r["locked_out_until"] = until
+    return r
+async def poll(*rows):
+    before = len(sent)
+    for r in rows:
+        await u._watch_tries([r])
+    return len(sent) - before
+async def tried(who=1, meanwhile=None, answer=(True, "refused: the PIN is wrong", True)):
+    loop = asyncio.get_running_loop()
+    def call(tool, args, token=None):
+        if meanwhile is not None:
+            asyncio.run_coroutine_threadsafe(meanwhile(), loop).result()
+        return answer
+    u.call_tool = call
+    async def delete():
+        return True
+    async def send(text):
+        pass
+    await u.dispatch(("unlock", "73918260"), user_id=who, chat_id=who, private=True, delete=delete, send=send)
+"""
+
+    def test_owner_told_of_tries_by_someone_else_once_per_delay(self):
+        # openwrt-mcp counts every try on the owner's client, and a stolen token and the owner's thumb
+        # look the same to it. What tells them apart is here: the plugin carried the owner's own. So
+        # what it did not carry is someone else's, and the owner hears of it once per delay, from the
+        # listing the plugin already asks for: no step, and nothing for a typo of the owner's own.
+        probe = self.TRIES_PROBE + r"""
+async def run():
+    out = {}
+    out["under the limit"] = await poll(row(1, False), row(4, False))
+    out["a delay begins"] = await poll(row(5))
+    out["the same delay"] = await poll(row(5), row(5, refused=3), row(5, refused=9))
+    out["the next delay"] = await poll(row(6))
+    out["that delay over"] = await poll(row(6, False))
+    out["another client"] = await poll(row(7, client="hermes-other"))
+    out["cleared"] = await poll(row(0, False))
+    out["begins again"] = await poll(row(5))
+    await poll(row(0, False))
+    own = 0
+    for n in range(1, 6):
+        await tried()
+        own += await poll(row(n, n == 5))
+    out["the owner's own five"] = own
+    out["refused in the owner's delay"] = await poll(row(5, refused=2), row(5, refused=4))
+    await poll(row(0, False))
+    # The listing can land while a try of the owner's is on its way back: the daemon has counted it
+    # and the plugin has not heard. It waits for the answer, and the try is the owner's.
+    for n in range(1, 5):
+        await tried()
+        await poll(row(n, False))
+    race = []
+    async def meanwhile():
+        race.append(await poll(row(5)))
+    await tried(meanwhile=meanwhile)
+    out["in flight"] = race[0] + await poll(row(5))
+    await poll(row(0, False))
+    # Two of five by someone else: the owner hears of the two.
+    for n in range(1, 4):
+        await tried()
+        await poll(row(n, False))
+    await poll(row(4, False))
+    mixed = len(sent)
+    out["mixed"] = await poll(row(5))
+    out["mixed text"] = sent[mixed][1]
+    await poll(row(0, False))
+    # Cleared between two listings: the owner's tries after that are the owner's, whatever came before.
+    await poll(row(5))
+    for n in (1, 2):
+        await tried()
+    out["cleared between listings"] = await poll(row(2, False))
+    for n in (3, 4, 5, 6):
+        await tried()
+        out["cleared between listings"] += await poll(row(n, n > 4))
+    await poll(row(0, False))
+    # A right answer clears the count, and what the owner carried goes with it.
+    await tried(answer=(True, "Unlocked until 2026-11-07T19:45:00Z", False))
+    out["after a success"] = await poll(row(0, False), row(5))
+    await poll(row(0, False))
+    # Another allowed id's tries are not the approver's own.
+    for n in range(1, 6):
+        await tried(who=2)
+    out["another allowed id"] = await poll(row(5))
+    await poll(row(0, False))
+    # A count the disk would not take, and a send that fails: told at the next listing, once.
+    Bot.failing = 1
+    failed = len(sent)
+    out["send failed"] = await poll(row(5, persisted=False))
+    out["sent after"] = await poll(row(5, persisted=False), row(5, persisted=False))
+    out["unsaved text"] = sent[failed][1]
+    await poll(row(0, False))
+    # Nothing it cannot read counts as a try, and no text of the listing reaches the owner.
+    out["not numbers"] = await poll({"client": "hermes-main", "failures": "7", "limit": 5, "refused": 0, "locked_out_until": UNTIL},
+                                    {"client": "hermes-main", "failures": True, "limit": 5, "refused": 0, "locked_out_until": UNTIL}, "x", None)
+    hostile = len(sent)
+    out["hostile"] = await poll(row(5, until="73918260"))
+    out["hostile text"] = sent[hostile][1]
+    out["all"] = sent
+    print(json.dumps(out))
+asyncio.run(run())
+"""
+        result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True,
+                                env=dict(self.env, TELEGRAM_ALLOWED_USERS="1,2", HERMES_OPENWRT_FACTOR="pin",
+                                         HERMES_OPENWRT_APPROVALS="on", HERMES_OPENWRT_APPROVER_ID="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        got = json.loads(result.stdout.strip().splitlines()[-1])
+        for name, want in (("under the limit", 0), ("a delay begins", 1), ("the same delay", 0), ("the next delay", 1),
+                           ("that delay over", 0), ("another client", 0), ("cleared", 0), ("begins again", 1),
+                           ("the owner's own five", 0), ("refused in the owner's delay", 1), ("in flight", 0),
+                           ("mixed", 1), ("cleared between listings", 0), ("after a success", 1), ("another allowed id", 1), ("send failed", 0),
+                           ("sent after", 1), ("not numbers", 0), ("hostile", 1)):
+            self.assertEqual(got[name], want, name)
+        self.assertIn("did not come from this chat: 2.", got["mixed text"])
+        self.assertIn("Wrong tries in a row: 5, limit: 5.", got["mixed text"])
+        self.assertIn("openwrt-mcp mfa reset hermes-main", got["mixed text"])
+        self.assertRegex(got["mixed text"], r"closed until \d\d:\d\d")
+        self.assertIn("could not save", got["unsaved text"])
+        self.assertNotIn("could not save", got["mixed text"])
+        self.assertNotIn("73918260", got["hostile text"])
+        self.assertIn("closed for a while", got["hostile text"])
+        # To the approver alone, and never the PIN that was typed in the chat.
+        self.assertEqual({chat for chat, _ in got["all"]}, {1})
+        for _, text in got["all"]:
+            self.assertNotIn("73918260", text)
+
+    def test_owner_told_with_no_approver_and_in_the_language_set(self):
+        # With several ids allowed and no approver there is nobody to approve, and approvals are off,
+        # but someone is still trying: the allowed ids are told, from the same listing, and a try any
+        # of them made is their own. The words follow upstream's language, display.language in the
+        # agent's config.yaml or HERMES_LANGUAGE, and a language the plugin has no words for reads English.
+        probe = self.TRIES_PROBE + r"""
+class Stop(BaseException):
+    pass
+listings, shown = [], []
+async def show(a):
+    shown.append(a)
+u._show = show
+u.call_tool = lambda tool, args, token=None: (listings.append(tool) or (True, json.dumps({"actions": [{"client": "hermes-main", "id": "KQWPT"}], "throttle": [row(5)]}), False))
+async def stop(_seconds):
+    raise Stop()
+real_sleep, u.asyncio.sleep = u.asyncio.sleep, stop
+async def run():
+    try:
+        await u._poll_forever()
+    except Stop:
+        pass
+    u.asyncio.sleep = real_sleep
+    await poll(row(0, False))
+    print(json.dumps({"listings": listings, "shown": len(shown), "sent": sent, "language": u._language()}))
+asyncio.run(run())
+"""
+        env = dict(self.env, TELEGRAM_ALLOWED_USERS="2,1", HERMES_OPENWRT_FACTOR="pin", HERMES_OPENWRT_APPROVALS="off")
+        env.pop("HERMES_LANGUAGE", None)
+        config = self.home / "config.yaml"
+        for setting, language, words in (({}, "en", "Someone else tried"),
+                                         ({"display": {"language": "uk"}}, "uk", "Хтось інший"),
+                                         ({"display": {"language": "de"}}, "de", "Jemand anderes"),
+                                         ({"display": {"language": "es"}}, "es", "Otra persona"),
+                                         ({"display": {"language": "fr"}}, "fr", "Quelqu'un d'autre"),
+                                         ({"display": {"language": "ja"}}, "ja", "Someone else tried")):
+            with self.subTest(language=setting):
+                config.write_text(yaml.safe_dump(setting))
+                result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True, env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                got = json.loads(result.stdout.strip().splitlines()[-1])
+                self.assertEqual(got["language"], language)
+                self.assertEqual(got["listings"], ["action_list"])
+                self.assertEqual(got["shown"], 0)
+                self.assertEqual([chat for chat, _ in got["sent"]], [1, 2])
+                self.assertIn(words, got["sent"][0][1])
+                self.assertRegex(got["sent"][0][1], r"\d\d:\d\d")
+                self.assertIn("openwrt-mcp mfa reset hermes-main", got["sent"][0][1])
+        result = subprocess.run(["python3", "-c", probe], check=False, capture_output=True, text=True,
+                                env=dict(env, HERMES_LANGUAGE="uk"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Хтось інший", json.loads(result.stdout.strip().splitlines()[-1])["sent"][0][1])
+
     def test_a_bare_pin_while_a_change_waits_is_not_an_unlock(self):
         # On a Flint 2 on 2026-10-22 the owner, meaning to approve a held change, sent the PIN with no
         # approval asked for, and it opened the unlock window instead, three times. While a change
@@ -3027,6 +3219,8 @@ start_service; echo "start=$?"
     LLMGW = Path(os.environ.get("LLM_GATEWAY_DIR", "/llm-gateway"))
     LLMGW_KEY = Path("/etc/hermes-agent/llm-gateway.key")
     LLMGW_CONFIG = Path("/etc/config/llm-gateway")
+    LLMGW_RUN = Path("/var/run/llm-gateway")
+    LLMGW_JOURNAL = LLMGW_RUN / "journal" / "journal.log"
     LLMGW_ON = ("uci set hermes.main.llm_gateway=1\nuci set hermes.main.model={model}\n"
                 "uci set hermes.main.base_url=https://openrouter.ai/api/v1\n"
                 "uci set hermes.main.key_file=/etc/hermes-agent/provider.key")
@@ -3038,23 +3232,41 @@ start_service; echo "start=$?"
         configuration, switched on and given one backend, the house's model server. It listens on
         loopback only: netifd does not run here, so a zone would have no address. Its init script is
         a stand-in, since procd does not run here either: it answers `enabled` and `running` as told
-        and records every other action, one per line, in the file this returns. Everything goes again
-        after the test, and so do the key file the service writes and the hermes configuration."""
+        and records every other action, one per line, in the file this returns. Since 6f623c4 the
+        program has an account of its own, made here with the helpers its init uses, and keeps its
+        journal in the one place it accepts, under /var/run/llm-gateway, so the configuration names
+        no journal; cert_dir and its parents are root's and that account's group's, 0750, because
+        without procd's jail the leaf's two files are reached through them. Everything goes again
+        after the test, and so do the key file the service writes, the account and the hermes
+        configuration."""
         binary = self.LLMGW / "llm-gateway"
         if not binary.is_file():
             self.fail(f"measured nothing: no llm-gateway at {binary} (scripts/build-llm-gateway.sh)")
         hermes_config = Path("/etc/config/hermes").read_bytes()
         placed = (Path("/usr/bin/llm-gateway"), self.LLMGW_CONFIG, Path("/etc/init.d/llm-gateway"),
                   self.LLMGW_KEY, Path(str(self.LLMGW_KEY) + ".new"))
+        accounts = {path: path.read_bytes() for path in (Path("/etc/passwd"), Path("/etc/group"), Path("/etc/shadow"))}
 
         def remove():
             for path in placed:
                 path.unlink(missing_ok=True)
+            shutil.rmtree(self.LLMGW_RUN, ignore_errors=True)
             Path("/etc/config/hermes").write_bytes(hermes_config)
+            for path, was in accounts.items():
+                path.write_bytes(was)
         remove()
         self.addCleanup(remove)
+        made = subprocess.run(["sh", "-c", ". /lib/functions.sh; gid=$(group_add_next llm-gateway) && "
+                               'user_add llm-gateway "" "$gid" llm-gateway /var/empty /bin/false'],
+                              check=False, capture_output=True, text=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.llmgw_ids = (pwd.getpwnam("llm-gateway").pw_uid, pwd.getpwnam("llm-gateway").pw_gid)
         work = Path(tempfile.mkdtemp(prefix="llmgw-"))
         self.addCleanup(shutil.rmtree, work, True)
+        for place in (work, work / "certs"):
+            place.mkdir(exist_ok=True)
+            os.chown(place, 0, self.llmgw_ids[1])
+            place.chmod(0o750)
         if installed:
             shutil.copyfile(binary, "/usr/bin/llm-gateway")
             os.chmod("/usr/bin/llm-gateway", 0o755)
@@ -3072,7 +3284,7 @@ esac
             if on:
                 (work / flag).touch()
         batch = [f"set llm-gateway.main.enabled={enabled}", "delete llm-gateway.main.zone",
-                 f"set llm-gateway.main.cert_dir={work}/certs", f"set llm-gateway.main.journal={work}/journal.log",
+                 f"set llm-gateway.main.cert_dir={work}/certs",
                  "set llm-gateway.house=backend", f"set llm-gateway.house.url={backend_url}"]
         batch += [f"add_list llm-gateway.house.model={m}" for m in models]
         subprocess.run(["uci", "batch"], input="\n".join(batch + ["commit llm-gateway", ""]), text=True, check=True)
@@ -3091,10 +3303,16 @@ esac
         return "sha256:" + hashlib.sha256(key.encode()).hexdigest()
 
     def serve_llm_gateway(self):
-        """The real gateway, serving the configuration the init left, until the test ends."""
+        """The real gateway, as its own init runs it, until the test ends: `prepare` as root, last,
+        since a snapshot of a configuration changed after it is refused (the start just added a
+        client), then `serve` as its account, which refuses root."""
+        prepared = subprocess.run(["/usr/bin/llm-gateway", "prepare"], check=False, capture_output=True, text=True)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
         out = open(self.llmgw_work / "serve.log", "w")
         self.addCleanup(out.close)
-        proc = subprocess.Popen(["/usr/bin/llm-gateway", "serve"], stdout=out, stderr=subprocess.STDOUT)
+        uid, gid = self.llmgw_ids
+        proc = subprocess.Popen(["/usr/bin/llm-gateway", "serve"], stdout=out, stderr=subprocess.STDOUT,
+                                user=uid, group=gid, extra_groups=[])
 
         def stop():
             proc.terminate()
@@ -3109,6 +3327,10 @@ esac
             try:
                 with direct.open("http://127.0.0.1:8761/health", timeout=2) as answer:
                     if answer.read() == b"ok":
+                        status = Path(f"/proc/{proc.pid}/status").read_text()
+                        self.assertRegex(status, rf"(?m)^Uid:\s+{uid}\s+{uid}\s+{uid}\s+{uid}$")
+                        self.assertRegex(status, r"(?m)^Seccomp:\s+2$")
+                        self.assertRegex(status, r"(?m)^NoNewPrivs:\s+1$")
                         return
             except OSError:
                 pass
@@ -3131,6 +3353,61 @@ esac
                                   env=env, check=False, capture_output=True, text=True)
         finally:
             cli.write_bytes(original)
+
+    def test_companions_are_built_from_the_commits_ci_pins(self):
+        # What this repository tests against is a commit of each companion, named once in its build
+        # script, which refuses any other, and the workflow must check out that one. And llm-gateway
+        # is a static binary: the rootfs is musl, and its account is looked up from /etc/passwd.
+        root = Path(os.environ.get("COMPANIONS_ROOT", "/src"))
+        ci = (root / ".github/workflows/ci.yml").read_text()
+        for repo, script, name in (("openwrt-llm-gateway", "build-llm-gateway.sh", "LLM_GATEWAY_COMMIT"),
+                                   ("openwrt-mcp", "build-openwrt-mcp.sh", "OPENWRT_MCP_COMMIT")):
+            with self.subTest(repo=repo):
+                text = (root / "scripts" / script).read_text()
+                pin = re.search(rf"^{name}=([0-9a-f]{{40}})$", text, re.M)
+                self.assertIsNotNone(pin, f"{script} pins no commit")
+                ref = re.search(rf"repository: TAIPANBOX/{repo}\n\s+ref: ([0-9a-f]{{40}})\n", ci)
+                self.assertIsNotNone(ref, f"ci.yml checks out no pinned {repo}")
+                self.assertEqual(ref.group(1), pin.group(1))
+                self.assertIn(f'"${name}"', text, f"{script} does not compare the checkout with its pin")
+                self.assertRegex(text, r"CGO_ENABLED=0 GOOS=linux")
+        # The binary under test is that commit's: the build records the short form of what it built.
+        built = (self.LLMGW / "commit").read_text().strip()
+        self.assertRegex((root / "scripts/build-llm-gateway.sh").read_text(), rf"(?m)^LLM_GATEWAY_COMMIT={built}[0-9a-f]+$")
+        elf = (self.LLMGW / "llm-gateway").read_bytes()
+        offset, size, count = (int.from_bytes(elf[a:b], "little") for a, b in ((32, 40), (54, 56), (56, 58)))
+        kinds = [int.from_bytes(elf[offset + i * size:offset + i * size + 4], "little") for i in range(count)]
+        self.assertTrue(kinds)
+        self.assertNotIn(3, kinds, "llm-gateway names a dynamic loader, so it was not built with CGO_ENABLED=0")
+
+    def test_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp(self):
+        # UCI keeps no empty option: `uci set` with nothing deletes it, LuCI does the same with an empty
+        # field, and an empty line in the file reads as not there. So in the owner profile the option
+        # cannot turn the connection off, as a comment of the init's and the shipped file once said: the
+        # agent goes on with openwrt-mcp's own address.
+        was = subprocess.run(["uci", "-q", "get", "hermes.main.router_mcp_url"], capture_output=True, text=True).stdout.strip()
+        self.addCleanup(subprocess.run, ["sh", "-c", f"uci set hermes.main.router_mcp_url={shlex.quote(was)}; uci commit hermes"])
+        for name, emptied in (("uci set", "uci set hermes.main.router_mcp_url=''"),
+                              ("in the file", "uci commit hermes\nsed -i \"s|option router_mcp_url .*|option router_mcp_url ''|\" /etc/config/hermes")):
+            with self.subTest(emptied=name):
+                subprocess.run(["sh", "-c", f"uci set hermes.main.router_mcp_url={shlex.quote(was)}; uci commit hermes"], check=True)
+                started = self._start(emptied)
+                self.assertEqual(started.returncode, 0, started.stderr)
+                self.assertEqual(subprocess.run(["uci", "-q", "get", "hermes.main.router_mcp_url"], check=False).returncode, 1)
+                env = json.loads(started.stdout)["instances"]["instance1"]["env"]
+                self.assertEqual(env["HERMES_OPENWRT_MCP_URL"], "http://127.0.0.1:8730/mcp")
+        for path in (FILES / "hermes-agent.init", FILES / "hermes-agent.config"):
+            self.assertNotIn("set to nothing turns the connection off", path.read_text())
+            self.assertNotIn("Empty disables this connection", path.read_text())
+
+    def test_shipped_file_says_the_lockout_is_the_first_of_waits_that_grow(self):
+        # Since openwrt-mcp 0.5.0.8 lockout is the first wait and not the only one, and the count
+        # outlives a restart. The file the owner reads must not go on promising fifteen minutes flat.
+        text = (FILES / "hermes-agent.config").read_text()
+        self.assertIn("doubles it, up to an", text)
+        self.assertIn("There is no last try", text)
+        self.assertIn("openwrt-mcp mfa reset hermes-main", text)
+        self.assertNotIn("##   lockout       for how long", text)
 
     def test_llm_gateway_pairs_a_client_and_the_model_comes_from_it(self):
         # @decided 2026-11-01: the agent on the router can take its model from llm-gateway, the
@@ -3189,7 +3466,7 @@ esac
         # client hermes's and went to the house's server with the router's model. (/v1/models, should
         # upstream ask, the gateway answers itself; a probe of a path it has no route for is journaled
         # with no client, refused before any key is read.)
-        journal = [json.loads(line) for line in (self.llmgw_work / "journal.log").read_text().splitlines()]
+        journal = [json.loads(line) for line in self.LLMGW_JOURNAL.read_text().splitlines()]
         self.assertTrue(all(e.get("client") in (None, "hermes") for e in journal), journal)
         calls = [e for e in journal if e.get("route") == "/v1/chat/completions"]
         self.assertEqual(len(calls), len(received), journal)

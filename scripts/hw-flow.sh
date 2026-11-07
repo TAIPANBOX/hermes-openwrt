@@ -216,7 +216,9 @@ step_admin() { # what the agent's own token may do to the router, through openwr
 	# The policy as written, so the report says what an open window grants rather than what we hope.
 	on "uci -q get openwrt-mcp.hermes_main_change.scopes; uci -q get openwrt-mcp.hermes_main_change.tools; uci -q get openwrt-mcp.hermes_main_change_ubus.scopes" > "$OUT/change-policy.txt" 2>&1 || true
 	[ -n "${FLOW_PIN:-}" ] || { say "SKIP admin-unlock: FLOW_PIN (a throwaway test PIN) not given"; on 'rm -f /tmp/mcp-probe.py'; return; }
-	printf '%s\n' "$FLOW_PIN" | on 'openwrt-mcp pin set hermes-main >/dev/null 2>&1'
+	printf '%s\n' "$FLOW_PIN" | on 'openwrt-mcp pin set hermes-main >/dev/null 2>&1' || {
+		fail admin-unlock "openwrt-mcp refused FLOW_PIN; it refuses the PINs a guesser tries first, so give another"
+		on 'rm -f /tmp/mcp-probe.py'; return; }
 	on 'uci set hermes.security.factor=pin; uci commit hermes; /etc/init.d/hermes-agent restart >/dev/null 2>&1'
 	gateway_up 90; sleep 15
 	scopes=$(on "uci -q get openwrt-mcp.hermes_main_change.scopes; uci -q get openwrt-mcp.hermes_main_change_ubus.scopes" 2>/dev/null | tr '\n' ' ')

@@ -128,6 +128,8 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] An OpenAI API key works as the main model, on the Responses API, with a ChatGPT subscription beside it untouched (0.21.5-r18)
 - [x] The security updates of eleven libraries, with Hermes still at 0.21.5 (0.21.5-r19)
 - [x] The main model can come from llm-gateway, the router's own gateway to the model servers in the house: one option, a client paired at every start, its key in a root-only file, the owner's `base_url` and key left alone (0.21.5-r20, LuCI 0.21.5-r5)
+- [x] The agent's own connections reach the internet, its model and the router's tools, and not the router's other ports or the house (0.21.5-r21); the Security page sets limited or open and the hosts it may add (LuCI 0.21.5-r6)
+- [x] Wrong tries cost a wait that grows to an hour and survives a restart (openwrt-mcp 0.5.0.8); the owner hears in the chat of tries that did not come from it, once per wait, and the Security page shows the count with a Reset and warns beside PIN alone (0.21.5-r22, LuCI 0.21.5-r6)
 
 ## Prior art, and what is not ours
 
