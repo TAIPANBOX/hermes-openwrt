@@ -677,6 +677,7 @@ def check_owner_told_of_tries_by_someone_else():
     n = len(bot_sent())
     say("/lock")
     wait_for(answered("Locked", n), "the bot to answer /lock", timeout=20)
+    time.sleep(7)  # a listing sees the count at zero, so the five below start a delay of their own
     # The owner's own five wrong tries in the chat are the owner's: told as the answer, and no notice.
     for i in range(5):
         n = len(bot_sent())
