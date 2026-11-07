@@ -1705,6 +1705,15 @@ async def run():
     out["mixed"] = await poll(row(5))
     out["mixed text"] = sent[mixed][1]
     await poll(row(0, False))
+    # Cleared between two listings: the owner's tries after that are the owner's, whatever came before.
+    await poll(row(5))
+    for n in (1, 2):
+        await tried()
+    out["cleared between listings"] = await poll(row(2, False))
+    for n in (3, 4, 5, 6):
+        await tried()
+        out["cleared between listings"] += await poll(row(n, n > 4))
+    await poll(row(0, False))
     # A right answer clears the count, and what the owner carried goes with it.
     await tried(answer=(True, "Unlocked until 2026-11-07T19:45:00Z", False))
     out["after a success"] = await poll(row(0, False), row(5))
@@ -1739,7 +1748,7 @@ asyncio.run(run())
         for name, want in (("under the limit", 0), ("a delay begins", 1), ("the same delay", 0), ("the next delay", 1),
                            ("that delay over", 0), ("another client", 0), ("cleared", 0), ("begins again", 1),
                            ("the owner's own five", 0), ("refused in the owner's delay", 1), ("in flight", 0),
-                           ("mixed", 1), ("after a success", 1), ("another allowed id", 1), ("send failed", 0),
+                           ("mixed", 1), ("cleared between listings", 0), ("after a success", 1), ("another allowed id", 1), ("send failed", 0),
                            ("sent after", 1), ("not numbers", 0), ("hostile", 1)):
             self.assertEqual(got[name], want, name)
         self.assertIn("did not come from this chat: 2.", got["mixed text"])
@@ -3349,12 +3358,12 @@ esac
         # What this repository tests against is a commit of each companion, named once in its build
         # script, which refuses any other, and the workflow must check out that one. And llm-gateway
         # is a static binary: the rootfs is musl, and its account is looked up from /etc/passwd.
-        repo = Path(os.environ.get("COMPANIONS_ROOT", "/src"))
-        ci = (repo / ".github/workflows/ci.yml").read_text()
+        root = Path(os.environ.get("COMPANIONS_ROOT", "/src"))
+        ci = (root / ".github/workflows/ci.yml").read_text()
         for repo, script, name in (("openwrt-llm-gateway", "build-llm-gateway.sh", "LLM_GATEWAY_COMMIT"),
                                    ("openwrt-mcp", "build-openwrt-mcp.sh", "OPENWRT_MCP_COMMIT")):
             with self.subTest(repo=repo):
-                text = (repo / "scripts" / script).read_text()
+                text = (root / "scripts" / script).read_text()
                 pin = re.search(rf"^{name}=([0-9a-f]{{40}})$", text, re.M)
                 self.assertIsNotNone(pin, f"{script} pins no commit")
                 ref = re.search(rf"repository: TAIPANBOX/{repo}\n\s+ref: ([0-9a-f]{{40}})\n", ci)
@@ -3364,7 +3373,7 @@ esac
                 self.assertRegex(text, r"CGO_ENABLED=0 GOOS=linux")
         # The binary under test is that commit's: the build records the short form of what it built.
         built = (self.LLMGW / "commit").read_text().strip()
-        self.assertRegex((repo / "scripts/build-llm-gateway.sh").read_text(), rf"(?m)^LLM_GATEWAY_COMMIT={built}[0-9a-f]+$")
+        self.assertRegex((root / "scripts/build-llm-gateway.sh").read_text(), rf"(?m)^LLM_GATEWAY_COMMIT={built}[0-9a-f]+$")
         elf = (self.LLMGW / "llm-gateway").read_bytes()
         offset, size, count = (int.from_bytes(elf[a:b], "little") for a, b in ((32, 40), (54, 56), (56, 58)))
         kinds = [int.from_bytes(elf[offset + i * size:offset + i * size + 4], "little") for i in range(count)]

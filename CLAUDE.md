@@ -204,6 +204,24 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `check_security_page_calls_are_granted` and the five `check_security_*` page checks in
     `scripts/test-luci-views.mjs`, and `scripts/gate-unlock.sh` `check_luci_pin_write_only`;
     teeth: `scripts/teeth-luci.sh`, `scripts/teeth-unlock.sh`).
+    `@claude` 2026-11-07, LuCI 0.21.5-r6: security_status also answers `agent_network` (limited, open or
+    `invalid`, as set), `lan_allow`, `failed_tries`, `tries_counted` (openwrt-mcp reports
+    `second_factor_throttle_persisted`) and `tries_saved` (its daemon has not said the count is failing
+    to reach the disk): facts, and these exactly. `set_network` and `reset_tries` are write permission
+    alone. set_network takes limited or open and whole `host:port` or `[v6]:port` lines with a port from
+    1 to 65535, the shape hermes-net can read, and refuses anything else writing nothing; a list is
+    replaced whole, by sec_save, which keeps another session's staged changes out of it, and announces
+    the way set_factor does. reset_tries runs `openwrt-mcp mfa reset hermes-main` and nothing else,
+    refuses when the binary keeps no such count and when the command fails, and reads the count back.
+    A common PIN refused by `pin set` is answered in the backend's own words, not the program's. The
+    page offers Reset only with something on record, names a line it will not send, and warns beside
+    PIN, an alert with PIN alone in force (gate: `scripts/gate-luci.sh`
+    `check_security_network_limits_written_only_as_the_agent_reads_them`,
+    `check_security_failed_tries_reset_through_openwrt_mcp`, `scripts/test-luci-views.mjs`
+    `check_security_network_limits_offered_on_the_page`, `check_security_failed_tries_shown_with_a_reset`,
+    `check_security_pin_alone_is_warned`; `scripts/gate-unlock.sh` `check_luci_reset_ends_the_wait`, the
+    real daemon and rpcd, `check_luci_pin_write_only`; teeth: `scripts/teeth-luci.sh` faults 49 to 64,
+    `scripts/teeth-unlock.sh` faults 93 to 95).
     `@claude` 2026-10-08, LuCI 0.21.5-r2: set_factor announces `config.change` for hermes itself
     whenever reload_config cannot: the sum reload_config holds for hermes is read from
     `/var/run/config.md5` before it runs and compared with md5sum of `uci show hermes`, made as it
@@ -995,9 +1013,11 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     preflight, ujail, which shares the router's network) is as for any endpoint. Turning the option
     off, or removing the package, leaves the client and its key file where they are; /model reaches
     only the models the client allows. (gate: `scripts/gate-runtime.sh`
-    `check_llm_gateway_pairs_a_client_and_the_model_comes_from_it` (the real llm-gateway, built at
-    562ba8e by `scripts/build-llm-gateway.sh` and serving: an agent turn answered by a model server in
-    its place through the gateway, whose own journal names the client hermes),
+    `check_llm_gateway_pairs_a_client_and_the_model_comes_from_it` (the real llm-gateway, built at the
+    commit `scripts/build-llm-gateway.sh` pins, 6f623c4 since 0.21.5-r22, and run as its own init runs
+    it: `prepare` as root, then `serve` as its account, with its seccomp filter on, an agent turn
+    answered by a model server in its place through the gateway, whose own journal, under
+    /var/run/llm-gateway, names the client hermes),
     `check_llm_gateway_reissues_the_key_only_when_it_is_needed`,
     `check_llm_gateway_missing_or_off_refuses_the_start`; teeth: `scripts/teeth-runtime.py`, twelve
     mutants.) LuCI 0.21.5-r5: the settings page switches it, beside the endpoint, model and key, none
@@ -1052,8 +1072,8 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     script on when it finds one at its own start, so the lease event begins at the first reboot or dnsmasq
     restart after the install; a static address outside DHCP that changes gets its rule at the next start,
     and the log names the address until then; a zone's `masq` or a default route moved in an open window changes which devices count as the house, and only
-    the global IPv6 addresses depend on that; a device wildcard such as `tun+` in a zone is skipped; LuCI shows
-    none of this yet. (gate: `scripts/gate-network.sh`, bound to `features/network.feature`, real nft, fw4 and
+    the global IPv6 addresses depend on that; a device wildcard such as `tun+` in a zone is skipped.
+    `@claude` 2026-11-07, LuCI 0.21.5-r6: the Security page sets both options (invariant 11). (gate: `scripts/gate-network.sh`, bound to `features/network.feature`, real nft, fw4 and
     sockets in OpenWrt's rootfs, in CI's `scenarios` job; `scripts/gate-runtime.sh`
     `check_limits_go_in_with_the_start_and_the_option_is_read`, `check_wrapper_applies_the_limits_before_every_exec`,
     `check_owner_note_says_the_network_is_limited`; `scripts/gate-unlock.sh`
@@ -1086,6 +1106,61 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     127.0.0.1 answered, and uid 32768, with those two packets the only refusals of the run. After a reboot the
     table was back with the service, the name of the model answered nothing and it was refused, and once that
     host renewed its lease the rule was there and the model answered, with no restart.
+
+29. `@claude` 2026-11-07, 0.21.5-r22: the owner hears of tries by someone else. openwrt-mcp 0.5.0.8 counts
+    every try against the owner's client, keeps the count on flash through a restart, and has no last
+    try, so a guesser with that client's token keeps the owner waiting as long as the guessing lasts.
+    What tells the two apart is the plugin, which carries the owner's own tries: `_carried` marks a try
+    as the owner's for the id of the approver, or with none any allowed id, and any other try is
+    someone else's. The poller that lists held changes reads `throttle` from the same `action_list`,
+    with no new call, and starts on a factor alone, since with several ids allowed and none chosen
+    approvals are off and someone can still try. `_watch_tries` takes what the count and the refusals
+    rose by, sets aside what the plugin carried since the last listing, waits while a try of the owner's
+    is on its way back, and sends one message when a delay is in force and some of it is not the
+    owner's: once per delay, a delay named by its count, which moves only when a try is let through. To
+    the approver, or with none every allowed id. Its words are in `TRIES_WORDS`, by upstream's language
+    (`agent.i18n.get_language`: HERMES_LANGUAGE, then display.language), English otherwise, and it holds
+    only numbers, a time that parsed and the client's name. A failed send is tried at the next listing.
+    Nothing of this is on disk, because the data directory is the agent's to write, so a restart of the
+    gateway forgets whose tries they were and tells the next delay as someone else's. A refused listing
+    with approvals off stops the poller, since each refusal would be an audit line on flash.
+    The shipped file says what lockout means now, and neither it nor the init says `router_mcp_url` can
+    be emptied: UCI keeps no empty option, from `uci set`, LuCI or the file.
+    `hermes-agent` depends on `openwrt-mcp>=0.5.0.8`. Each companion's commit is in its build script,
+    which refuses another checkout unless ANY_COMMIT is set, and the workflow must check out that one.
+    (gate: `scripts/gate-runtime.sh` `check_owner_told_of_tries_by_someone_else_once_per_delay`,
+    `check_owner_told_with_no_approver_and_in_the_language_set`,
+    `check_shipped_file_says_the_lockout_is_the_first_of_waits_that_grow`,
+    `check_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp`,
+    `check_companions_are_built_from_the_commits_ci_pins`; `scripts/gate-unlock.sh`
+    `check_owner_told_of_tries_by_someone_else`, `check_owner_told_with_nobody_to_approve`, the real
+    gateway, plugin and daemon; `scripts/gate-package.sh` `check_needs_an_openwrt_mcp_that_redacts`; teeth:
+    `scripts/teeth-runtime.py`, twenty-four mutants and six on copies of the pins,
+    `scripts/teeth-unlock.sh` faults 89 to 92, `scripts/teeth.sh` fault 12.)
+    Red first, the checks committed alone (f9880cf), on x86_64 against main's packages (r21, LuCI r5) with
+    openwrt-mcp fde61df and llm-gateway 6f623c4: `@measured` 2026-11-07 by `ONLY="check_owner_told_of_tries_by_someone_else
+    check_owner_told_with_nobody_to_approve check_luci_reset_ends_the_wait check_luci_pin_write_only" ARCH=x86_64
+    ./scripts/gate-unlock.sh`, 0 passed and 4 failed, each on what it asserts (timed out waiting for the notice,
+    the page told no count, "openwrt-mcp did not store the PIN" for a common PIN); by `ARCH=x86_64
+    ./scripts/gate-runtime.sh` with the seven tests named, 12 failures on the four new tests while the three gateway
+    tests passed on their new fixture, and by the same three on main's fixture, red on "refusing to run as root"; by
+    `test-luci-views.mjs` on the r5 views, "the page has no #hermes-sec-network", "#hermes-sec-tries-reset" and
+    "#hermes-sec-pin-alone"; by `ARCH=x86_64 ./scripts/gate-package.sh`, check 16 on "does not require openwrt-mcp
+    0.5.0.8". With that openwrt-mcp and nothing else changed gate-unlock passed 57 of 57 and gate-luci 40 of 40, so no
+    fixture sets a PIN `pin set` now refuses.
+    `@measured` 2026-11-07 on a VM of OpenWrt 25.12.5 x86-64 (vlab's image grown to 2 GB, kernel 6.12.94, real procd,
+    ujail, rpcd and netifd, a stand-in model server on its host), hermes-agent r22, LuCI r6, openwrt-mcp 0.5.0.8-r1 and
+    llm-gateway 6f623c4 as 0.1.0-r4, installed with `apk add`: the gateway under procd as uid 32769 with CapBnd 0,
+    NoNewPrivs 1 and Seccomp 2, ca.key 0600 root, tls.key 0640 root:llm-gateway; the start paired the client hermes and
+    the agent ran in its sandbox as uid 32768; a scheduled job's model call went through it, the journal under
+    /var/run/llm-gateway naming client hermes, backend house, status 200. `openwrt-mcp pin set` refused 1234. Five
+    wrong tries with the owner's client, then the right PIN refused "locked out until" 15 minutes on; the same after
+    `/etc/init.d/openwrt-mcp restart` with the same end, and after `reboot` with a fresh 15 minutes and the count still
+    5; `ubus call hermes reset_tries` through rpcd answered ok, the count read 0 and the right PIN opened the window.
+    `ubus call hermes set_network` took limited and printer.lan:631, refused closed, and the agent's start kept the
+    table. The page itself in Chromium (`scripts/luci-preview.sh`, procd as PID 1, Playwright 1.49.1, 1280 and 390 px
+    wide, no horizontal scroll at 390): the count, a bad line refused by name, open saved and warned about, Reset
+    leaving 0 with the button off, the alert beside PIN alone, a common PIN answered in the page's words.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

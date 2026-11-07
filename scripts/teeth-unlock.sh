@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (ninety-five in all, over fifty-four checks). Each is a change a
+# or have several ways to go wrong (ninety-five in all, over sixty checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be

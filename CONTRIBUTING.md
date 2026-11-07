@@ -38,12 +38,14 @@ EXTRA_ARCHES=aarch64_cortex-a53 ./package/hermes-agent/build-in-container.sh aar
 
 # openwrt-mcp, which hermes-agent depends on, from the commit CI pins
 git clone https://github.com/TAIPANBOX/openwrt-mcp openwrt-mcp-src
-git -C openwrt-mcp-src checkout f05b1765d4f017a8e9dc2a2568b89fd05a33f957
+git -C openwrt-mcp-src checkout fde61df14afcb1ce2c6aad2b17810f7d40c72998
 OPENWRT_MCP_SRC="$PWD/openwrt-mcp-src" ./scripts/build-openwrt-mcp.sh aarch64_generic
 ```
 
-The last one needs Go at the version in `openwrt-mcp-src/go.mod`. The pinned commit is the
-one in `.github/workflows/ci.yml`; if they ever differ, the workflow is right.
+The last one needs Go at the version in `openwrt-mcp-src/go.mod`. The pinned commit is the one
+in `scripts/build-openwrt-mcp.sh`, which refuses another checkout, and `.github/workflows/ci.yml`
+holds the same one (`check_companions_are_built_from_the_commits_ci_pins`). llm-gateway is built the
+same way, for the runtime gate: `LLM_GATEWAY_SRC=... ./scripts/build-llm-gateway.sh`.
 
 ## Which checks cover what
 

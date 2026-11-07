@@ -1,7 +1,7 @@
 #!/bin/sh
 # teeth-luci.sh -- prove gate-luci.sh can fail, and fail at the right check.
 #
-# Forty-two faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
+# Sixty-four faults, each a change somebody could plausibly make to the rpcd backend, its ACL or
 # the pages. Faults 19 to 31 are LuCI r13's, for the Security page and the PIN and phone behind it.
 # Faults 32 and 33 are r14's, the factor announced to procd once; 34 and 35 are 0.21.5-r2's, the
 # two states in which reload_config has nothing to tell and set_factor must, and 36 the PIN
@@ -9,6 +9,8 @@
 # owner's opt-in to package installs from the official feed: the page's switch open with no
 # factor, the page sending it anyway, the backend taking official with no factor or any value at
 # all, the status not telling what is set, and the call left out of the write permission.
+# Faults 49 to 64 are LuCI r6's: what the agent reaches and the failed tries, on the page and behind
+# it, and the warning beside PIN alone.
 # Faults 47 and 48 are LuCI r5's, the switch for the model from llm-gateway: the endpoint made to
 # depend on it, which LuCI would remove from UCI on save while the switch is on, and the switch
 # made a text field.

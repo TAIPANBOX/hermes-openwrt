@@ -272,6 +272,9 @@ CONFIG_CHECK=/var/run/config.check
 # What the init accepts for a window and a lockout (hermes-agent.init), so nothing is saved here
 # that the service would then refuse to start on.
 SEC_DURATION='^([0-9]+(\.[0-9]+)?(s|m|h))+$|^[0-9]+(\.[0-9]+)?d$'
+# What hermes-net reads as a lan_allow entry: a name or an IPv4 address and a port, or [an IPv6
+# address] and a port. An entry it cannot read opens nothing, so the page does not store one.
+SEC_LAN_ALLOW='^([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$'
 
 sec_profile() {
 	case "$(uci -q get hermes.main.profile)" in
@@ -291,19 +294,25 @@ sec_conf() { # <option> <default>
 # What openwrt-mcp says about this one client: facts, from its own `status --json` (which never
 # carries a secret, and which is asked for no audit rows). Anything that goes wrong is "not
 # answering" and every fact reads false, so a page built on it offers nothing rather than guess.
-MCP_OK=0 PAIRED=0 PIN_SET=0 TOTP_ENROLLED=0 TOTP_PENDING=0
+MCP_OK=0 PAIRED=0 PIN_SET=0 TOTP_ENROLLED=0 TOTP_PENDING=0 FAILED_TRIES=0 TRIES_COUNTED=0 TRIES_SAVED=1
 sec_mcp_facts() {
 	local out v
-	MCP_OK=0; PAIRED=0; PIN_SET=0; TOTP_ENROLLED=0; TOTP_PENDING=0
+	MCP_OK=0; PAIRED=0; PIN_SET=0; TOTP_ENROLLED=0; TOTP_PENDING=0; FAILED_TRIES=0; TRIES_COUNTED=0; TRIES_SAVED=1
 	[ -x "$MCP_BIN" ] || return 1
 	out=$("$MCP_BIN" status --json --audit 0 2>/dev/null) || return 1
 	[ -n "$(echo "$out" | jsonfilter -e '@.version' 2>/dev/null)" ] || return 1
 	MCP_OK=1
+	# The count of failed tries survives a restart from 0.5.0.8, whose `mfa reset` ends it. The daemon
+	# says when the count is not reaching the disk, and the file is then behind what it holds.
+	v=$(echo "$out" | jsonfilter -e '@.capabilities.second_factor_throttle_persisted' 2>/dev/null); [ "$v" = true ] && TRIES_COUNTED=1
+	v=$(echo "$out" | jsonfilter -e '@.throttle_persisted' 2>/dev/null); [ "$v" = false ] && TRIES_SAVED=0
 	[ "$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].name" 2>/dev/null)" = "$SEC_CLIENT" ] || return 0
 	PAIRED=1
 	v=$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].mfa.pin_set" 2>/dev/null);        [ "$v" = true ] && PIN_SET=1
 	v=$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].mfa.totp_enrolled" 2>/dev/null);  [ "$v" = true ] && TOTP_ENROLLED=1
 	v=$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].mfa.totp_pending" 2>/dev/null);   [ "$v" = true ] && TOTP_PENDING=1
+	v=$(echo "$out" | jsonfilter -e "@.clients[@.name='$SEC_CLIENT'].mfa.failures" 2>/dev/null)
+	case "$v" in ''|*[!0-9]*) ;; *) FAILED_TRIES=$v ;; esac
 	return 0
 }
 
@@ -326,6 +335,16 @@ sec_packages() {
 		off)      echo off ;;
 		official) echo official ;;
 		*)        echo invalid ;;
+	esac
+}
+
+# hermes.security.agent_network as the init reads it: limited unless set, open, or a value the init
+# refuses to start on.
+sec_agent_network() {
+	case "$(sec_conf agent_network limited)" in
+		limited) echo limited ;;
+		open)    echo open ;;
+		*)       echo invalid ;;
 	esac
 }
 
@@ -415,6 +434,20 @@ method_security_status() {
 	json_close_array
 	json_add_string  "approver" "$approver"
 	json_add_boolean "approvals_ready" "$([ -n "$approver" ] && [ "$PIN_SET" = 1 ] && [ "$TOTP_ENROLLED" = 1 ] && echo 1 || echo 0)"
+	# What the agent's own connections reach, as set: limited or open, and the hosts of the house the
+	# owner added. And the wrong tries on record, from openwrt-mcp: a count, no more.
+	local host
+	json_add_string  "agent_network" "$(sec_agent_network)"
+	json_add_array   "lan_allow"
+	# `uci -q get` gives the list on one line, and an entry holds no space: one is refused here, and
+	# hermes-net reads such a line as opening nothing.
+	set -f
+	for host in $(uci -q get hermes.security.lan_allow); do json_add_string "" "$host"; done
+	set +f
+	json_close_array
+	json_add_int     "failed_tries" "$FAILED_TRIES"
+	json_add_boolean "tries_counted" "$TRIES_COUNTED"
+	json_add_boolean "tries_saved" "$TRIES_SAVED"
 	json_dump
 }
 
@@ -423,7 +456,7 @@ method_security_status() {
 # shell's own builtin, so it starts no process, and what it is given has been checked to be
 # digits, so it cannot be taken for an option.
 method_set_pin() {
-	local pin again
+	local pin again res
 	read -r MSG
 	pin=$(msg_get pin)
 	again=$(msg_get again)
@@ -436,8 +469,13 @@ method_set_pin() {
 	if [ "$pin" != "$again" ]; then
 		sec_refuse "the two PINs are not the same"; return 0
 	fi
-	if ! echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" >/dev/null 2>&1; then
-		sec_refuse "openwrt-mcp did not store the PIN"; return 0
+	# What openwrt-mcp says goes no further than this test: the reply is the page's own words.
+	if ! res=$(echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" 2>&1 >/dev/null); then
+		case "$res" in
+			*"most common"*) sec_refuse "that PIN is one of the most common ones, the first a guesser tries: choose another" ;;
+			*) sec_refuse "openwrt-mcp did not store the PIN" ;;
+		esac
+		return 0
 	fi
 	pin=; again=
 	sec_mcp_facts
@@ -551,8 +589,8 @@ method_set_factor() {
 	json_init; json_add_boolean "ok" 1; json_add_string "factor" "$factor"; json_dump
 }
 
-# Writes options of hermes.security (each <option>=<value>, values already checked by the caller)
-# so that what is committed is these and nothing a LuCI session has staged in the meantime, then
+# Writes options of hermes.security (each <option>=<value>, values already checked by the caller;
+# -<list> empties a list and +<list>=<value> adds to it) so that what is committed is these and nothing a LuCI session has staged in the meantime, then
 # tells procd, once, that hermes changed, so the agent restarts and rewrites its openwrt-mcp
 # policies. Answers the refusal itself and returns 1 when the write fails.
 sec_save() {
@@ -568,7 +606,12 @@ sec_save() {
 	if [ "$ok" = 1 ]; then
 		uci -q -c "$d/c" -t "$d/s" set hermes_sec.security=security             || ok=0
 		for kv in "$@"; do
-			uci -q -c "$d/c" -t "$d/s" set "hermes_sec.security.$kv"            || ok=0
+			case "$kv" in
+				# A list is written whole: its old lines go, then each new one.
+				-*) uci -q -c "$d/c" -t "$d/s" delete "hermes_sec.security.${kv#-}" ;;
+				+*) uci -q -c "$d/c" -t "$d/s" add_list "hermes_sec.security.${kv#+}" || ok=0 ;;
+				*)  uci -q -c "$d/c" -t "$d/s" set "hermes_sec.security.$kv"          || ok=0 ;;
+			esac
 		done
 		uci -q -c "$d/c" -t "$d/s" commit hermes_sec                            || ok=0
 	fi
@@ -643,6 +686,55 @@ method_set_approver() {
 	fi
 	sec_save approver_id="$id" || return 0
 	json_init; json_add_boolean "ok" 1; json_add_string "approver_id" "$id"; json_dump
+}
+
+# What the agent's own connections reach (hermes-agent 0.21.5-r21): limited or open, and the hosts of
+# the house the owner adds. The agent restarts, and its start applies them. The rules themselves are
+# hermes-net's, and they refuse SSH and LuCI on the router's own addresses whatever a line here says.
+method_set_network() {
+	local network hosts host port
+	read -r MSG
+	network=$(msg_get agent_network)
+	hosts=$(echo "$MSG" | jsonfilter -e '@.lan_allow[*]' 2>/dev/null)
+	MSG=
+	sec_gate || return 0
+	case "$network" in limited|open) ;; *) sec_refuse "the agent's network is limited or open"; return 0 ;; esac
+	set -- agent_network="$network" -lan_allow
+	local IFS='
+'
+	set -f
+	for host in $hosts; do
+		port=${host##*:}
+		if ! echo "$host" | grep -Eq "$SEC_LAN_ALLOW" || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+			set +f
+			sec_refuse "a host the agent may reach is host:port or [IPv6 address]:port, with a port from 1 to 65535"
+			return 0
+		fi
+		set -- "$@" "+lan_allow=$host"
+	done
+	set +f
+	unset IFS
+	sec_save "$@" || return 0
+	json_init; json_add_boolean "ok" 1; json_add_string "agent_network" "$network"; json_dump
+}
+
+# Ends a wait for the owner: openwrt-mcp's own `mfa reset`, the one thing that does, which reaches a
+# running daemon through the count's file. No MCP client can ask for it, so this is the owner's way
+# in from a browser, behind LuCI's login; the agent's own tools do not reach ubus.
+method_reset_tries() {
+	read -r MSG; MSG=
+	sec_gate || return 0
+	if [ "$TRIES_COUNTED" != 1 ]; then
+		sec_refuse "this openwrt-mcp keeps no count that a reset could clear: it needs to be 0.5.0.8 or later"; return 0
+	fi
+	if ! "$MCP_BIN" mfa reset "$SEC_CLIENT" >/dev/null 2>&1; then
+		sec_refuse "openwrt-mcp could not clear the count: its storage may be full"; return 0
+	fi
+	sec_mcp_facts
+	if [ "$FAILED_TRIES" != 0 ]; then
+		sec_refuse "openwrt-mcp took the reset but still reports failed tries"; return 0
+	fi
+	json_init; json_add_boolean "ok" 1; json_add_int "failed_tries" 0; json_dump
 }
 
 method_logs() {
@@ -768,6 +860,11 @@ list)
 	json_add_object "set_approver"
 		json_add_string "approver_id" ""
 	json_close_object
+	json_add_object "set_network"
+		json_add_string "agent_network" ""
+		json_add_array  "lan_allow"; json_close_array
+	json_close_object
+	json_add_object "reset_tries";          json_close_object
 	json_dump
 	;;
 call)
@@ -786,6 +883,8 @@ call)
 		set_factor)           method_set_factor ;;
 		set_packages)         method_set_packages ;;
 		set_approver)         method_set_approver ;;
+		set_network)          method_set_network ;;
+		reset_tries)          method_reset_tries ;;
 		*) json_init; json_add_string "error" "unknown method"; json_dump ;;
 	esac
 	;;

@@ -52,7 +52,11 @@ set -eu
 # 0.21.5-r5: the settings page has a switch, "Model from llm-gateway" (hermes.main.llm_gateway, which
 # hermes-agent 0.21.5-r20 reads): the model then comes from the router's own gateway to the house's
 # model servers. The endpoint, model and key fields stay as they are and do not depend on it.
-PKGREL=${PKGREL:-5}
+# 0.21.5-r6: the Security page shows what the agent's own connections reach and sets it (set_network:
+# hermes.security.agent_network and lan_allow, which hermes-agent 0.21.5-r21 reads), shows the wrong
+# tries on record with a Reset (reset_tries, `openwrt-mcp mfa reset`, 0.5.0.8), warns beside PIN alone,
+# says the lockout is the first of waits that grow, and says why a common PIN was refused.
+PKGREL=${PKGREL:-6}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

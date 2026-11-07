@@ -669,6 +669,8 @@ mutants = [
      'test_owner_told_of_tries_by_someone_else_once_per_delay'),
     ('a cleared count remembered', 'openwrt_unlock.py', '        t.update(seen=0, refused=0, carried=0, others=0, others_refused=0, told=0)\n', '',
      'test_owner_told_of_tries_by_someone_else_once_per_delay'),
+    ('a count cleared between listings remembered', 'openwrt_unlock.py', '    if failures < t["seen"]:  # cleared between two listings, and counting again\n        t.update(seen=0, refused=0, others=0, others_refused=0, told=0)\n    new = failures - t["seen"]\n',
+     '    new = max(failures - t["seen"], 0)\n', 'test_owner_told_of_tries_by_someone_else_once_per_delay'),
     ('the text of the listing in the notice', 'openwrt_unlock.py', 'words["until"].format(until=when.astimezone().strftime("%H:%M")) if when else words["while"]',
      'words["until"].format(until=row.get("locked_out_until"))', 'test_owner_told_of_tries_by_someone_else_once_per_delay'),
     ('a count the disk would not take not said', 'openwrt_unlock.py', '    if row.get("persisted") is False:\n', '    if False:\n',

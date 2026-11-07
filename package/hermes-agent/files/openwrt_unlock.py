@@ -51,6 +51,12 @@ fitting message from the approver carries on the same path as an unlock: deleted
 shown to the model, sent once to ``action_approve`` against the hash of that card. The outcome
 edits the card and starts a turn for the agent in the chat the change was proposed from, saying
 what happened and, for an applied setting, to check the router and confirm it.
+
+The same listing says how the guessing goes (0.21.5-r22, openwrt-mcp 0.5.0.8): openwrt-mcp counts
+every try against the owner's client and cannot tell whose thumb it was. This file can, because the
+owner's own tries pass through it. So when a delay begins and some of what led to it did not come
+through here, the owner is told in the chat, once per delay. That is the one thing a guesser cannot
+take away: the delay falls on the owner too, and the owner may be far from LuCI.
 """
 from __future__ import annotations
 
@@ -493,7 +499,10 @@ async def process(kind: str, args: str, *, user_id, chat_id, private: bool, fact
                 return
             arguments["client"] = _client()
             tool = "mfa_unlock"
-        answered, text, is_error = await asyncio.to_thread(call_tool, tool, arguments)
+        if tool == "mfa_unlock":
+            answered, text, is_error = await _carried(user_id, tool, arguments)
+        else:
+            answered, text, is_error = await asyncio.to_thread(call_tool, tool, arguments)
         arguments = None  # the secret leaves scope here
         note_outcome(tool, answered, text, is_error)
         await send(answer_for(tool, answered, text, is_error, factor) + note)
@@ -617,7 +626,9 @@ def telegram_handler(app, adapter):
     app.add_handler(CallbackQueryHandler(on_card_button, pattern=CARD_BUTTON.pattern), group=-1)
     global _BOT
     _BOT = app.bot
-    if _approvals_on():
+    # Approvals off still leaves someone who can try: with several ids allowed and none chosen there
+    # is nobody to approve, and the owner is still told of tries by someone else.
+    if _approvals_on() or _factor() in FACTORS:
         _start_poller()
     log.info("openwrt-unlock: the Telegram handler is in place")
 
@@ -852,15 +863,156 @@ def post_tool_call(tool_name=None, args=None, result=None, **_ctx):
     return None
 
 
-def _actions():
-    """The held changes of this gateway's agent, as openwrt-mcp lists them to the owner's client."""
+def _listing():
+    """What openwrt-mcp lists to the owner's client, as {"actions": this agent's held changes,
+    "throttle": its guess throttle}; None when it could not be asked or read, False when it refused."""
     answered, text, is_error = call_tool("action_list", {})
-    if not answered or is_error:
+    if not answered:
         return None
+    if is_error:
+        return False
     try:
-        return [a for a in json.loads(text).get("actions", []) if a.get("client") == _client()]
+        listed = json.loads(text)
+        return {"actions": [a for a in listed.get("actions", []) if a.get("client") == _client()],
+                "throttle": listed.get("throttle") or []}
     except Exception:  # noqa: BLE001
         return None
+
+
+def _actions():
+    """The held changes of this gateway's agent, as openwrt-mcp lists them to the owner's client."""
+    listing = _listing()
+    return listing["actions"] if listing else None
+
+
+# ------------------------------------------------------------------- tries by someone else
+
+# The words of the notice, by upstream's language codes. A language with no words here reads English.
+TRIES_WORDS = {
+    "en": {"tried": "Someone else tried to unlock this router. Tries that did not come from this chat: {others}.",
+           "count": "Wrong tries in a row: {failures}, limit: {limit}.",
+           "until": "Unlocking is closed until {until}, for you too.",
+           "while": "Unlocking is closed for a while, for you too.",
+           "reset": "If this was you, nothing needs doing. To end the wait: Services, Hermes Agent, Security in LuCI, or openwrt-mcp mfa reset {client} on the router.",
+           "unsaved": "The router could not save this count, so a reboot would forget it."},
+    "uk": {"tried": "Хтось інший намагався розблокувати цей роутер. Спроб не з цього чату: {others}.",
+           "count": "Невдалих спроб поспіль: {failures}, межа: {limit}.",
+           "until": "Розблокування закрите до {until}, і для вас теж.",
+           "while": "Розблокування закрите на якийсь час, і для вас теж.",
+           "reset": "Якщо це були ви, нічого робити не треба. Щоб зняти очікування: Services, Hermes Agent, Security у LuCI або openwrt-mcp mfa reset {client} на роутері.",
+           "unsaved": "Роутер не зміг записати цей лічильник, тому перезавантаження його забуде."},
+    "de": {"tried": "Jemand anderes hat versucht, diesen Router zu entsperren. Versuche, die nicht aus diesem Chat kamen: {others}.",
+           "count": "Fehlversuche in Folge: {failures}, Grenze: {limit}.",
+           "until": "Das Entsperren ist bis {until} geschlossen, auch für Sie.",
+           "while": "Das Entsperren ist eine Weile geschlossen, auch für Sie.",
+           "reset": "Wenn Sie das waren, ist nichts zu tun. Um die Wartezeit zu beenden: Services, Hermes Agent, Security in LuCI oder openwrt-mcp mfa reset {client} auf dem Router.",
+           "unsaved": "Der Router konnte diesen Zähler nicht speichern, ein Neustart würde ihn also vergessen."},
+    "es": {"tried": "Otra persona ha intentado desbloquear este router. Intentos que no vinieron de este chat: {others}.",
+           "count": "Intentos fallidos seguidos: {failures}, límite: {limit}.",
+           "until": "El desbloqueo está cerrado hasta las {until}, también para ti.",
+           "while": "El desbloqueo está cerrado durante un tiempo, también para ti.",
+           "reset": "Si fuiste tú, no hace falta hacer nada. Para terminar la espera: Services, Hermes Agent, Security en LuCI, u openwrt-mcp mfa reset {client} en el router.",
+           "unsaved": "El router no pudo guardar este contador, así que un reinicio lo olvidaría."},
+    "fr": {"tried": "Quelqu'un d'autre a essayé de déverrouiller ce routeur. Tentatives qui ne viennent pas de ce chat : {others}.",
+           "count": "Tentatives échouées d'affilée : {failures}, limite : {limit}.",
+           "until": "Le déverrouillage est fermé jusqu'à {until}, pour vous aussi.",
+           "while": "Le déverrouillage est fermé pour un moment, pour vous aussi.",
+           "reset": "Si c'était vous, il n'y a rien à faire. Pour mettre fin à l'attente : Services, Hermes Agent, Security dans LuCI, ou openwrt-mcp mfa reset {client} sur le routeur.",
+           "unsaved": "Le routeur n'a pas pu enregistrer ce compteur, un redémarrage l'oublierait donc."},
+}
+
+# What this gateway knows of the tries on its client, all of it in memory: a file would be in the data
+# directory, which the agent writes, and the notice is about someone the agent may be. Everything
+# here runs on the event loop, so it needs no lock.
+#   seen, refused    what the last listing said
+#   carrying         tries of the owner's on their way to openwrt-mcp and back
+#   carried          tries of the owner's that came back since the last listing
+#   others           failed tries since the count was last zero that were not the owner's
+#   others_refused   the same of the tries refused inside the delay in force
+#   told             the count at which the owner was last told, which names the delay: a count
+#                    moves only when a try is let through, and that takes the end of a delay
+_tries = {"seen": 0, "refused": 0, "carrying": 0, "carried": 0, "others": 0, "others_refused": 0, "told": 0}
+
+
+def _owners():
+    """The Telegram ids that are the owner here: the approver, or with none every id allowed to try."""
+    approver = _approver()
+    return [approver] if approver else sorted((i for i in _allowed_ids() if i.isdigit()), key=int)
+
+
+def _language() -> str:
+    """Upstream's language: HERMES_LANGUAGE, then display.language in config.yaml. Never raises."""
+    try:
+        from agent.i18n import get_language
+        return get_language()
+    except Exception:  # noqa: BLE001
+        return "en"
+
+
+async def _carried(user_id, tool: str, arguments: dict):
+    """``call_tool`` for one try the plugin carries, remembered as the owner's when it is. A try from
+    another allowed id is not: the approver's chat did not see it."""
+    mine = str(user_id) in _owners()
+    if mine:
+        _tries["carrying"] += 1
+    try:
+        return await asyncio.to_thread(call_tool, tool, arguments)
+    finally:
+        if mine:
+            _tries["carrying"] -= 1
+            _tries["carried"] += 1
+
+
+def tries_notice(row: dict, others: int, language: str) -> str:
+    """What the owner is told: numbers from the listing, and a time that read as one. No other text
+    of the listing, and nothing typed, has a way in."""
+    words = TRIES_WORDS.get(language, TRIES_WORDS["en"])
+    when = _when(str(row.get("locked_out_until")))
+    parts = [words["tried"].format(others=others), words["count"].format(failures=row["failures"], limit=row["limit"]),
+             words["until"].format(until=when.astimezone().strftime("%H:%M")) if when else words["while"],
+             words["reset"].format(client=_client())]
+    if row.get("persisted") is False:
+        parts.append(words["unsaved"])
+    return " ".join(parts)
+
+
+async def _watch_tries(rows) -> None:
+    """Reads the throttle list of a listing, and tells the owner once per delay when some of the
+    tries behind it are not the owner's. A failed send is tried again at the next listing."""
+    if _tries["carrying"]:
+        return  # the daemon may have counted a try this file has not heard back about
+    t = _tries
+    row = next((r for r in rows or [] if isinstance(r, dict) and r.get("client") == _client()), None)
+    if row is None or not all(type(row.get(k)) is int and row[k] >= 0 for k in ("failures", "refused", "limit")):
+        return
+    failures, refused = row["failures"], row["refused"]
+    if failures == 0:
+        t.update(seen=0, refused=0, carried=0, others=0, others_refused=0, told=0)
+        return
+    if failures < t["seen"]:  # cleared between two listings, and counting again
+        t.update(seen=0, refused=0, others=0, others_refused=0, told=0)
+    new = failures - t["seen"]
+    # A counted failure, like a restart of the daemon, starts the count of refusals again.
+    fresh = refused if new or refused < t["refused"] else refused - t["refused"]
+    mine = min(new, t["carried"])
+    new -= mine
+    fresh -= min(fresh, t["carried"] - mine)
+    t["others"] = min(t["others"] + new, failures)
+    t["others_refused"] = fresh if failures != t["seen"] or refused < t["refused"] else t["others_refused"] + fresh
+    t.update(seen=failures, refused=refused, carried=0)
+    others = t["others"] + t["others_refused"]
+    if not others or not row.get("locked_out_until") or t["told"] == failures or _BOT is None:
+        return
+    text = tries_notice(row, others, _language())
+    reached = 0
+    for owner in _owners():
+        try:
+            await _BOT.send_message(chat_id=int(owner), text=text)
+            reached += 1
+        except Exception as exc:  # noqa: BLE001 - the next listing tries again
+            log.warning("the owner could not be told of tries by someone else (%s)", type(exc).__name__)
+    if reached:
+        t["told"] = failures
 
 
 OUTCOME_LINE = {
@@ -951,8 +1103,17 @@ async def _show(a: dict) -> None:
 async def _poll_forever() -> None:
     while True:
         try:
-            for a in (await asyncio.to_thread(_actions)) or []:
-                await _show(a)
+            listing = await asyncio.to_thread(_listing)
+            if listing is False and not _approvals_on():
+                # An openwrt-mcp with no approval section for this agent, so there is nothing to
+                # read, and every refusal would be an audit line on the router's flash.
+                log.warning("openwrt-mcp lists nothing to the owner's client; the owner will not hear of tries by someone else")
+                return
+            if listing:
+                if _approvals_on():
+                    for a in listing["actions"]:
+                        await _show(a)
+                await _watch_tries(listing["throttle"])
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - the next round tries again
@@ -1077,7 +1238,7 @@ async def process_approval(kind: str, arg: str, *, user_id, private: bool, delet
             await send("That does not look like a PIN and a code. " + hint_for(APPROVAL_FACTOR).replace("/unlock", "your answer") + note)
             return
         arguments.update(id=prompt["id"], hash=prompt["hash"])
-        answered, text, is_error = await asyncio.to_thread(call_tool, "action_approve", arguments)
+        answered, text, is_error = await _carried(user_id, "action_approve", arguments)
         arguments = None  # the secret leaves scope here
         await send(approve_answer(answered, text, is_error) + note)
         await _decided(prompt["id"])
