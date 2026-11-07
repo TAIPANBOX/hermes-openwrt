@@ -422,6 +422,28 @@ Feature: The agent changes the router only when its owner unlocks it
     And the owner is told in the chat
     # -> check_wrong_attempts_lock_out
 
+  Scenario: The owner hears of tries that did not come through the chat
+    Given someone holds the owner's client and makes five wrong tries past the chat
+    Then the owner is told in the private chat, once for that delay, with the count, the limit and when the wait ends
+    And more tries inside the delay bring no second message, and neither the message nor a PIN reaches the model or a log
+    When the owner ends the wait on the router
+    Then the right PIN and code open changes at once
+    And the owner's own five wrong tries in the chat bring no such message
+    # -> check_owner_told_of_tries_by_someone_else
+
+  Scenario: The tries are told even with nobody to approve
+    Given two Telegram ids allowed, none chosen as the approver, so approvals are off
+    When five wrong tries arrive past the chat
+    Then both ids are told
+    # -> check_owner_told_with_nobody_to_approve
+
+  Scenario: The owner ends a wait from the Security page
+    Given five wrong tries, and a restart of openwrt-mcp that forgives nothing
+    Then the page reads five failed tries
+    When the owner presses Reset, which runs openwrt-mcp mfa reset
+    Then the page reads none, and the right PIN opens changes at once with no restart
+    # -> check_luci_reset_ends_the_wait
+
   Scenario: A code works once
     Given a code has unlocked once
     When the same code is sent again

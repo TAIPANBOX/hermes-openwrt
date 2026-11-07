@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (eighty-eight in all, over fifty-one checks). Each is a change a
+# or have several ways to go wrong (ninety-five in all, over fifty-four checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -293,8 +293,8 @@ expect_red "mfa enrol printing no QR" check_cli_enrol_prints_qr
 
 # ---- 32. the PIN left in a file ----
 # A debugging line in set_pin, the commonest way a secret gets onto flash.
-plant "$RPCD" 'if ! echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" >/dev/null 2>&1; then' \
-	'echo "$pin" > /tmp/hermes-last-pin; if ! echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" >/dev/null 2>&1; then' "$LUCI_TREE"
+plant "$RPCD" 'if ! res=$(echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" 2>&1 >/dev/null); then' \
+	'echo "$pin" > /tmp/hermes-last-pin; if ! res=$(echo "$pin" | "$MCP_BIN" pin set "$SEC_CLIENT" 2>&1 >/dev/null); then' "$LUCI_TREE"
 expect_red "the PIN written to a file" check_luci_pin_write_only
 
 # ---- 33. the PIN read with jshn's own loader ----
@@ -601,6 +601,37 @@ expect_red "the include not held by its name" check_window_cannot_lift_the_netwo
 plant "$INIT" "MCP_HOLD_UCI='firewall.hermes_* firewall.@include*'" "MCP_HOLD_UCI='firewall.hermes_*'"
 expect_red "the include not held by selector" check_window_cannot_lift_the_network_limits
 
+# ---- 89. the notice never sent ----
+plant "$PLUGIN" '                await _watch_tries(listing["throttle"])' '                pass'
+expect_red "the owner not told of tries by someone else" check_owner_told_of_tries_by_someone_else
+
+# ---- 90. the owner's own tries in the chat not carried ----
+plant "$PLUGIN" '            answered, text, is_error = await _carried(user_id, tool, arguments)' \
+	'            answered, text, is_error = await asyncio.to_thread(call_tool, tool, arguments)'
+expect_red "the owner's own wrong tries told as someone else's" check_owner_told_of_tries_by_someone_else
+
+# ---- 91. a notice for every listing of one delay ----
+plant "$PLUGIN" '    if reached:
+        t["told"] = failures' '    pass'
+expect_red "a notice at every listing" check_owner_told_of_tries_by_someone_else
+
+# ---- 92. the listing read only when somebody can approve ----
+plant "$PLUGIN" '    if _approvals_on() or _factor() in FACTORS:' '    if _approvals_on():'
+expect_red "no notice with nobody to approve" check_owner_told_with_nobody_to_approve
+
+# ---- 93. a reset that says it worked and runs nothing ----
+plant "$RPCD" '	if ! "$MCP_BIN" mfa reset "$SEC_CLIENT" >/dev/null 2>&1; then' '	if false; then' "$LUCI_TREE"
+expect_red "the page's reset runs nothing" check_luci_reset_ends_the_wait
+
+# ---- 94. the count read from nowhere ----
+plant "$RPCD" '	case "$v" in '"''"'|*[!0-9]*) ;; *) FAILED_TRIES=$v ;; esac' '	:' "$LUCI_TREE"
+expect_red "the page told no failed tries" check_luci_reset_ends_the_wait
+
+# ---- 95. a common PIN answered as a failure of the router ----
+plant "$RPCD" '			*"most common"*) sec_refuse "that PIN is one of the most common ones, the first a guesser tries: choose another" ;;
+' '' "$LUCI_TREE"
+expect_red "a common PIN refused without saying why" check_luci_pin_write_only
+
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
 # Counted from the gate's own list, so this cannot go stale when a check is added.
@@ -635,6 +666,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 88 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 88 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 95 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 95 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 88 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 95 faults (shard $SHARD), $N distinct checks, controls green"

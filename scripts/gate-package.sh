@@ -443,20 +443,22 @@ echo "PASS [15/17] check_gateway_keys_hidden_from_its_user (root reads the key, 
 # version or later, so an upgrade of hermes-agent cannot leave an older openwrt-mcp beside it.
 # Since r13 the floor is 0.5.0.4, whose status also reports apk_add_official_feed_only, which the
 # init asks for before it writes the owner's package policy; since r16 0.5.0.5, which reports
-# actions_held_for_approval, without which the init writes no change policy.
+# actions_held_for_approval, without which the init writes no change policy; since r22 0.5.0.8,
+# whose count of failed tries outlives a restart (second_factor_throttle_persisted), whose
+# action_list says it to the owner's client, and which has the `mfa reset` the Security page calls.
 # What apk recorded is read two ways (its own listing, and its database), since either may change
 # its layout; python3 among them is what says the list was read at all.
 deps=$( { apk info -R hermes-agent 2>/dev/null; sed -n '/^P:hermes-agent$/,/^$/s/^D://p' /lib/apk/db/installed 2>/dev/null; } | tr ' ' '\n')
 echo "$deps" | grep -qx python3 \
 	|| fail "[16/17] check_needs_an_openwrt_mcp_that_redacts" "measured nothing: hermes-agent's dependencies could not be read"
-echo "$deps" | grep -qx 'openwrt-mcp>=0.5.0.5' \
-	|| fail "[16/17] check_needs_an_openwrt_mcp_that_redacts" "hermes-agent does not require openwrt-mcp 0.5.0.5 or later: $(echo "$deps" | grep openwrt-mcp | sort -u | tr '\n' ' ')"
-for k in uci_get_redacts_credentials uci_apply_refuses_code_exec apk_add_official_feed_only actions_held_for_approval; do
+echo "$deps" | grep -qx 'openwrt-mcp>=0.5.0.8' \
+	|| fail "[16/17] check_needs_an_openwrt_mcp_that_redacts" "hermes-agent does not require openwrt-mcp 0.5.0.8 or later: $(echo "$deps" | grep openwrt-mcp | sort -u | tr '\n' ' ')"
+for k in uci_get_redacts_credentials uci_apply_refuses_code_exec apk_add_official_feed_only actions_held_for_approval second_factor_throttle_persisted; do
 	cap=$(openwrt-mcp status --json --audit 0 2>/dev/null | jsonfilter -e "@.capabilities.$k" 2>/dev/null || true)
 	[ "$cap" = true ] \
 		|| fail "[16/17] check_needs_an_openwrt_mcp_that_redacts" "the openwrt-mcp installed beside it does not report $k ('$cap')"
 done
-echo "PASS [16/17] check_needs_an_openwrt_mcp_that_redacts (openwrt-mcp>=0.5.0.5; $(apk info -e openwrt-mcp 2>/dev/null || echo openwrt-mcp) reports all four capabilities)"
+echo "PASS [16/17] check_needs_an_openwrt_mcp_that_redacts (openwrt-mcp>=0.5.0.8; $(apk info -e openwrt-mcp 2>/dev/null || echo openwrt-mcp) reports all five capabilities)"
 
 # ---- 17. the agent's network limits come with the package and leave with it ----
 # A table nothing would ever delete, and a firewall include whose script is gone, are what a removed

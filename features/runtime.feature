@@ -338,6 +338,38 @@ Feature: What is set on the router is what the gateway runs with
     And the agent is told the outcome once, in the chat the change was proposed from
     # -> check_card_waits_through_an_approval_in_progress
 
+  Scenario: the owner hears of someone else's tries once per delay, and of no typo of the owner's
+    Given the listing of openwrt-mcp, which counts every try on the owner's client
+    When a delay begins and some of the tries behind it did not come through the plugin
+    Then the approver alone is told, with how many, once for that delay, and again for the next one
+    And under the limit, for another client, for tries that are the owner's, or for a try the listing sees before its answer is back, nothing is sent
+    And tries refused inside the owner's own delay are told, a failed send is tried again, a count the disk would not take is said, and nothing in the listing but numbers and a time reaches the chat
+    # -> check_owner_told_of_tries_by_someone_else_once_per_delay
+
+  Scenario: the notice needs no approver, and speaks the language set
+    Given approvals off, with two ids allowed and no approver
+    When the listing shows a delay
+    Then held changes are not shown and both ids are told
+    And the words follow display.language or HERMES_LANGUAGE, and a language with none reads English
+    # -> check_owner_told_with_no_approver_and_in_the_language_set
+
+  Scenario: the shipped file says the lockout is the first of waits that grow
+    Given the configuration file as shipped
+    Then it says each wrong try doubles the wait up to an hour, that there is no last try, and how to clear the count
+    # -> check_shipped_file_says_the_lockout_is_the_first_of_waits_that_grow
+
+  Scenario: an emptied endpoint leaves the connection to openwrt-mcp in place
+    Given the owner profile
+    When hermes.main.router_mcp_url is emptied, with uci or in the file
+    Then the option is gone, the agent keeps openwrt-mcp's own address, and no comment says otherwise
+    # -> check_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp
+
+  Scenario: the companions are the commits the workflow pins
+    Given llm-gateway and openwrt-mcp, which this repository tests against
+    Then each build script names one commit and refuses another checkout, and the workflow checks out that one
+    And llm-gateway under test is that commit, built static
+    # -> check_companions_are_built_from_the_commits_ci_pins
+
   Scenario: a PIN sent while a change waits for approval does not open the unlock window
     Given a held change whose card the approver was sent
     When the approver sends a bare PIN, or a PIN and a code, without pressing Approve first

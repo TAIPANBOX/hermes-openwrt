@@ -303,6 +303,45 @@ Feature: The web page manages the agent and never hands a key back
     And it says that approving needs a PIN and a phone when one is missing, and that Telegram is needed when no id is allowed
     # -> check_security_approver_offered_only_from_the_allowed_ids
 
+  Scenario: what the agent reaches is limited or open, and a host is what the agent can read
+    Given the owner profile
+    When the page sends a value that is neither limited nor open, or a host that is not host:port or [IPv6 address]:port with a real port
+    Then it is refused, the refusal says what an entry looks like, and nothing is written or announced
+    When it sends open and three hosts
+    Then they are written, read back, and procd is told once, so the agent restarts and applies them
+    And a list saved again replaces the old one, an empty one empties it, and another session's staged edit stays staged
+    And a value the service would refuse is shown as one
+    # -> check_security_network_limits_written_only_as_the_agent_reads_them
+
+  Scenario: the page offers limited or open and the hosts, and says what they mean
+    Given the Security page
+    Then it offers limited and open, with the hosts one per line, and says what limited closes and that it does not touch the owner
+    And a line the agent could not read is named and nothing is sent, and blank lines are not entries
+    And open is warned about, a value the service refuses is said to be one, and a refusal is shown
+    And outside the owner profile none of it is there
+    # -> check_security_network_limits_offered_on_the_page
+
+  Scenario: the failed tries on record come from openwrt-mcp, and the reset goes to it
+    Given failed tries in openwrt-mcp's own record, for this client and another
+    Then the status reads this client's count
+    When reset_tries is called
+    Then openwrt-mcp mfa reset clears this client's and leaves the other's
+    And an openwrt-mcp that keeps no count is said to and is asked for nothing, and a reset that fails is reported
+    # -> check_security_failed_tries_reset_through_openwrt_mcp
+
+  Scenario: the page shows the failed tries with a Reset, and what they cost
+    Given the Security page
+    Then it shows the count, says the wait grows to an hour and that a restart does not clear it, and offers Reset only with something to clear
+    And a refusal is shown, a count that is not reaching the disk is said to be behind, and an openwrt-mcp with no count shows none
+    And the lockout is described as the first wait, doubling up to an hour
+    # -> check_security_failed_tries_shown_with_a_reset
+
+  Scenario: a PIN alone is warned about beside the choice
+    Given the Security page
+    Then beside PIN it says what a PIN alone costs and what to choose instead
+    And with PIN alone in force that is an alert, and with a PIN and an app code it is not
+    # -> check_security_pin_alone_is_warned
+
   Scenario: outside the owner profile the Security calls refuse
     Given the profile is root, admin, assistant or nothing the service accepts
     When a PIN is set or cleared, a phone is added or activated, a factor is chosen, or package installs are switched

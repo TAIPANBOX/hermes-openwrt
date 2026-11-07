@@ -60,6 +60,8 @@ export PYTHONPATH=/usr/lib/hermes-agent/site-packages PYTHONDONTWRITEBYTECODE=1
 # Assert tests use precisely the code installed from the archive.
 mkdir /tmp/product
 cp /usr/sbin/hermes-gateway /tmp/product/hermes-gateway
+# As shipped: the file under /etc/config loses its comments at the first `uci commit`.
+cp /etc/config/hermes /tmp/product/hermes-agent.config
 cp /etc/init.d/hermes-agent /tmp/product/hermes-agent.init
 cp /usr/libexec/hermes-set-toolsets /tmp/product/set-toolsets.py
 cp /usr/libexec/hermes-memory /tmp/product/memory-limit.py

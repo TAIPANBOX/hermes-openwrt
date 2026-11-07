@@ -214,7 +214,7 @@ cp /tmp/boot.bak "$BOOT"
 
 # ---- fault 12: openwrt-mcp without its floor ----
 # The shape every release up to r10 had. With r11's init that is a router where an upgrade of
-# hermes-agent leaves an openwrt-mcp from before 0.5.0.3 (0.5.0.4 since r13, 0.5.0.5 since r16) in place; the init would then keep the
+# hermes-agent leaves an openwrt-mcp from before 0.5.0.3 (0.5.0.4 since r13, 0.5.0.5 since r16, 0.5.0.8 since r22) in place; the init would then keep the
 # narrow reads, and a guest Wi-Fi would stay out of reach with nothing in apk to say why.
 repack "python3 python3-pip ca-bundle bash ffmpeg ffprobe ripgrep openwrt-mcp iputils-ping procd-ujail firewall4"
 expect_red "openwrt-mcp with no version floor" check_needs_an_openwrt_mcp_that_redacts

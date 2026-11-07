@@ -511,6 +511,104 @@ repack_luci
 expect_red "the llm-gateway switch made a text field" check_llm_gateway_switch_leaves_the_endpoint_alone
 cp "$SRC_SETTINGS" "$SETTINGS"
 
+# ---- fault 49: Reset offered with nothing to clear ----
+plant "$SECURITY" "if (!st.failed_tries) resetAttrs.disabled = 'disabled';" 'void 0;' "fault 49"
+repack_luci
+expect_red "Reset offered with nothing on record" check_security_failed_tries_shown_with_a_reset
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 50: a line the agent cannot read sent all the same ----
+plant "$SECURITY" "if (bad !== undefined) return fail(" "if (false) return fail(" "fault 50"
+repack_luci
+expect_red "a bad host line sent" check_security_network_limits_offered_on_the_page
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 51: the hosts on the router not shown ----
+plant "$SECURITY" "netHosts.value = (st.lan_allow || []).join('\\n');" 'void 0;' "fault 51"
+repack_luci
+expect_red "the hosts set not shown" check_security_network_limits_offered_on_the_page
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 52: open not warned about ----
+plant "$SECURITY" "else if (st.agent_network === 'open')" 'else if (false)' "fault 52"
+repack_luci
+expect_red "open not warned about" check_security_network_limits_offered_on_the_page
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 53: no warning beside PIN ----
+plant "$SECURITY" "r.value === 'pin' ? pinAlone : ''" "''" "fault 53"
+repack_luci
+expect_red "no warning beside PIN" check_security_pin_alone_is_warned
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 54: PIN alone in force and no alert ----
+plant "$SECURITY" "'class': st.factor === 'pin' ? 'alert-message warning' : 'cbi-value-description' }," "'class': 'cbi-value-description' }," "fault 54"
+repack_luci
+expect_red "PIN alone in force with no alert" check_security_pin_alone_is_warned
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 55: any value taken for the agent's network ----
+# The init refuses to start on anything but limited or open, so this saves a broken router.
+plant "$RPCD" 'case "$network" in limited|open) ;; *) sec_refuse' 'case "$network" in *) ;; ZZZ) sec_refuse' "fault 55"
+repack_luci
+expect_red "any agent_network accepted" check_security_network_limits_written_only_as_the_agent_reads_them
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 56: any host taken ----
+plant "$RPCD" 'if ! echo "$host" | grep -Eq "$SEC_LAN_ALLOW" || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then' 'if false; then' "fault 56"
+repack_luci
+expect_red "any host accepted" check_security_network_limits_written_only_as_the_agent_reads_them
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 57: a port past the last one taken ----
+plant "$RPCD" ' || [ "$port" -gt 65535 ]; then' '; then' "fault 57"
+repack_luci
+expect_red "a port past 65535 accepted" check_security_network_limits_written_only_as_the_agent_reads_them
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 58: the list added to, not replaced ----
+plant "$RPCD" 'set -- agent_network="$network" -lan_allow' 'set -- agent_network="$network"' "fault 58"
+repack_luci
+expect_red "the hosts added to the old list" check_security_network_limits_written_only_as_the_agent_reads_them
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 59: the status saying limited whatever is set ----
+plant "$RPCD" 'json_add_string  "agent_network" "$(sec_agent_network)"' 'json_add_string  "agent_network" "limited"' "fault 59"
+repack_luci
+expect_red "the status not telling what is set" check_security_network_limits_written_only_as_the_agent_reads_them
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 60: a reset asked of a binary that has none ----
+plant "$RPCD" '	if [ "$TRIES_COUNTED" != 1 ]; then' '	if false; then' "fault 60"
+repack_luci
+expect_red "a reset asked of an openwrt-mcp with no count" check_security_failed_tries_reset_through_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 61: a failed reset answered ok ----
+plant "$RPCD" '	if ! "$MCP_BIN" mfa reset "$SEC_CLIENT" >/dev/null 2>&1; then' '	"$MCP_BIN" mfa reset "$SEC_CLIENT" >/dev/null 2>&1; if false; then' "fault 61"
+repack_luci
+expect_red "a failed reset answered ok" check_security_failed_tries_reset_through_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 62: set_network left out of the write permission ----
+plant "$ACL" '"set_approver", "set_network",' '"set_approver",' "fault 62"
+repack_luci
+expect_red "set_network left out of the write permission" check_security_page_calls_are_granted
+cp "$SRC_ACL" "$ACL"
+
+# ---- fault 63: reset_tries left out of the write permission ----
+plant "$ACL" '"set_factor", "reset_tries" ],' '"set_factor" ],' "fault 63"
+repack_luci
+expect_red "reset_tries left out of the write permission" check_security_page_calls_are_granted
+cp "$SRC_ACL" "$ACL"
+
+# ---- fault 64: a reset from outside the owner profile ----
+sed '/^method_reset_tries() {/,/^}/s/sec_gate || return 0/sec_mcp_facts/' "$SRC_RPCD" > "$RPCD"
+cmp -s "$SRC_RPCD" "$RPCD" && { echo "teeth-luci: fault 64 planted nothing" >&2; exit 1; }
+repack_luci
+expect_red "a reset outside the owner profile" check_security_refused_outside_the_owner_profile
+cp "$SRC_RPCD" "$RPCD"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -518,6 +616,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 48 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 48 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 64 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 64 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 48 faults on 29 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 64 faults on 34 checks (shard $SHARD), green restored"
