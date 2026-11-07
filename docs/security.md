@@ -226,6 +226,14 @@ name answers nothing until the computer renews its lease. dnsmasq turns its leas
 starts, so that part begins at the first reboot after the install or `service dnsmasq restart`.
 Whatever is refused, `logread -e hermes-net` names the address.
 
+Run on a virtual OpenWrt 25.12.5 router on 2026-11-07, with a real procd, netifd, fw4 and dnsmasq, the
+gateway in its sandbox, a host on the LAN and one on the WAN side: everything in the table above did
+what it says from the agent's uid, IPv4 and IPv6, and answered root. A scheduled job through the real
+gateway reached a model on the LAN by name, its terminal got `Operation not permitted` from `wget
+http://127.0.0.1/`, an answer from `nslookup` and from `ping`, and those two packets were all that was
+refused in the run. The table stayed through `fw4 reload` and `service firewall restart`, came back
+after `stop` and `start`, came back with the service after a reboot, and left with `apk del`.
+
 ### Profiles
 
 `hermes.main.profile` chooses what the agent may use, and an unset one means `owner`:

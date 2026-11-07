@@ -1062,6 +1062,30 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     negative skuid form, a rule in a fw4 chain, a `fw4 zone` in the include and an allow read from
     `config.yaml` first, two near misses that must stay green, and the missing subject; `scripts/teeth-runtime.py`,
     `scripts/teeth-unlock.sh` faults 87 and 88, `scripts/teeth.sh` fault 14.)
+    Red first, the checks committed alone (a954ee6): `@measured` `RED_FIRST=1 ./scripts/gate-network.sh` 2026-11-07
+    in `openwrt/rootfs:x86-64-25.12.5`, 29 tests, 90 failures and 4 errors, the agent reaching 127.0.0.1:22
+    and every other port and host it should not; and `gh run view` of PR #84's first run, gate-unlock 56 passed
+    and 1 failed, the real daemon in an open window applying the deletion of `firewall.hermes_net`, because a
+    fault of mine kept the hold from being written.
+    `@measured` 2026-11-07 on a vlab node (OpenWrt 25.12.5 x86-64, kernel 6.12.94, real procd, netifd, fw4 and
+    dnsmasq; a LAN host on `br-house`, a host on the WAN side, 192.168.1.0/24, a ULA and a global prefix
+    there), `hermes-agent` 0.21.5-r21 built from this tree, openwrt-mcp 0.5.0.7 and llm-gateway 562ba8e, the
+    gateway running in ujail as uid 32768, one connection per target through `hermes-drop hermes`: the model
+    on the LAN by name and by address, openwrt-mcp, llm-gateway, DNS over UDP and TCP on 127.0.0.1 and ::1,
+    1.1.1.1, openwrt.org, api.telegram.org and a global IPv6 host on the WAN side answered; SSH, uhttpd and
+    8080 on every address of the router and the LAN host, IPv4, ULA and global, the WAN side's private hosts and
+    100.100.100.100 failed with EHOSTUNREACH at once over IPv4 and EACCES after a second over IPv6, and each
+    answered root; 29 refusals counted, and the kernel log named each address. The table stayed through `fw4
+    reload` and `service firewall restart`, went with `service firewall stop`, and came back with `start`
+    through the include. `list lan_allow`, `agent_network=open` and the root profile did what they say, a new
+    bridge came into the set on its ifup, a host of the LAN got the router's reset for a closed port, and `apk del`
+    left no table, no include and no file. A `fw4 zone` planted in the include made `fw4 reload` take 30 s, until
+    fw4 killed the script (exit -9), against 0 s without it. One scheduled job through the real gateway
+    in its sandbox: the request reached the model on the LAN, and the agent's terminal printed `Failed to send
+    request: Operation not permitted` for `wget http://127.0.0.1/`, an address for `nslookup`, a ping of
+    127.0.0.1 answered, and uid 32768, with those two packets the only refusals of the run. After a reboot the
+    table was back with the service, the name of the model answered nothing and it was refused, and once that
+    host renewed its lease the rule was there and the model answered, with no restart.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
