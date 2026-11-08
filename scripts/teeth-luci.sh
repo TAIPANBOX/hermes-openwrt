@@ -657,6 +657,24 @@ repack_luci
 expect_red "the router's bot offered with no bot in openwrt-mcp" check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp
 cp "$SRC_SECURITY" "$SECURITY"
 
+# ---- fault 73: the bot's failure passed on as openwrt-mcp told it ----
+plant "$RPCD" '		*) OB_FAILURE=other ;;' '		*) OB_FAILURE=$v ;;' "fault 73"
+repack_luci
+expect_red "a failure told as text passed on" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 74: the router's text set into the page as markup ----
+plant "$SECURITY" "			[_('Unlock window'), E('span', {}, [ st.window ])]," "			[_('Unlock window'), E('span', {}, st.window)]," "fault 74"
+repack_luci
+expect_red "the router's text set as markup" check_security_page_puts_router_text_in_as_text
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 75: the bot's failure word shown as it came ----
+plant "$SECURITY" "					[ BOT_FAILURES[st.owner_bot_failure] || BOT_FAILURES.other ]) : ''," "					[ st.owner_bot_failure ]) : ''," "fault 75"
+repack_luci
+expect_red "the bot's failure word shown as it came" check_security_page_puts_router_text_in_as_text
+cp "$SRC_SECURITY" "$SECURITY"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -664,6 +682,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 72 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 72 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 75 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 75 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 72 faults on 37 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 75 faults on 38 checks (shard $SHARD), green restored"

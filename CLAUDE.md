@@ -243,7 +243,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `check_security_approver_offered_only_from_the_allowed_ids` in `scripts/test-luci-views.mjs`; teeth:
     `scripts/teeth-luci.sh` faults 43 to 46). `@claude` 2026-11-08, LuCI 0.21.5-r7: security_status also answers
     the router's own bot as facts (`owner_bot_supported`, `owner_bot_configured`, `owner_bot_bound`,
-    `owner_bot_binding`, `owner_bot_name`, `owner_bot_error`) and `approvals_where` (router, agent or none), and
+    `owner_bot_binding`, `owner_bot_name`, and `owner_bot_failure`, one word of openwrt-mcp's fixed set or other, never an error's text) and `approvals_where` (router, agent or none), and
     approvals_ready counts a bound bot as someone who approves; `set_owner_bot`, `bind_owner_bot`,
     `owner_bot_done` and `clear_owner_bot` are write permission alone. set_owner_bot takes a token only of a
     bot token's shape and hands it to `openwrt-mcp owner-bot set` on standard input from the shell's own
@@ -251,11 +251,12 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     printf like enrol_start's reply; owner_bot_done restarts the agent only with a chat bound, clear_owner_bot
     removes the bot and restarts it. The page shows the section only when openwrt-mcp reports
     owner_approves_past_the_listener, never fills the token field and empties it once sent, shows the code once,
-    and restarts the agent only once the chat is bound (gate: `scripts/gate-luci.sh`
+    restarts the agent only once the chat is bound, and puts every string from rpcd into the page as text,
+    never as markup (gate: `scripts/gate-luci.sh`
     `check_security_owner_bot_token_written_only_to_openwrt_mcp`; `scripts/test-luci-views.mjs`
     `check_security_owner_bot_token_never_filled_and_the_code_shown_once`,
-    `check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp`; teeth: `scripts/teeth-luci.sh` faults 66 to
-    72). `@claude` 2026-10-08, LuCI 0.21.5-r2: a PIN saved while the factor in
+    `check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp`, `check_security_page_puts_router_text_in_as_text`;
+    teeth: `scripts/teeth-luci.sh` faults 66 to 75). `@claude` 2026-10-08, LuCI 0.21.5-r2: a PIN saved while the factor in
     force is `none` says, after the reload and as a warning, to choose PIN under "What unlocking
     asks for" and press Save there, since the PIN and the factor have a Save each and a person
     set one and missed the other (gate: `scripts/test-luci-views.mjs`

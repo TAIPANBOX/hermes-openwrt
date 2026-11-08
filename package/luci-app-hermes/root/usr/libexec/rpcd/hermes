@@ -384,10 +384,10 @@ sec_approver() {
 # openwrt-mcp's listener leave the approval path; once per router the owner makes a bot, gives its
 # token here and presses Start. What `owner-bot status --json` says, as facts: never the token, and
 # no binding code (that is the one reply bind gives, once).
-OB_SUPPORTED=0 OB_CONFIGURED=0 OB_BOUND=0 OB_BINDING=0 OB_NAME='' OB_ERROR=''
+OB_SUPPORTED=0 OB_CONFIGURED=0 OB_BOUND=0 OB_BINDING=0 OB_NAME='' OB_FAILURE=''
 sec_owner_bot_facts() {
 	local st out v
-	OB_SUPPORTED=0; OB_CONFIGURED=0; OB_BOUND=0; OB_BINDING=0; OB_NAME=''; OB_ERROR=''
+	OB_SUPPORTED=0; OB_CONFIGURED=0; OB_BOUND=0; OB_BINDING=0; OB_NAME=''; OB_FAILURE=''
 	[ -x "$MCP_BIN" ] || return 1
 	st=$("$MCP_BIN" status --json --audit 0 2>/dev/null) || return 1
 	[ "$(echo "$st" | jsonfilter -e '@.capabilities.owner_approves_past_the_listener' 2>/dev/null)" = true ] || return 1
@@ -399,7 +399,14 @@ sec_owner_bot_facts() {
 	# A bot's name is letters, digits and underscores; anything else is not shown.
 	v=$(echo "$out" | jsonfilter -e '@.bot' 2>/dev/null)
 	case "$v" in ''|*[!A-Za-z0-9_]*) ;; *) OB_NAME=$v ;; esac
-	OB_ERROR=$(echo "$out" | jsonfilter -e '@.error' 2>/dev/null | cut -c1-200)
+	# A failure is one word of openwrt-mcp's fixed set, never the text of an error, which could carry
+	# what a URL carried; anything else is told as other.
+	v=$(echo "$out" | jsonfilter -e '@.failure' 2>/dev/null)
+	case "$v" in
+		'') ;;
+		token_rejected|telegram_refused|telegram_error|tls|pipe|network) OB_FAILURE=$v ;;
+		*) OB_FAILURE=other ;;
+	esac
 	return 0
 }
 
@@ -499,13 +506,13 @@ method_security_status() {
 	json_add_boolean "tries_counted" "$TRIES_COUNTED"
 	json_add_boolean "tries_saved" "$TRIES_SAVED"
 	# The router's own bot: whether openwrt-mcp has it, whether a token is set and a chat bound, the
-	# bot's name, whether a binding code waits, and its last error. Facts, these exactly.
+	# bot's name, whether a binding code waits, and its last failure as one word. Facts, these exactly.
 	json_add_boolean "owner_bot_supported" "$OB_SUPPORTED"
 	json_add_boolean "owner_bot_configured" "$OB_CONFIGURED"
 	json_add_boolean "owner_bot_bound" "$OB_BOUND"
 	json_add_boolean "owner_bot_binding" "$OB_BINDING"
 	json_add_string  "owner_bot_name" "$OB_NAME"
-	json_add_string  "owner_bot_error" "$OB_ERROR"
+	json_add_string  "owner_bot_failure" "$OB_FAILURE"
 	json_dump
 }
 

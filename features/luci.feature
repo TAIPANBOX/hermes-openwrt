@@ -312,6 +312,7 @@ Feature: The web page manages the agent and never hands a key back
     And the status says a code waits, holds neither the token nor the code, and the agent is not restarted until a chat is bound
     When the owner's chat is bound
     Then the status says the router's chat approves, and the agent is restarted once; a new code is another code, and removing the bot takes its files and restarts the agent
+    And a failure of the bot reaches the status as one word of a fixed set, and one told as text, token and all, is answered as other
     # -> check_security_owner_bot_token_written_only_to_openwrt_mcp
 
   Scenario: the page never fills the bot's token, and shows the code to bind the chat once
@@ -323,8 +324,13 @@ Feature: The web page manages the agent and never hands a key back
   Scenario: the page offers the router's own bot only with an openwrt-mcp that has one
     When openwrt-mcp has no bot of its own
     Then the page offers nothing of it
-    And with a bot bound it names the bot, says the approver choice is not used, and offers a new code and Remove; with no token it offers neither, and the bot's last error is shown
+    And with a bot bound it names the bot, says the approver choice is not used, and offers a new code and Remove; with no token it offers neither, and the bot's last failure is said in the page's own words
     # -> check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp
+
+  Scenario: text from the router goes into the page as text
+    When every string the router's status answers holds markup, the bot's failure word among them
+    Then no node of the page holds it as markup, and a failure that is not one of the bot's words is told in the page's own words for any other failure
+    # -> check_security_page_puts_router_text_in_as_text
 
   Scenario: what the agent reaches is limited or open, and a host is what the agent can read
     Given the owner profile
