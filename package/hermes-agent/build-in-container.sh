@@ -217,7 +217,8 @@ esac
 # 0.21.5-r25: with the router's own bot bound, the agent tells the owner a held change's card has come
 # to the router's chat (tap Approve, then the PIN and the code) and that /unlock does not approve it;
 # the init restarts the agent on openwrt-mcp's event openwrt-mcp.owner_bot, so binding the chat or
-# removing the bot reaches the agent with the page closed (on a Flint 2, 2026-11-08).
+# removing the bot reaches the agent with the page closed (on a Flint 2, 2026-11-08). Gated beside
+# openwrt-mcp 0.5.0.11.
 PKGREL=${PKGREL:-25}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
