@@ -310,9 +310,15 @@ Feature: What is set on the router is what the gateway runs with
 
   Scenario: with the router's own bot bound, the agent is told the owner approves in the router's chat
     Given the owner profile with a factor and the router MCP connection, and the router's own bot bound
-    Then the note says to send /unlock in the router's own chat, that a held change went there and not to this chat, and to read its outcome with action_status
+    Then the note says to send /unlock in the router's own chat for the window, and to read a held change's outcome with action_status
+    And for a held change it tells the owner a card has come to the router's chat, to tap Approve on it and send the PIN and the code from the app, and that /unlock does not approve it
     And it does not say the owner taps Approve under a card in this chat
     # -> check_owner_note_says_the_router_chat_approves
+
+  Scenario: the agent restarts when the owner's chat changes, page or no page
+    Given openwrt-mcp tells the router when the owner's chat is bound to its bot or the bot is removed
+    Then the init asks procd to restart the agent on that event, so the agent leaves the approval path or takes it back even with the page closed
+    # -> check_init_restarts_the_agent_when_the_owners_chat_changes
 
   Scenario: the owner's client is paired beside the agent's and the policies name its approval
     When the init sets up the agent's way to the router

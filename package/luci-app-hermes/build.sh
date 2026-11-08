@@ -60,7 +60,10 @@ set -eu
 # 0.21.5-r7: the Security page sets up the router's own bot (set_owner_bot, bind_owner_bot,
 # owner_bot_done, clear_owner_bot, and its facts in security_status), from an openwrt-mcp that reports
 # owner_approves_past_the_listener; with any other it offers nothing of it, so it needs no new floor.
-PKGREL=${PKGREL:-7}
+# 0.21.5-r8: with an openwrt-mcp that tells the router itself when the owner's chat changes
+# (owner_bot_tells_the_router), binding and removing the bot leave the agent's restart to the init's
+# trigger, so it happens with the page closed; with an older one the page restarts it as before.
+PKGREL=${PKGREL:-8}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

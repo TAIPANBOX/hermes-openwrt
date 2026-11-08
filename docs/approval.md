@@ -102,10 +102,13 @@ Security page shows *The router's own chat* only when it is there.
 
 1. In Telegram, ask **@BotFather** for a new bot (`/newbot`) and copy the token it gives.
 2. Paste it under *The router's own chat* on the Security page and press *Save and bind*.
-3. Open the link the page shows and press **Start**. The page notices, says your chat is bound, and
-   the agent restarts.
+3. Open the link the page shows and press **Start**. The router notices and restarts the agent
+   itself, so the page may already be closed; if it is open, it says your chat is bound.
 
-From then on `/unlock`, `/lock` and approvals happen in the router's chat. A PIN or a code sent to the
+From then on `/unlock`, `/lock` and approvals happen in the router's chat. A change that waits for
+you comes there as a card: tap **Approve** and send your PIN and the code from your app, in one message
+(`482193 305917`) or the PIN first and the code in the next message, the code whole or as the app shows
+it (`305 917`). `/unlock` opens the window for the other changes and does not approve a held one. A PIN or a code sent to the
 agent's chat by habit is deleted at once, never reaches the model, and the bot says where it belongs.
 *Remove* takes the router's bot away again, and approvals go back to the agent's chat.
 
@@ -116,7 +119,7 @@ agent's chat by habit is deleted at once, never reaches the model, and the bot s
 openwrt-mcp owner-bot set < token.txt     # the token on standard input, never as an argument
 openwrt-mcp owner-bot bind                # a one-time code and the t.me link; press Start on it
 openwrt-mcp owner-bot status              # bound, the bot's name, its last error
-/etc/init.d/hermes-agent restart          # once bound, so the agent leaves the approval path
+/etc/init.d/hermes-agent restart          # only if `openwrt-mcp status --json` lacks owner_bot_tells_the_router
 ```
 </details>
 

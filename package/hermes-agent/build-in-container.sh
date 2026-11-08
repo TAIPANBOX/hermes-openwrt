@@ -214,7 +214,11 @@ esac
 # 0.21.5-r24: once openwrt-mcp's own bot (0.5.0.10, owner_approves_past_the_listener) has a chat bound,
 # the init writes approvals on, pairs no owner's client and tells the gateway the owner approves in the
 # router's chat; a router with no bot bound keeps r23's path. Gated beside openwrt-mcp 0.5.0.10.
-PKGREL=${PKGREL:-24}
+# 0.21.5-r25: with the router's own bot bound, the agent tells the owner a held change's card has come
+# to the router's chat (tap Approve, then the PIN and the code) and that /unlock does not approve it;
+# the init restarts the agent on openwrt-mcp's event openwrt-mcp.owner_bot, so binding the chat or
+# removing the bot reaches the agent with the page closed (on a Flint 2, 2026-11-08).
+PKGREL=${PKGREL:-25}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

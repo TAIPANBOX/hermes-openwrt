@@ -965,6 +965,10 @@ append_allow_user() {
 
 service_triggers() {
 	procd_add_reload_trigger "hermes"
+	# openwrt-mcp tells the router when the owner's chat is bound to its own bot or the bot is removed
+	# (the procd service event openwrt-mcp.owner_bot, owner_bot_tells_the_router), and the agent starts
+	# again to leave the approval path or take it back, whether or not the page that did it is open.
+	procd_add_raw_trigger "openwrt-mcp.owner_bot" 1000 /etc/init.d/hermes-agent restart
 }
 
 reload_service() {

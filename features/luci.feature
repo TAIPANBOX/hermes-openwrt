@@ -311,7 +311,9 @@ Feature: The web page manages the agent and never hands a key back
     Then openwrt-mcp holds it in a root-only file, it went to openwrt-mcp on standard input and nowhere else, and the reply holds a one-time code and never the token
     And the status says a code waits, holds neither the token nor the code, and the agent is not restarted until a chat is bound
     When the owner's chat is bound
-    Then the status says the router's chat approves, and the agent is restarted once; a new code is another code, and removing the bot takes its files and restarts the agent
+    Then the status says the router's chat approves, and the page restarts nothing, since openwrt-mcp tells the router and the init restarts the agent; a new code is another code
+    And removing the bot takes its files and openwrt-mcp tells the router, the page again restarting nothing
+    And with an openwrt-mcp that does not tell the router, the page restarts the agent itself, once
     And a failure of the bot reaches the status as one word of a fixed set, and one told as text, token and all, is answered as other
     # -> check_security_owner_bot_token_written_only_to_openwrt_mcp
 

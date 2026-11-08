@@ -248,8 +248,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `owner_bot_done` and `clear_owner_bot` are write permission alone. set_owner_bot takes a token only of a
     bot token's shape and hands it to `openwrt-mcp owner-bot set` on standard input from the shell's own
     printf and to nothing else; it and bind_owner_bot return a one-time code and its t.me link, written with
-    printf like enrol_start's reply; owner_bot_done restarts the agent only with a chat bound, clear_owner_bot
-    removes the bot and restarts it. The page shows the section only when openwrt-mcp reports
+    printf like enrol_start's reply; owner_bot_done answers only with a chat bound, clear_owner_bot removes the
+    bot, and neither restarts the agent when openwrt-mcp reports owner_bot_tells_the_router: openwrt-mcp then
+    sends the procd event openwrt-mcp.owner_bot and the init's trigger restarts the agent, page or no page;
+    with an older openwrt-mcp they restart it themselves, once. The page shows the section only when openwrt-mcp reports
     owner_approves_past_the_listener, never fills the token field and empties it once sent, shows the code once,
     restarts the agent only once the chat is bound, and puts every string from rpcd into the page as text,
     never as markup (gate: `scripts/gate-luci.sh`
