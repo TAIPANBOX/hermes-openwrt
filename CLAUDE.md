@@ -1162,6 +1162,31 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     wide, no horizontal scroll at 390): the count, a bad line refused by name, open saved and warned about, Reset
     leaving 0 with the button off, the alert beside PIN alone, a common PIN answered in the page's words.
 
+30. `@claude` 2026-11-08, 0.21.5-r23: the package is gated beside openwrt-mcp 0.5.0.9 (the fork's commit 81960b1,
+    tag v0.5.0-taipanbox.9, pinned in CI and `scripts/build-openwrt-mcp.sh`), whose daemon is two
+    parts (that repository's invariants 11 and 12): `helper`, root with nine capabilities, no_new_privs and its
+    own seccomp filter, no network socket; and `serve`, the listener on 127.0.0.1:8730 the agent talks to, as
+    the account `openwrt-mcp` with an empty capability file, refusing to run as root. Nothing of the agent
+    changes. gate-unlock starts openwrt-mcp's daemon from its installed init as procd would: each instance's
+    command, account, capability file, no_new_privs and environment become the `ujail -n <jail> [-U -G] -C
+    <file> -c [-e VAR] -- <command>` procd runs for a bare jail line, run with the installed ujail; an init
+    that opens anything but `helper` and `serve`, an instance with no jail line or without no_new_privs, a
+    listener with no account of its own, or a capability file the package did not install fails before any
+    check runs. A stop finds every process of the daemon by its command line (the two ujail supervisors and the
+    two parts, behind a check's stand-in too), since `unlock_down`'s SIGKILL of every ujail leaves a part running
+    under another parent and busybox's `pgrep -x openwrt-mcp` matches nothing; the reboot of
+    `check_rollback_survives_reboot` kills each one, since SIGKILL to ujail reaches nothing under it. The floor stays `openwrt-mcp>=0.5.0.8`:
+    the agent needs nothing new of 0.5.0.9, and the README's upgrade line names openwrt-mcp. (gate:
+    `scripts/gate-unlock.sh` `daemon_start`, before every check that uses the real daemon; companions:
+    `scripts/gate-runtime.sh` `check_companions_are_built_from_the_commits_ci_pins`.)
+    Red first: `@measured` 2026-11-08 on forge, in `openwrt/rootfs:x86-64-25.12.4` with openwrt-mcp 0.5.0.9
+    built from TAIPANBOX/openwrt-mcp#18 and procd-ujail: main's `daemon_start` printed `openwrt-mcp: serve: the
+    listener does not run as root` and failed "openwrt-mcp did not come up"; the new one brought both parts up,
+    `/health` answering `openwrt-mcp 0.5.0.9 ok`, the helper Uid 0 with CapEff and CapBnd 30fb, NoNewPrivs 1 and
+    Seccomp 2, the listener Uid 32768 with CapEff and CapBnd 0, NoNewPrivs 1 and Seccomp 2; a stop, a SIGKILL,
+    the parts orphaned by a SIGKILL of both ujails and then a start, and a stop behind a shell stand-in for the
+    binary each left no process of the daemon (counted with `pgrep -f`).
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

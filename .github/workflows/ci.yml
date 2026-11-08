@@ -168,13 +168,16 @@ jobs:
       # merge of the fork's PR #11 (version 0.5.0.7): the same code built with Go 1.27.3, for
       # GO-2026-6809. Since 0.21.5-r22 it is fde61df, the merge of the fork's PR #14 (version 0.5.0.8):
       # a failed try costs a growing wait that a restart does not forgive, action_list gives the
-      # owner's client the count, and `mfa reset` ends a wait. Before them, baf6669
+      # owner's client the count, and `mfa reset` ends a wait. Since 0.21.5-r23 it is 81960b1, the merge
+      # of the fork's PR #18 (version 0.5.0.9, tag v0.5.0-taipanbox.9): the daemon is two parts, a listener
+      # as the account openwrt-mcp with no capability and a root helper with no network socket, which
+      # gate-unlock starts through ujail as procd does. Before them, baf6669
       # (v0.5.0-taipanbox.1). scripts/build-openwrt-mcp.sh holds the same commit and refuses another.
       - uses: actions/checkout@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: fde61df14afcb1ce2c6aad2b17810f7d40c72998
+          ref: 81960b1f988edab64ff3a4909130d538ac2d624a
           path: openwrt-mcp-src
       - uses: actions/setup-go@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
