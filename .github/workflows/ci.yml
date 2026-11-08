@@ -171,7 +171,7 @@ jobs:
       # owner's client the count, and `mfa reset` ends a wait. Since 0.21.5-r23 it is 81960b1, the merge
       # of the fork's PR #18 (version 0.5.0.9, tag v0.5.0-taipanbox.9): the daemon is two parts, a listener
       # as the account openwrt-mcp with no capability and a root helper with no network socket, which
-      # gate-unlock starts through ujail as procd does. Since 0.21.5-r24 it is 0b9cc67, the head of the
+      # gate-unlock starts through ujail as procd does. Since 0.21.5-r24 it is 8deea47, the head of the
       # fork's PR #21, the router's own bot (owner_approves_past_the_listener, `owner-bot`); it moves to
       # that PR's merge once it is merged. Before them, baf6669
       # (v0.5.0-taipanbox.1). scripts/build-openwrt-mcp.sh holds the same commit and refuses another.
@@ -179,7 +179,7 @@ jobs:
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
         with:
           repository: TAIPANBOX/openwrt-mcp
-          ref: 0b9cc67a2b7d04d9403ef7eb51fddbc16096521e
+          ref: 8deea479867f90aafd2ed00545e1c209fa145731
           path: openwrt-mcp-src
       - uses: actions/setup-go@v7
         if: contains(fromJSON(needs.subjects.outputs.legs), matrix.suite)
