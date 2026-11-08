@@ -1415,11 +1415,36 @@ procd_close_service
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         prompt = (self.config().get("agent") or {}).get("system_prompt", "")
-        for sentence in ("send /unlock in the router's own chat", "in the router's own chat, not in this one",
-                         "read it with action_status", "Such a call answers HELD with an id", "do not retry it"):
+        # Since 0.21.5-r25: the owner is sent to the card the router sent, Approve and then the PIN and
+        # the code, and told /unlock does not approve it (on a Flint 2 the agent sent the owner to
+        # /unlock for a held change, 2026-11-08).
+        for sentence in ("send /unlock in the router's own chat", "read it with action_status",
+                         "Such a call answers HELD with an id", "do not retry it",
+                         "A card for this change has come to the router's chat: tap Approve on it and send "
+                         "your PIN and the code from your authenticator app.",
+                         "/unlock does not approve a held change"):
             self.assertIn(sentence, prompt)
         for sentence in ("Approve button under the card the bot sent", "send /unlock in the private chat with you"):
             self.assertNotIn(sentence, prompt)
+
+    def test_init_restarts_the_agent_when_the_owners_chat_changes(self):
+        # openwrt-mcp tells the router with the procd service event openwrt-mcp.owner_bot when the owner's
+        # chat is bound or the bot removed (owner_bot_tells_the_router); the init asks procd to restart
+        # the agent on it, so the page that set the bot up may be closed. Read from the JSON procd gets.
+        script = f'''
+. /lib/functions.sh
+. /lib/functions/procd.sh
+initscript=/etc/init.d/hermes-agent
+. {shlex.quote(str(FILES / "hermes-agent.init"))}
+_procd_ubus_call() {{ json_dump; }}
+procd_open_service hermes-agent /etc/init.d/hermes-agent
+procd_close_service
+'''
+        result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        triggers = json.loads(result.stdout).get("triggers", [])
+        self.assertIn(["openwrt-mcp.owner_bot", [["run_script", "/etc/init.d/hermes-agent", "restart"]], 1000],
+                      triggers, result.stdout)
 
     def test_owner_client_is_paired_and_the_policies_name_its_approval(self):
         # The owner's client, hermes-<agent>-owner, is paired beside the agent's into a root-only

@@ -918,22 +918,50 @@ for needle in 'GATE-not-a-real-token' "$code"; do echo "$st" | grep -q -- "$need
 # No chat bound yet: the agent is not restarted for it.
 out=$(ubus call hermes owner_bot_done 2>&1); echo "$out" | grep -q '"ok": false' || ob "owner_bot_done went through before a chat was bound"
 sleep 1; [ "$(hermes_events)" = 0 ] || ob "the agent was restarted before a chat was bound"
-# The chat bound, as openwrt-mcp's helper writes it when the code arrives: the router's chat approves,
-# and owner_bot_done restarts the agent once.
+# The chat bound, as openwrt-mcp's helper writes it when the code arrives: the router's chat approves.
+# That helper tells the router itself when it binds a chat (owner_bot_tells_the_router) and procd
+# restarts the agent on it (the init's trigger), so owner_bot_done restarts nothing: by then the page
+# may be closed, and a second restart from it would only interrupt the first.
+bot_events() { [ -f /tmp/service-events ] || { echo 0; return; }; grep -c '"type" *: *"openwrt-mcp.owner_bot"' /tmp/service-events || true; }
+[ "$($MCP status --json --audit 0 2>/dev/null | jsonfilter -e '@.capabilities.owner_bot_tells_the_router')" = true ] \
+	|| ob "measured nothing: the openwrt-mcp installed here does not tell the router when the owner's chat changes"
 mkdir -p /etc/openwrt-mcp/owner-bot; printf '4242\n' > /etc/openwrt-mcp/owner-bot/chat; chmod 600 /etc/openwrt-mcp/owner-bot/chat
 [ "$(ob_get owner_bot_bound)" = true ] && [ "$(ob_get approvals_where)" = router ] || ob "a bound chat is not said to approve: $(ubus call hermes security_status)"
 out=$(ubus call hermes owner_bot_done 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ob "owner_bot_done was refused with a chat bound"; }
-i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
-sleep 1; [ "$(hermes_events)" = 1 ] || ob "a bound chat restarted the agent $(hermes_events) times, not once"
+sleep 2; [ "$(hermes_events)" = 0 ] || ob "owner_bot_done restarted the agent $(hermes_events) time(s), though openwrt-mcp tells the router itself"
 # A new code is another code.
 out=$(ubus call hermes bind_owner_bot 2>&1); code2=$(echo "$out" | jsonfilter -e '@.code')
 echo "$code2" | grep -Eqx '[A-Za-z0-9_-]{22}' && [ "$code2" != "$code" ] || ob "bind_owner_bot gave no new code: $out"
-# Removed: openwrt-mcp holds nothing, and the agent restarts to take the approval path back.
+# Removed: openwrt-mcp holds nothing and tells the router (state cleared), which restarts the agent to
+# take the approval path back; the page restarts nothing itself.
 rm -f /tmp/service-events
 out=$(ubus call hermes clear_owner_bot 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ob "clear_owner_bot was refused"; }
 [ ! -e /etc/openwrt-mcp/owner-bot/token ] && [ ! -e /etc/openwrt-mcp/owner-bot/chat ] || ob "removing the bot left its token or chat"
+i=0; while [ "$(bot_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+[ "$(bot_events)" = 1 ] && grep -q '"state" *: *"cleared"' /tmp/service-events \
+	|| ob "removing the bot did not tell the router the owner's chat is cleared: $(cat /tmp/service-events 2>/dev/null)"
+sleep 1; [ "$(hermes_events)" = 0 ] || ob "removing the bot restarted the agent from the page as well, so it would restart twice"
+# An openwrt-mcp that does not tell the router (0.5.0.10): the page restarts the agent itself, once.
+printf '%s\n' "$TOK" > /etc/openwrt-mcp/owner-bot/token; printf '4242\n' > /etc/openwrt-mcp/owner-bot/chat
+chmod 600 /etc/openwrt-mcp/owner-bot/token /etc/openwrt-mcp/owner-bot/chat
+mv /usr/bin/openwrt-mcp /usr/bin/openwrt-mcp.real
+cat > /usr/bin/openwrt-mcp <<'MCPOLD'
+#!/bin/sh
+if [ "$1" = status ]; then
+	/usr/bin/openwrt-mcp.real "$@" | sed 's/"owner_bot_tells_the_router": true/"owner_bot_tells_the_router": false/'
+	exit 0
+fi
+exec /usr/bin/openwrt-mcp.real "$@"
+MCPOLD
+chmod 755 /usr/bin/openwrt-mcp
+rm -f /tmp/service-events
+out=$(ubus call hermes owner_bot_done 2>&1)
 i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
-[ "$(hermes_events)" -ge 1 ] || ob "removing the bot did not restart the agent"
+sleep 1; n=$(hermes_events)
+mv /usr/bin/openwrt-mcp.real /usr/bin/openwrt-mcp
+echo "$out" | grep -q '"ok": true' || { echo "$out"; ob "owner_bot_done was refused with an openwrt-mcp that does not tell the router"; }
+[ "$n" = 1 ] || ob "with an openwrt-mcp that does not tell the router, owner_bot_done restarted the agent $n times, not once"
+$MCP owner-bot clear >/dev/null 2>&1 || true
 [ "$(ob_get owner_bot_configured)" = false ] && [ "$(ob_get approvals_where)" != router ] || ob "after removal the status still says a bot approves"
 # A failure reaches the page as one word of the fixed set and nothing else: an openwrt-mcp that told it
 # as text, the token and the URL in it, is answered as other. The real binary in front, answering

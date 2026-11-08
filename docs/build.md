@@ -132,6 +132,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] Wrong tries cost a wait that grows to an hour and survives a restart (openwrt-mcp 0.5.0.8); the owner hears in the chat of tries that did not come from it, once per wait, and the Security page shows the count with a Reset and warns beside PIN alone (0.21.5-r22, LuCI 0.21.5-r6)
 - [x] openwrt-mcp's part that meets the network holds no root: the listener runs as its own account with no capability, the root helper has no network socket, each under its own seccomp filter (openwrt-mcp 0.5.0.9, gated beside 0.21.5-r23)
 - [x] The owner approves in the router's own chat: openwrt-mcp's root helper sends the card and reads the tap and the factor through a bot of the router's own, and the agent's gateway and openwrt-mcp's listener leave the approval path; the Security page sets the bot up (openwrt-mcp 0.5.0.10, 0.21.5-r24, LuCI 0.21.5-r7)
+- [x] Binding the owner's chat or removing the router's bot restarts the agent with the page closed, the bot takes the PIN and the code as the owner types them, and the agent sends the owner to the card (openwrt-mcp 0.5.0.11, 0.21.5-r25, LuCI 0.21.5-r8)
 
 ## Prior art, and what is not ours
 

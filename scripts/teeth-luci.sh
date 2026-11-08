@@ -675,6 +675,24 @@ repack_luci
 expect_red "the bot's failure word shown as it came" check_security_page_puts_router_text_in_as_text
 cp "$SRC_SECURITY" "$SECURITY"
 
+# ---- fault 76: the page restarts the agent on binding though openwrt-mcp tells the router ----
+plant "$RPCD" '	[ "$OB_TELLS" = 1 ] || sec_restart_agent; json_init; json_add_boolean "ok" 1; json_add_boolean "bound" 1; json_dump' '	sec_restart_agent; json_init; json_add_boolean "ok" 1; json_add_boolean "bound" 1; json_dump' "fault 76"
+repack_luci
+expect_red "the page restarts the agent on binding as well as the router" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 77: the page restarts the agent on removal though openwrt-mcp tells the router ----
+plant "$RPCD" '	[ "$OB_TELLS" = 1 ] || sec_restart_agent; json_init; json_add_boolean "ok" 1; json_add_boolean "configured" 0; json_dump' '	sec_restart_agent; json_init; json_add_boolean "ok" 1; json_add_boolean "configured" 0; json_dump' "fault 77"
+repack_luci
+expect_red "the page restarts the agent on removal as well as the router" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 78: an openwrt-mcp that does not tell the router taken for one that does ----
+plant "$RPCD" "owner_bot_tells_the_router' 2>/dev/null)\" = true ] && OB_TELLS=1" "owner_bot_tells_the_router' 2>/dev/null)\" = true ] || OB_TELLS=1" "fault 78"
+repack_luci
+expect_red "an openwrt-mcp that does not tell the router leaves the agent unrestarted" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -682,6 +700,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 75 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 75 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 78 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 78 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 75 faults on 38 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 78 faults on 38 checks (shard $SHARD), green restored"

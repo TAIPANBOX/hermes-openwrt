@@ -699,6 +699,13 @@ mutants = [
     ("the agent sent to this chat for /unlock with the router's bot bound", 'set-toolsets.py',
      '        locked = OWNER_NOTE_LOCKED_ROUTER if approvals == "router" else OWNER_NOTE_LOCKED\n',
      '        locked = OWNER_NOTE_LOCKED\n', 'test_owner_note_says_the_router_chat_approves'),
+    ("the init does not restart the agent when the owner's chat changes", 'hermes-agent.init',
+     '\tprocd_add_raw_trigger "openwrt-mcp.owner_bot" 1000 /etc/init.d/hermes-agent restart\n', '',
+     'test_init_restarts_the_agent_when_the_owners_chat_changes'),
+    ("the agent sends the owner to /unlock for a held change", 'set-toolsets.py',
+     'this change has come to the router\'s chat: tap Approve on it and send your PIN and the ',
+     'this change has come to the router\'s chat: send /unlock with your PIN and the ',
+     'test_owner_note_says_the_router_chat_approves'),
     ('the shipped file promises one flat wait', 'hermes-agent.config', 'each further wrong attempt doubles it, up to an', 'the lockout lasts that long, up to an',
      'test_shipped_file_says_the_lockout_is_the_first_of_waits_that_grow'),
 ]
