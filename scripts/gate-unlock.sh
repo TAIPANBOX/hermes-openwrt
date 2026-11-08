@@ -446,23 +446,35 @@ STUB
 		sleep 1
 	done
 }
-# Every process of the daemon: each ujail the gate started and what runs under it.
+# Every process of the daemon, found by its command line as daemon_start runs it: the two ujail
+# supervisors and the two parts. Not by the pids daemon_start wrote alone: unlock_down kills every
+# ujail with SIGKILL, which leaves a part running with another parent; and not with `pgrep -x`, which
+# busybox here does not match against openwrt-mcp's name (seen on a Flint 2 on 2026-11-08: `pgrep -x
+# openwrt-mcp` printed nothing while `pgrep openwrt-mcp` printed the daemon).
 daemon_pids() {
-	[ -f /tmp/mcp.pid ] || return 0
-	for p in $(cat /tmp/mcp.pid); do service_tree "$p"; done
+	for d in /proc/[0-9]*; do
+		p=${d#/proc/}
+		[ "$p" != "$$" ] || continue
+		case "$(tr '\0' ' ' 2>/dev/null < "$d/cmdline")" in
+			"/sbin/ujail -n openwrt-mcp "*|"/sbin/ujail -n openwrt-mcp-serve "*) echo "$p" ;;
+			# the parts, and the parts under the stand-ins some checks put in front of the binary
+			"/usr/bin/openwrt-mcp helper"*|"/usr/bin/openwrt-mcp serve"*|"/usr/bin/openwrt-mcp.real helper"*|"/usr/bin/openwrt-mcp.real serve"*) echo "$p" ;;
+			"/bin/sh /usr/bin/openwrt-mcp helper"*|"/bin/sh /usr/bin/openwrt-mcp serve"*) echo "$p" ;;
+		esac
+	done
 }
 daemon_stop() {
 	for p in $(daemon_pids); do kill "$p" 2>/dev/null || true; done
+	i=0
+	while [ -n "$(daemon_pids)" ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+	for p in $(daemon_pids); do kill -9 "$p" 2>/dev/null || true; done
 	rm -f /tmp/mcp.pid
-	# busybox here has no pkill; a part left without its ujail (unlock_down kills every ujail).
-	for p in $(pgrep -x openwrt-mcp 2>/dev/null); do kill "$p" 2>/dev/null || true; done
 	sleep 1
 }
 # The daemon dies at once, as in a reboot: SIGKILL reaches no process through ujail, so every one.
 daemon_kill9() {
 	for p in $(daemon_pids); do kill -9 "$p" 2>/dev/null || true; done
 	rm -f /tmp/mcp.pid
-	for p in $(pgrep -x openwrt-mcp 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
 }
 # mcp <token-file> <tool> [json]: prints the text; status 0 answered, 3 refused.
 mcp() {

@@ -1172,8 +1172,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     <file> -c [-e VAR] -- <command>` procd runs for a bare jail line, run with the installed ujail; an init
     that opens anything but `helper` and `serve`, an instance with no jail line or without no_new_privs, a
     listener with no account of its own, or a capability file the package did not install fails before any
-    check runs. A stop reaches every process of the daemon, and the reboot of `check_rollback_survives_reboot`
-    kills each one, since SIGKILL to ujail reaches nothing under it. The floor stays `openwrt-mcp>=0.5.0.8`:
+    check runs. A stop finds every process of the daemon by its command line (the two ujail supervisors and the
+    two parts, behind a check's stand-in too), since `unlock_down`'s SIGKILL of every ujail leaves a part running
+    under another parent and busybox's `pgrep -x openwrt-mcp` matches nothing; the reboot of
+    `check_rollback_survives_reboot` kills each one, since SIGKILL to ujail reaches nothing under it. The floor stays `openwrt-mcp>=0.5.0.8`:
     the agent needs nothing new of 0.5.0.9, and the README's upgrade line names openwrt-mcp. (gate:
     `scripts/gate-unlock.sh` `daemon_start`, before every check that uses the real daemon; companions:
     `scripts/gate-runtime.sh` `check_companions_are_built_from_the_commits_ci_pins`.)
@@ -1181,8 +1183,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     built from TAIPANBOX/openwrt-mcp#18 and procd-ujail: main's `daemon_start` printed `openwrt-mcp: serve: the
     listener does not run as root` and failed "openwrt-mcp did not come up"; the new one brought both parts up,
     `/health` answering `openwrt-mcp 0.5.0.9 ok`, the helper Uid 0 with CapEff and CapBnd 30fb, NoNewPrivs 1 and
-    Seccomp 2, the listener Uid 32768 with CapEff and CapBnd 0, NoNewPrivs 1 and Seccomp 2, and a stop and a
-    SIGKILL left no process of the daemon.
+    Seccomp 2, the listener Uid 32768 with CapEff and CapBnd 0, NoNewPrivs 1 and Seccomp 2; a stop, a SIGKILL,
+    the parts orphaned by a SIGKILL of both ujails and then a start, and a stop behind a shell stand-in for the
+    binary each left no process of the daemon (counted with `pgrep -f`).
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
