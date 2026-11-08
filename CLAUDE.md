@@ -1234,6 +1234,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     packages and a snapshot of the configuration are kept on the router for a way back. Temperature 41.4 °C before
     and 41.5 °C after, 78 °C below the hot trip point.
 
+31. `@claude` 2026-11-08, 0.21.5-r24: the package is gated beside openwrt-mcp 0.5.0.10 (the fork's commit
+    0f9611f, the merge of its PR #22, tag v0.5.0-taipanbox.10, pinned in CI and `scripts/build-openwrt-mcp.sh`),
+    the release of the router's own bot (that repository's invariant 13, `owner_approves_past_the_listener`).
+    What the agent and the Security page do with it is stated above (LuCI 0.21.5-r7 under the Security page's
+    item; hermes-agent 0.21.5-r24 under the same bot's decision). The floor stays `openwrt-mcp>=0.5.0.8`: with an
+    openwrt-mcp that has no bot, the page offers none and the agent keeps r23's path. (companions:
+    `scripts/gate-runtime.sh` `check_companions_are_built_from_the_commits_ci_pins`.)
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

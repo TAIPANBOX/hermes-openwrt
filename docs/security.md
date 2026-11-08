@@ -270,12 +270,14 @@ assistant, told what it cannot do, it said so at once, in one call.
 The package depends on openwrt-mcp, which is not in OpenWrt's feed, so this repository's
 feed carries a build of it from [TAIPANBOX/openwrt-mcp](https://github.com/TAIPANBOX/openwrt-mcp),
 a fork of [GlassOnTin/openwrt-mcp](https://github.com/GlassOnTin/openwrt-mcp) that adds the
-owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.9 since
-0.21.5-r23 (`scripts/build-openwrt-mcp.sh`, which holds that commit, refuses another and uses that
+owner's second factor, built from a pinned commit of the fork's `main`, version 0.5.0.10 since
+0.21.5-r24 (`scripts/build-openwrt-mcp.sh`, which holds that commit, refuses another and uses that
 repository's own `mkapk.sh`; `.github/workflows/ci.yml` checks out the same one). From 0.5.0.9 its
 daemon is two processes: the listener the agent talks to on 127.0.0.1:8730 runs as the account
 `openwrt-mcp` with no capability and may start no program, and the root helper that decides and acts
-opens no network socket and answers only that account over a Unix socket. Upstream has the code factor and its enrolment; the PIN, a
+opens no network socket and answers only that account over a Unix socket. From 0.5.0.10 the helper
+can also send the owner the card of a held change and read the answer itself, through a bot of the
+router's own, over TLS that ends in the helper ([approval.md](approval.md)). Upstream has the code factor and its enrolment; the PIN, a
 factor per policy (`pin`, `pin+totp`), the lockout, `mfa_lock`, the two-step enrolment, the
 redaction of every `uci_get` answer, the refusal of every `uci_apply` that would run code,
 `apk_add` from the official feeds only, the high-impact changes held for your approval and a count
