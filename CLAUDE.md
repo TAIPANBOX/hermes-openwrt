@@ -1241,6 +1241,25 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     item; hermes-agent 0.21.5-r24 under the same bot's decision). The floor stays `openwrt-mcp>=0.5.0.8`: with an
     openwrt-mcp that has no bot, the page offers none and the agent keeps r23's path. (companions:
     `scripts/gate-runtime.sh` `check_companions_are_built_from_the_commits_ci_pins`.)
+    `@measured` 2026-11-08 on CI run 42497660876 (PR #90, aarch64 runner): 20 checks green, `gate-unlock: 61
+    passed, 0 failed`. Published from that run's packages (#90 squash `abd6b9f`, tree equal to the run's; gh-pages
+    `cc1be78`, gate-feed 3 of 3, key `b218189a8ffb35cc`); the r23 feed is kept under the tag `feed-0.21.5-r23`.
+    `@measured` 2026-11-08 16:48 to 16:54 London on a Flint 2 (25.12.5, owner profile, factor pin, approvals on, no
+    bot set up), from the feed with `apk upgrade hermes-agent luci-app-hermes openwrt-mcp` after a simulation that
+    moved exactly those three (239 packages before and after, world unchanged), no reboot: the helper Uid 0, CapEff
+    `30fb`, Seccomp 2 on 9 of 9 threads, one socket, the Unix socket; the listener Uid 32769, every capability set 0,
+    Seccomp 2, its sockets 127.0.0.1:8730 and the relay `/var/run/openwrt-mcp-relay/telegram.sock` (directory
+    0700, socket 0600, both `openwrt-mcp`); `/health` `openwrt-mcp 0.5.0.10 ok`; `owner-bot status --json`
+    configured, bound and binding false, channel `mcp`; `ubus call hermes security_status` `owner_bot_supported`
+    true, `owner_bot_configured` false, `approvals_where` `agent`, `approvals_ready` true. The installed
+    `security.js`, as uhttpd serves it, is byte for byte main's; rendered in `test-luci-views.mjs`'s stand-in with
+    the router's own security_status it shows *The router's own chat*, state "not set up", an empty password field
+    and *Save and bind*, with a new code and Remove off; the three bot checks pass on the installed view.
+    `hw-flow.sh start`: up as hermes, 181 MB, no refusal, ping as hermes answered; Telegram connected. A one-off
+    scheduled job listed the 9 openwrt tools and read the hostname through `uci_get` (`flint2`), audited as
+    `hermes-main` OK. attestryx on forge: flint2 INFO, `package_upgraded` naming exactly the three, no alarm. The
+    r23 packages and a snapshot of the configuration are in `/root/rel-20261108/prev2`. 41.4 °C before, 41.5 to
+    41.7 °C after.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

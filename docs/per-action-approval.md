@@ -2,8 +2,8 @@
 
 Since 0.21.5-r16, with luci-app-hermes 0.21.5-r4 and openwrt-mcp 0.5.0.5, a high-impact change waits
 for the owner's approval of that one change, given from Telegram with the PIN and a code from the
-app. The feed carries it in hermes-agent 0.21.5-r23, luci-app-hermes 0.21.5-r6 and openwrt-mcp
-0.5.0.9-r1. This page is how the pieces fit together. Setting it up and approving, with pictures:
+app. The feed carries it in hermes-agent 0.21.5-r24, luci-app-hermes 0.21.5-r7 and openwrt-mcp
+0.5.0.10-r1, where the owner can also approve in the router's own chat. This page is how the pieces fit together. Setting it up and approving, with pictures:
 [approval.md](approval.md); what is held, in plain words: [security.md](security.md#high-impact-changes-wait-for-your-approval);
 the rules that decide: openwrt-mcp's README and `features/approval.feature`.
 
