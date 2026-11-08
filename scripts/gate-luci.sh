@@ -908,7 +908,9 @@ code=$(echo "$out" | jsonfilter -e '@.code')
 echo "$code" | grep -Eqx '[A-Za-z0-9_-]{22}' || ob "the reply carries no binding code: $out"
 echo "$out" | grep -q 'GATE-not-a-real-token' && ob "the reply holds the token"
 [ "$(cat /etc/openwrt-mcp/owner-bot/token 2>/dev/null)" = "$TOK" ] || ob "openwrt-mcp does not hold the token the page gave"
-[ "$(stat -c '%a %U' /etc/openwrt-mcp/owner-bot/token)" = '600 root' ] || ob "the token file is $(stat -c '%a %U' /etc/openwrt-mcp/owner-bot/token), not 600 root"
+# OpenWrt's busybox has no stat applet, so the mode and owner are read from ls, as check_secret_written_0600 does.
+tokmode=$(ls -l /etc/openwrt-mcp/owner-bot/token 2>/dev/null | awk '{print $1" "$3}')
+[ "$tokmode" = '-rw------- root' ] || ob "the token file is '$tokmode', not -rw------- root"
 st=$(ubus call hermes security_status)
 for needle in 'GATE-not-a-real-token' "$code"; do echo "$st" | grep -q -- "$needle" && ob "the status holds '$needle'"; done
 [ "$(ob_get owner_bot_configured)" = true ] && [ "$(ob_get owner_bot_bound)" = false ] && [ "$(ob_get owner_bot_binding)" = true ] \
