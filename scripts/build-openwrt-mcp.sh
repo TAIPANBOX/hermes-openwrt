@@ -21,7 +21,7 @@
 # look at a change of that repository.
 set -eu
 
-OPENWRT_MCP_COMMIT=168f78d24ceb81478fbccfe33af41d393c31b46e
+OPENWRT_MCP_COMMIT=a5d629685da10b9ad19e96b19e5f37f04f97cbef
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${1:-aarch64_generic}
