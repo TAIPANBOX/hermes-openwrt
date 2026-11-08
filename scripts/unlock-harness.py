@@ -1260,7 +1260,11 @@ def check_owner_approves_in_the_routers_chat():
     need("HERMES_MCP_OWNER_TOKEN_FILE" not in env, "the init still hands the gateway an owner token file")
     need(run(["uci", "-q", "get", "openwrt-mcp.hermes_main_approval.approvals"], check=False).stdout.strip() == "on",
          "the approval section is not on, so nothing could be approved in the router's chat either")
-    prompt = open("/srv/hermes/config.yaml").read()
+    # The prompt as the gateway loads it: config.yaml folds long lines and doubles an apostrophe
+    # inside single quotes, so the file's text is not the text the agent reads.
+    prompt = run(["/usr/libexec/hermes-drop", "hermes", "env", "HERMES_HOME=/srv/hermes", "python3", "-c",
+                  "from gateway.run import GatewayRunner; print(GatewayRunner._load_ephemeral_system_prompt())"]).stdout
+    need(len(prompt) > 200, "measured nothing: the gateway loaded no system prompt: %r" % prompt[:200])
     need("in the router's own chat" in prompt and "action_status" in prompt,
          "the agent is not told the owner approves in the router's chat and to read the outcome with action_status")
     secret = totp_secret()

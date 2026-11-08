@@ -616,7 +616,7 @@ plant "$PLUGIN" '    if reached:
 expect_red "a notice at every listing" check_owner_told_of_tries_by_someone_else
 
 # ---- 92. the listing read only when somebody can approve ----
-plant "$PLUGIN" '    if _approvals_on() or _factor() in FACTORS:' '    if _approvals_on():'
+plant "$PLUGIN" '    if not _router_chat() and (_approvals_on() or _factor() in FACTORS):' '    if not _router_chat() and _approvals_on():'
 expect_red "no notice with nobody to approve" check_owner_told_with_nobody_to_approve
 
 # ---- 93. a reset that says it worked and runs nothing ----

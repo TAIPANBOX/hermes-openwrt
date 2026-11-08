@@ -339,7 +339,7 @@ cp "$SRC_RPCD" "$RPCD"
 
 # ---- fault 23: a call the page makes, left out of the permissions ----
 # LuCI then answers "Access denied" on a page that renders fine.
-plant "$ACL" '"enrol_activate", "set_factor" ],' '"enrol_activate" ],' "fault 23"
+plant "$ACL" '"enrol_activate", "set_factor",' '"enrol_activate",' "fault 23"
 repack_luci
 expect_red "set_factor left out of the write permission" check_security_page_calls_are_granted
 cp "$SRC_ACL" "$ACL"
