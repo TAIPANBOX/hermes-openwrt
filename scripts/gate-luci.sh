@@ -476,7 +476,7 @@ uci set hermes.security.max_failures=5; uci set hermes.security.lockout=15m; uci
 sec_get() { ubus call hermes security_status 2>/dev/null; }
 want() { # <json> <path> <value>
 	got=$(echo "$1" | jsonfilter -e "@.$2")
-	[ "$got" = "$3" ] || { echo "$1" | head -c 600; sf "$2 is '$got', want '$3'"; }
+	[ "$got" = "$3" ] || { echo "$1" | head -c 600; echo; sf "$2 is '$got', want '$3'"; }
 }
 st=$(sec_get) || sf "the call failed"
 want "$st" profile owner; want "$st" applies true; want "$st" mcp_ok true; want "$st" paired true
@@ -969,7 +969,7 @@ for prof in root admin assistant nonsense; do
 	for call in 'set_pin {"pin":"4821","again":"4821"}' 'clear_pin' 'enrol_start' 'enrol_activate {"code":"123456"}' 'reset_tries' 'set_network {"agent_network":"open","lan_allow":[]}' 'set_factor {"factor":"none","window":"15m","max_failures":5,"lockout":"15m"}' 'set_packages {"packages":"off"}'; do
 		m=${call%% *}; a=; [ "$m" = "$call" ] || a=${call#* }
 		if [ -n "$a" ]; then out=$(ubus call hermes "$m" "$a" 2>&1); else out=$(ubus call hermes "$m" 2>&1); fi
-		echo "$out" | grep -q '"ok": false' || { echo "$out" | head -c 300; po "$m was not refused in the $prof profile"; }
+		echo "$out" | grep -q '"ok": false' || { echo "$out" | head -c 300; echo; po "$m was not refused in the $prof profile"; }
 		echo "$out" | grep -qi 'owner' || po "$m's refusal in the $prof profile does not say it is the owner profile only"
 	done
 	[ "$(md5sum /etc/config/hermes | cut -d' ' -f1)" = "$before" ] || po "a refused call changed /etc/config/hermes in the $prof profile"
