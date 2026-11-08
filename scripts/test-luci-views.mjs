@@ -35,6 +35,9 @@ function textOf(n) {
 function E(tag, attrs, children) {
 	if (children === undefined && (typeof attrs === 'string' || Array.isArray(attrs) || attrs?.tag)) { children = attrs; attrs = {}; }
 	const node = { tag, attrs: attrs || {}, children: children == null ? [] : [].concat(children) };
+	// LuCI sets a string given as the only child as HTML (innerHTML); one inside an array is a text
+	// node. Kept, not enumerable, so a check can ask which text went in as markup.
+	Object.defineProperty(node, 'html', { value: typeof children === 'string' });
 	// What a form control carries in a browser and the page reads back: set from the attributes,
 	// and writable, so a check can type into a field the way a person does. Not enumerable, so a
 	// dump of the tree shows what the page rendered and not what was typed after.
@@ -853,6 +856,104 @@ check('check_security_pin_alone_is_warned', async () => {
 	w = world({ 'hermes.security_status': statusOf({ pin_set: true, totp_enrolled: true, factor: 'pin+totp' }) });
 	await open(w, 'security');
 	assert(near(w).attrs.class !== 'alert-message warning', 'with a PIN and an app code in force the warning is an alert');
+});
+
+// The router's own bot (luci-app-hermes 0.21.5-r7): the token field is a key's field, never filled from
+// the router and emptied as soon as it is sent; a token of the wrong shape goes nowhere; the one-time
+// code and its t.me link are on the page once; the page waits for the chat to be bound, and only then
+// restarts the agent; and with an openwrt-mcp that has no bot the page offers nothing of it.
+const BOT = { owner_bot_supported: true, owner_bot_configured: false, owner_bot_bound: false, owner_bot_binding: false,
+	owner_bot_name: '', owner_bot_failure: '' };
+const BIND = { ok: true, code: 'AbCdEfGhIjKlMnOpQrStUv', link: 'https://t.me/router_test_bot?start=AbCdEfGhIjKlMnOpQrStUv' };
+const GOOD_TOKEN = '123456789:TEST-not-a-real-token-AAAAAAAAAAAAAAAA';
+
+check('check_security_owner_bot_token_never_filled_and_the_code_shown_once', async () => {
+	let bound = false;
+	const w = world({ 'hermes.security_status': () => statusOf({ ...BOT, owner_bot_bound: bound }),
+		'hermes.set_owner_bot': BIND, 'hermes.owner_bot_done': { ok: true, bound: true } });
+	const timers = [];
+	w.window.setTimeout = (f) => { timers.push(f); };
+	await open(w, 'security');
+	const tok = byId(w.page, 'hermes-sec-bot-token');
+	assert(tok, 'the page has no #hermes-sec-bot-token');
+	assert(tok.attrs.type === 'password' && tok.value === '', 'the token field is not an empty password field');
+	assert(!dump(w).includes('TEST-not-a-real-token'), 'the page holds a token it was never given');
+	const sent = () => w.calls.filter(c => c.method === 'hermes.set_owner_bot').map(c => c.args[0]);
+
+	tok.value = 'not-a-token';
+	await press(w, 'hermes-sec-bot-save');
+	assert(!sent().length, `a token of the wrong shape was sent: ${JSON.stringify(sent())}`);
+	assert(tok.value === '', 'the field kept what was typed into it');
+	assert(w.notes.some(n => n.kind === 'danger'), 'a token of the wrong shape was refused without a word');
+
+	tok.value = GOOD_TOKEN;
+	await press(w, 'hermes-sec-bot-save');
+	assert(JSON.stringify(sent()) === JSON.stringify([GOOD_TOKEN]), `the token was not sent once as typed: ${sent().length} call(s)`);
+	assert(tok.value === '', 'the field still holds the token after it was sent');
+	const a = byId(w.page, 'hermes-sec-bot-start');
+	assert(a && a.attrs.href === BIND.link && a.attrs.rel === 'noopener noreferrer', 'the t.me link is not shown, or opens with the page as its opener');
+	assert(textOf(byId(w.page, 'hermes-sec-bot-code')) === BIND.code, 'the binding code is not shown');
+	assert(!dump(w).includes('TEST-not-a-real-token'), 'the token is on the page after it was sent');
+
+	// The page asks until the chat is bound; it restarts the agent only then, and reloads.
+	assert(timers.length === 1, 'the page does not wait for the chat to be bound');
+	await timers.shift()();
+	assert(!w.calls.some(c => c.method === 'hermes.owner_bot_done'), 'the agent was restarted before the chat was bound');
+	assert(timers.length === 1 && w.reloads === 0, 'the page stopped waiting, or reloaded, before the chat was bound');
+	bound = true;
+	await timers.shift()();
+	await Promise.resolve();
+	assert(w.calls.some(c => c.method === 'hermes.owner_bot_done'), 'the agent was not restarted once the chat was bound');
+	assert(w.reloads === 1, 'the page did not reload once the chat was bound');
+	assert(!byId(w.page, 'hermes-sec-bot-code'), 'the binding code is still on the page after the chat was bound');
+});
+
+check('check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp', async () => {
+	// No bot in openwrt-mcp: no section, no field, no call.
+	let w = world({ 'hermes.security_status': statusOf({}) });
+	await open(w, 'security');
+	assert(!byId(w.page, 'hermes-sec-bot-section') && !byId(w.page, 'hermes-sec-bot-token'),
+		'the page offers the router\'s bot with an openwrt-mcp that has none');
+	// Bound: it says so, with the bot's name, the approver choice says it is not used, and a new code
+	// and Remove are there; a code that does not look like one is not shown.
+	w = world({ 'hermes.security_status': statusOf({ ...BOT, owner_bot_configured: true, owner_bot_bound: true,
+		owner_bot_name: 'router_test_bot', approvals_where: 'router' }), 'hermes.bind_owner_bot': { ok: true, code: 'x<script>', link: '' } });
+	await open(w, 'security');
+	assert(/@router_test_bot/.test(textOf(byId(w.page, 'hermes-sec-bot-state'))), 'a bound bot is not named on the page');
+	assert(byId(w.page, 'hermes-sec-approver-router'), 'the approver choice does not say the router\'s chat approves');
+	assert(!clickOf(w, 'hermes-sec-bot-bind').disabled && !clickOf(w, 'hermes-sec-bot-clear').disabled, 'a bound bot offers no new code or Remove');
+	await press(w, 'hermes-sec-bot-bind');
+	assert(!byId(w.page, 'hermes-sec-bot-code'), 'a code of the wrong shape was shown');
+	// Not set up: a new code and Remove are off.
+	w = world({ 'hermes.security_status': statusOf({ ...BOT }) });
+	await open(w, 'security');
+	assert(clickOf(w, 'hermes-sec-bot-bind').disabled && clickOf(w, 'hermes-sec-bot-clear').disabled,
+		'a bot with no token offers a code or Remove');
+	// The bot's last failure is said in the page's own words, by its word.
+	w = world({ 'hermes.security_status': statusOf({ ...BOT, owner_bot_configured: true, owner_bot_failure: 'token_rejected' }) });
+	await open(w, 'security');
+	assert(/does not know this token/.test(textOf(byId(w.page, 'hermes-sec-bot-error'))), 'the bot\'s last failure is not shown in the page\'s words');
+});
+
+check('check_security_page_puts_router_text_in_as_text', async () => {
+	// Text the router sends goes into the page as text, never as markup: every string field of the
+	// status, the bot's failure word among them, set to markup, and no node holds it as HTML. A word
+	// that is not one of the bot's failures is told as "other", never shown as it came.
+	const bad = '<img src=x onerror=alert(1)>';
+	const hostile = statusOf({ ...BOT, owner_bot_configured: true, owner_bot_bound: true, owner_bot_name: bad,
+		owner_bot_failure: bad, window: bad, lockout: bad, approver: bad, approver_id: bad, approver_choices: [bad, '111'],
+		lan_allow: [bad], approvals_ready: true, approvals_where: 'router' });
+	const asHtml = (w) => find(w.page, n => n.html && textOf(n).includes('<img'));
+	let w = world({ 'hermes.security_status': hostile });
+	await open(w, 'security');
+	const marked = asHtml(w);
+	assert(!marked.length, `text from the router went in as HTML in ${marked.length} node(s): <${marked.map(n => n.tag).join('>, <')}>`);
+	assert(!textOf(byId(w.page, 'hermes-sec-bot-error')).includes('<img'), 'a failure that is not a word was shown as it came');
+	assert(/failed/.test(textOf(byId(w.page, 'hermes-sec-bot-error'))), 'a failure that is not a word is not told as other');
+	// And outside the owner profile, where the page says why it offers nothing.
+	w = world({ 'hermes.security_status': statusOf({ applies: false, profile: bad }) });
+	await open(w, 'security');
+	assert(!asHtml(w).length, 'the profile went in as HTML on the page that offers nothing');
 });
 
 for (const [name, fn] of Object.entries(checks)) {

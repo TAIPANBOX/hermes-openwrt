@@ -1246,6 +1246,49 @@ def check_owner_token_never_reaches_the_agent():
     return "the agent's terminal read its environment, every process's it could, and the token file: no owner's token, no variable naming it; the plugin's /unlock still worked"
 
 
+def check_owner_approves_in_the_routers_chat():
+    """The router's own bot is bound: the init pairs no owner's client and hands nothing over, the
+    agent is told the owner unlocks and approves in the router's chat, and every secret sent here is
+    deleted, answered with where it belongs, kept from the model and the logs, and tries nothing."""
+    gateway_is_wired()
+    need(not os.path.exists(OWNER_TOKEN_FILE), "the owner's token file is still on the router: " + OWNER_TOKEN_FILE)
+    clients = run(["/usr/bin/openwrt-mcp", "clients"]).stdout.split()
+    need("hermes-main" in clients, "measured nothing: the agent's own client is not paired: %s" % clients)
+    need("hermes-main-owner" not in clients, "the owner's client is still paired: %s" % clients)
+    env = open("/tmp/envv").read()
+    need("HERMES_OPENWRT_APPROVALS=router" in env, "the init did not tell the gateway the router's chat approves")
+    need("HERMES_MCP_OWNER_TOKEN_FILE" not in env, "the init still hands the gateway an owner token file")
+    need(run(["uci", "-q", "get", "openwrt-mcp.hermes_main_approval.approvals"], check=False).stdout.strip() == "on",
+         "the approval section is not on, so nothing could be approved in the router's chat either")
+    # The prompt as the gateway loads it: config.yaml folds long lines and doubles an apostrophe
+    # inside single quotes, so the file's text is not the text the agent reads.
+    prompt = run(["/usr/libexec/hermes-drop", "hermes", "env", "HERMES_HOME=/srv/hermes", "python3", "-c",
+                  "from gateway.run import GatewayRunner; print(GatewayRunner._load_ephemeral_system_prompt())"]).stdout
+    need(len(prompt) > 200, "measured nothing: the gateway loaded no system prompt: %r" % prompt[:200])
+    need("in the router's own chat" in prompt and "action_status" in prompt,
+         "the agent is not told the owner approves in the router's chat and to read the outcome with action_status")
+    secret = totp_secret()
+    code = totp(secret)
+    calls_before = state()["model_calls"]
+    for text in ("/unlock %s %s" % (PIN, code), "%s %s" % (PIN, code), "/approve ABCDE", "/lock"):
+        after = len(bot_sent())
+        sent = say(text)
+        reply = wait_for(answered("router's own chat", after), "the bot to say where %r belongs" % text.split()[0], timeout=30)
+        need((str(sent["chat_id"]), str(sent["message_id"])) in deleted(), "%r was left in the chat" % text.split()[0])
+        need(PIN not in reply and code not in reply, "the bot's answer repeats the PIN or the code")
+    settle()
+    need(state()["model_calls"] == calls_before, "a message sent here caused a request to the model")
+    tried = [a for a in audit() if a.get("tool") in ("mfa_unlock", "mfa_lock", "action_approve", "action_list")]
+    need(not tried, "openwrt-mcp was asked to unlock, lock or approve from this chat: %s" % [a.get("tool") for a in tried])
+    need(locked(), "the window opened")
+    no_trace([PIN, code], "the PIN or the code")
+    say("what time is it")
+    wait_for(lambda: state()["model_calls"] > calls_before, "an ordinary message to reach the model", timeout=40)
+    return ("no owner's client and no token file; the gateway told the router's chat approves, the agent told so and "
+            "to read action_status; /unlock, a bare PIN and code, /approve and /lock each deleted, answered with where "
+            "they belong, never at the model or in a file, and openwrt-mcp asked nothing; an ordinary message still answered")
+
+
 # ======================================================================================== entry point
 
 # ================================================================== router secrets never reach the model

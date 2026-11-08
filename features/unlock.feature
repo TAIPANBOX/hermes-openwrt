@@ -597,3 +597,14 @@ Feature: The agent changes the router only when its owner unlocks it
     When the agent looks for it with its own terminal, in its environment and its process's
     Then it is not there, though the plugin that holds it answers the owner
     # -> check_owner_token_never_reaches_the_agent
+
+  # `@decided 2026-11-08` (openwrt-mcp's docs/approval-path.md, option A2, paraphrased): openwrt-mcp's root
+  # helper sends the card and reads the owner's answer itself, through a bot of the router's own; the
+  # agent's gateway leaves the approval path, and the owner approves as before, in the router's chat.
+  Scenario: With the router's own bot bound, the owner unlocks and approves in the router's chat
+    Given openwrt-mcp's own bot is bound to the owner's chat
+    When the agent starts
+    Then no owner's client is paired and no file holds its token, and the agent is told the owner approves in the router's chat and to read the outcome with action_status
+    When the owner sends /unlock, a bare PIN and code, /approve or /lock in the chat with the agent
+    Then each is deleted, answered with where it belongs, never reaches the model or a file, and openwrt-mcp is asked nothing
+    # -> check_owner_approves_in_the_routers_chat

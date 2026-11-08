@@ -57,7 +57,10 @@ set -eu
 # tries on record with a Reset (reset_tries, `openwrt-mcp mfa reset`, 0.5.0.8), warns beside PIN alone,
 # says the lockout is the first of waits that grow, and says why a common PIN was refused. It depends
 # on openwrt-mcp>=0.5.0.8 itself, so a plain upgrade of the page brings the `mfa reset` it calls.
-PKGREL=${PKGREL:-6}
+# 0.21.5-r7: the Security page sets up the router's own bot (set_owner_bot, bind_owner_bot,
+# owner_bot_done, clear_owner_bot, and its facts in security_status), from an openwrt-mcp that reports
+# owner_approves_past_the_listener; with any other it offers nothing of it, so it needs no new floor.
+PKGREL=${PKGREL:-7}
 VERSION=${VERSION:-0.21.5}
 SRC=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SRC/../.." && pwd)

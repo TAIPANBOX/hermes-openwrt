@@ -42,6 +42,16 @@ bot, and before the code is asked for, this plugin restates the headline openwrt
 card the agent wrote itself cannot be approved by mistake; one approver; /unlock and approvals go
 through a client of the owner's own, whose token only this plugin holds.
 
+@decided 2026-11-08 (paraphrased, openwrt-mcp's docs/approval-path.md, option A2):
+openwrt-mcp's root helper sends the card and reads the owner's answer itself, through a bot of the
+router's own, and this gateway leaves the approval path; this deliberately replaces the same bot.
+How (0.21.5-r24): once the owner's chat is bound to the router's bot, the init passes
+HERMES_OPENWRT_APPROVALS=router, pairs no owner's client and hands this file no token. This file then
+takes no approval and opens no window: a PIN, a code, an /unlock, a /lock or an /approve sent here
+still meets all four lines of defence (deleted first, never shown to the model, scrubbed from every
+request, kept out of the logs), and is answered that unlocking and approving happen in the router's
+own chat. A router with no bot bound keeps everything below.
+
 How (0.21.5-r16): the wrapper hands the owner's token to the gateway, and ``register`` takes it out
 of the environment before any tool can start a process that inherits it. Every 5 s a task asks
 openwrt-mcp for the held changes (``action_list``) and sends each new one's card, as openwrt-mcp
@@ -310,6 +320,17 @@ def _approvals_on() -> bool:
     return os.environ.get("HERMES_OPENWRT_APPROVALS", "off").strip() == "on" and _approver() is not None
 
 
+def _router_chat() -> bool:
+    """Whether the owner unlocks and approves in the router's own chat (openwrt-mcp's own bot, bound by
+    the owner): then nothing here opens a window or approves, and every secret is still kept away."""
+    return os.environ.get("HERMES_OPENWRT_APPROVALS", "").strip() == "router"
+
+
+# What a secret sent here is answered with, when the router's own chat is where it belongs.
+ROUTER_CHAT_ANSWER = ("That was not used, and nothing was tried: on this router you unlock and approve "
+                      "changes in the router's own chat, with the router's bot, not here. Send it there.")
+
+
 def _approver():
     """The one Telegram id that approves held changes (hermes.security.approver_id), or None."""
     raw = os.environ.get("HERMES_OPENWRT_APPROVER_ID", "").strip()
@@ -476,6 +497,10 @@ async def process(kind: str, args: str, *, user_id, chat_id, private: bool, fact
         except Exception as exc:  # noqa: BLE001
             log.warning("could not delete an unlock message (%s)", type(exc).__name__)
         note = "" if deleted else (" I could not delete your message from the chat. Delete it yourself.")
+        # The router's own chat is where the owner unlocks: this one tries nothing, and says where.
+        if _router_chat():
+            await send(ROUTER_CHAT_ANSWER + note)
+            return
         # A PIN sent while a change waits for this approver was meant for that change, not for the
         # window: on a Flint 2 the owner opened the window three times trying to approve. It is
         # answered with what waits and how to approve it; nothing is tried and nothing counted.
@@ -628,7 +653,7 @@ def telegram_handler(app, adapter):
     _BOT = app.bot
     # Approvals off still leaves someone who can try: with several ids allowed and none chosen there
     # is nobody to approve, and the owner is still told of tries by someone else.
-    if _approvals_on() or _factor() in FACTORS:
+    if not _router_chat() and (_approvals_on() or _factor() in FACTORS):
         _start_poller()
     log.info("openwrt-unlock: the Telegram handler is in place")
 
@@ -1193,6 +1218,13 @@ async def process_approval(kind: str, arg: str, *, user_id, private: bool, delet
     """/approve, /reject and the PIN and code of an approval. Like process(): never raises, and a
     message that may hold a secret is deleted before anything is asked."""
     try:
+        if _router_chat():
+            # Approving is the router's own chat's: here a possible secret is deleted, and nothing tried.
+            if authorized(user_id):
+                with _quiet():
+                    await delete()
+                await send(ROUTER_CHAT_ANSWER)
+            return
         if str(user_id) != _approver() or not _approvals_on():
             if kind == "approve_factor":
                 return  # not reachable: only the approver is ever asked

@@ -339,7 +339,7 @@ cp "$SRC_RPCD" "$RPCD"
 
 # ---- fault 23: a call the page makes, left out of the permissions ----
 # LuCI then answers "Access denied" on a page that renders fine.
-plant "$ACL" '"enrol_activate", "set_factor" ],' '"enrol_activate" ],' "fault 23"
+plant "$ACL" '"enrol_activate", "set_factor",' '"enrol_activate",' "fault 23"
 repack_luci
 expect_red "set_factor left out of the write permission" check_security_page_calls_are_granted
 cp "$SRC_ACL" "$ACL"
@@ -615,6 +615,66 @@ cp "$SRC_RPCD" "$RPCD"
 LUCI_DEPENDS="luci-base hermes-agent" repack_luci
 expect_red "the page with no floor under openwrt-mcp" check_security_failed_tries_reset_through_openwrt_mcp
 
+# ---- fault 66: the bot's token handed to openwrt-mcp on its command line ----
+plant "$RPCD" '	if ! printf '"'"'%s\n'"'"' "$tok" | "$MCP_BIN" owner-bot set >/dev/null 2>&1; then' '	if ! "$MCP_BIN" owner-bot set "$tok" </dev/null >/dev/null 2>&1; then' "fault 66"
+repack_luci
+expect_red "the bot's token on a command line" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 67: the agent restarted with no chat bound ----
+plant "$RPCD" '	[ "$OB_BOUND" = 1 ] || { sec_refuse "no chat is bound to the router'"'"'s bot yet: press Start on the link first"; return 0; }' '	:' "fault 67"
+repack_luci
+expect_red "owner_bot_done with no chat bound" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 68: the status carries the bot's token ----
+plant "$RPCD" '	json_add_string  "owner_bot_name" "$OB_NAME"' '	json_add_string  "owner_bot_name" "$(cat /etc/openwrt-mcp/owner-bot/token 2>/dev/null)"' "fault 68"
+repack_luci
+expect_red "the status holds the bot's token" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 69: set_owner_bot left out of the write permission ----
+plant "$ACL" '"set_owner_bot", "bind_owner_bot",' '"bind_owner_bot",' "fault 69"
+repack_luci
+expect_red "set_owner_bot left out of the write permission" check_security_page_calls_are_granted
+cp "$SRC_ACL" "$ACL"
+
+# ---- fault 70: the token left in its field after it was sent ----
+plant "$SECURITY" "					botToken.value = '';" "" "fault 70"
+repack_luci
+expect_red "the token left in its field" check_security_owner_bot_token_never_filled_and_the_code_shown_once
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 71: the agent restarted before the chat is bound ----
+plant "$SECURITY" "if (!s || !s.owner_bot_bound) return void window.setTimeout(ask, 3000);" "if (!s) return void window.setTimeout(ask, 3000);" "fault 71"
+repack_luci
+expect_red "the page restarts the agent before the chat is bound" check_security_owner_bot_token_never_filled_and_the_code_shown_once
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 72: the router's bot offered with an openwrt-mcp that has none ----
+plant "$SECURITY" "if (st.owner_bot_supported) {" "if (true) {" "fault 72"
+repack_luci
+expect_red "the router's bot offered with no bot in openwrt-mcp" check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 73: the bot's failure passed on as openwrt-mcp told it ----
+plant "$RPCD" '		*) OB_FAILURE=other ;;' '		*) OB_FAILURE=$v ;;' "fault 73"
+repack_luci
+expect_red "a failure told as text passed on" check_security_owner_bot_token_written_only_to_openwrt_mcp
+cp "$SRC_RPCD" "$RPCD"
+
+# ---- fault 74: the router's text set into the page as markup ----
+plant "$SECURITY" "			[_('Unlock window'), E('span', {}, [ st.window ])]," "			[_('Unlock window'), E('span', {}, st.window)]," "fault 74"
+repack_luci
+expect_red "the router's text set as markup" check_security_page_puts_router_text_in_as_text
+cp "$SRC_SECURITY" "$SECURITY"
+
+# ---- fault 75: the bot's failure word shown as it came ----
+plant "$SECURITY" "					[ BOT_FAILURES[st.owner_bot_failure] || BOT_FAILURES.other ]) : ''," "					[ st.owner_bot_failure ]) : ''," "fault 75"
+repack_luci
+expect_red "the bot's failure word shown as it came" check_security_page_puts_router_text_in_as_text
+cp "$SRC_SECURITY" "$SECURITY"
+
 # ---- and green again, so the reds were the faults and not the harness ----
 cp "$ROOT/package/luci-app-hermes/root/usr/share/rpcd/acl.d/luci-app-hermes.json" "$ACL"
 repack_luci
@@ -622,6 +682,6 @@ if ! run_gate; then
 	echo "TEETH FAIL: the restored package is not green, so a fault was not undone"
 	tail -20 /tmp/teeth-luci.out; exit 1
 fi
-[ "$FAULT_K" = 65 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 65 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 75 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 75 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-luci: $RAN of 65 faults on 34 checks (shard $SHARD), green restored"
+echo "teeth-luci: $RAN of 75 faults on 38 checks (shard $SHARD), green restored"

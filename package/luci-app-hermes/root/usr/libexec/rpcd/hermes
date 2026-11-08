@@ -378,6 +378,60 @@ sec_approver() {
 	return 0
 }
 
+# The router's own bot (openwrt-mcp with owner_approves_past_the_listener). @decided 2026-11-08
+# (openwrt-mcp's docs/approval-path.md, option A2, paraphrased): the root helper sends the card and
+# reads the owner's answer itself, through a bot of the router's own, so the agent's gateway and
+# openwrt-mcp's listener leave the approval path; once per router the owner makes a bot, gives its
+# token here and presses Start. What `owner-bot status --json` says, as facts: never the token, and
+# no binding code (that is the one reply bind gives, once).
+OB_SUPPORTED=0 OB_CONFIGURED=0 OB_BOUND=0 OB_BINDING=0 OB_NAME='' OB_FAILURE=''
+sec_owner_bot_facts() {
+	local st out v
+	OB_SUPPORTED=0; OB_CONFIGURED=0; OB_BOUND=0; OB_BINDING=0; OB_NAME=''; OB_FAILURE=''
+	[ -x "$MCP_BIN" ] || return 1
+	st=$("$MCP_BIN" status --json --audit 0 2>/dev/null) || return 1
+	[ "$(echo "$st" | jsonfilter -e '@.capabilities.owner_approves_past_the_listener' 2>/dev/null)" = true ] || return 1
+	OB_SUPPORTED=1
+	out=$("$MCP_BIN" owner-bot status --json 2>/dev/null) || return 0
+	v=$(echo "$out" | jsonfilter -e '@.configured' 2>/dev/null); [ "$v" = true ] && OB_CONFIGURED=1
+	v=$(echo "$out" | jsonfilter -e '@.bound' 2>/dev/null);      [ "$v" = true ] && OB_BOUND=1
+	v=$(echo "$out" | jsonfilter -e '@.binding' 2>/dev/null);    [ "$v" = true ] && OB_BINDING=1
+	# A bot's name is letters, digits and underscores; anything else is not shown.
+	v=$(echo "$out" | jsonfilter -e '@.bot' 2>/dev/null)
+	case "$v" in ''|*[!A-Za-z0-9_]*) ;; *) OB_NAME=$v ;; esac
+	# A failure is one word of openwrt-mcp's fixed set, never the text of an error, which could carry
+	# what a URL carried; anything else is told as other.
+	v=$(echo "$out" | jsonfilter -e '@.failure' 2>/dev/null)
+	case "$v" in
+		'') ;;
+		token_rejected|telegram_refused|telegram_error|tls|pipe|network) OB_FAILURE=$v ;;
+		*) OB_FAILURE=other ;;
+	esac
+	return 0
+}
+
+# Tell procd the agent's configuration changed, so it starts again and the init decides afresh
+# whether the owner approves in the router's own chat.
+sec_restart_agent() {
+	ubus -t 5 call service event '{"type":"config.change","data":{"package":"hermes"}}' > /dev/null 2>&1
+}
+
+# The one-time code the router's bot is bound by, and the t.me link that sends it when Start is
+# pressed: the reply of set_owner_bot and bind_owner_bot, written with printf like enrol_start's.
+sec_bind_reply() {
+	local out code link
+	if ! out=$("$MCP_BIN" owner-bot bind --json 2>/dev/null); then
+		sec_refuse "openwrt-mcp could not make a code to bind your chat"; return 0
+	fi
+	code=$(echo "$out" | jsonfilter -e '@.code' 2>/dev/null)
+	link=$(echo "$out" | jsonfilter -e '@.link' 2>/dev/null)
+	out=
+	case "$code" in ''|*[!A-Za-z0-9_-]*) sec_refuse "openwrt-mcp answered without a binding code"; return 0 ;; esac
+	case "$link" in ''|https://t.me/*) ;; *) sec_refuse "openwrt-mcp answered with a link that is not Telegram's"; return 0 ;; esac
+	case "$link" in *'"'*|*'\'*|*' '*) sec_refuse "openwrt-mcp answered in a shape this page does not take"; return 0 ;; esac
+	printf '{ "ok": true, "code": "%s", "link": "%s" }\n' "$code" "$link"
+}
+
 # The refusals every write shares, in the order that matters: not the owner profile, openwrt-mcp
 # not answering, the agent's client not paired yet. Answers and returns 1 when one applies.
 sec_gate() {
@@ -397,6 +451,7 @@ method_security_status() {
 	local profile factor shown ready maxf
 	profile=$(sec_profile)
 	sec_mcp_facts
+	sec_owner_bot_facts
 	factor=$(sec_conf factor none)
 	case "$factor" in none|pin|totp|pin+totp) shown=$factor ;; *) shown=invalid ;; esac
 	ready=0; [ "$MCP_OK" = 1 ] && sec_factor_ready "$shown" && ready=1
@@ -433,7 +488,9 @@ method_security_status() {
 	for id in $(sec_allowed_ids); do json_add_string "" "$id"; done
 	json_close_array
 	json_add_string  "approver" "$approver"
-	json_add_boolean "approvals_ready" "$([ -n "$approver" ] && [ "$PIN_SET" = 1 ] && [ "$TOTP_ENROLLED" = 1 ] && echo 1 || echo 0)"
+	# Once the router's own bot is bound, its chat approves, whoever is chosen here.
+	json_add_boolean "approvals_ready" "$({ [ -n "$approver" ] || [ "$OB_BOUND" = 1 ]; } && [ "$PIN_SET" = 1 ] && [ "$TOTP_ENROLLED" = 1 ] && echo 1 || echo 0)"
+	json_add_string  "approvals_where" "$(if [ "$OB_BOUND" = 1 ]; then echo router; elif [ -n "$approver" ]; then echo agent; else echo none; fi)"
 	# What the agent's own connections reach, as set: limited or open, and the hosts of the house the
 	# owner added. And the wrong tries on record, from openwrt-mcp: a count, no more.
 	local host
@@ -448,7 +505,68 @@ method_security_status() {
 	json_add_int     "failed_tries" "$FAILED_TRIES"
 	json_add_boolean "tries_counted" "$TRIES_COUNTED"
 	json_add_boolean "tries_saved" "$TRIES_SAVED"
+	# The router's own bot: whether openwrt-mcp has it, whether a token is set and a chat bound, the
+	# bot's name, whether a binding code waits, and its last failure as one word. Facts, these exactly.
+	json_add_boolean "owner_bot_supported" "$OB_SUPPORTED"
+	json_add_boolean "owner_bot_configured" "$OB_CONFIGURED"
+	json_add_boolean "owner_bot_bound" "$OB_BOUND"
+	json_add_boolean "owner_bot_binding" "$OB_BINDING"
+	json_add_string  "owner_bot_name" "$OB_NAME"
+	json_add_string  "owner_bot_failure" "$OB_FAILURE"
 	json_dump
+}
+
+# The router's own bot's token, from the page to `openwrt-mcp owner-bot set` on standard input and
+# nowhere else (printf is the shell's own: no process carries it in its arguments), then a code to
+# bind the owner's chat, returned once. No method returns the token.
+method_set_owner_bot() {
+	local tok
+	read -r MSG
+	tok=$(msg_get token)
+	MSG=
+	sec_gate || return 0
+	sec_owner_bot_facts
+	[ "$OB_SUPPORTED" = 1 ] || { sec_refuse "openwrt-mcp on this router has no bot of its own yet: update it first"; return 0; }
+	if ! printf '%s\n' "$tok" | grep -Eqx '[0-9]{5,16}:[A-Za-z0-9_-]{30,80}'; then
+		tok=; sec_refuse "that is not a bot token as BotFather gives it: digits, a colon, then the secret"; return 0
+	fi
+	if ! printf '%s\n' "$tok" | "$MCP_BIN" owner-bot set >/dev/null 2>&1; then
+		tok=; sec_refuse "openwrt-mcp did not keep the token"; return 0
+	fi
+	tok=
+	sec_bind_reply
+}
+
+# A new code to bind the owner's chat, for a new phone or a code that ran out.
+method_bind_owner_bot() {
+	read -r MSG; MSG=
+	sec_gate || return 0
+	sec_owner_bot_facts
+	[ "$OB_CONFIGURED" = 1 ] || { sec_refuse "the router's bot has no token yet: give it one first"; return 0; }
+	sec_bind_reply
+}
+
+# Once the owner's chat is bound, the agent starts again: its gateway then leaves the approval path
+# and the owner's client goes. Refused while no chat is bound, so nothing restarts for nothing.
+method_owner_bot_done() {
+	read -r MSG; MSG=
+	sec_gate || return 0
+	sec_owner_bot_facts
+	[ "$OB_BOUND" = 1 ] || { sec_refuse "no chat is bound to the router's bot yet: press Start on the link first"; return 0; }
+	sec_restart_agent
+	json_init; json_add_boolean "ok" 1; json_add_boolean "bound" 1; json_dump
+}
+
+# The router's bot taken away: approvals go back to this agent's chat, and the agent starts again to
+# pair the owner's client.
+method_clear_owner_bot() {
+	read -r MSG; MSG=
+	sec_gate || return 0
+	sec_owner_bot_facts
+	[ "$OB_SUPPORTED" = 1 ] || { sec_refuse "openwrt-mcp on this router has no bot of its own"; return 0; }
+	"$MCP_BIN" owner-bot clear >/dev/null 2>&1 || { sec_refuse "openwrt-mcp did not clear its bot"; return 0; }
+	sec_restart_agent
+	json_init; json_add_boolean "ok" 1; json_add_boolean "configured" 0; json_dump
 }
 
 # The PIN goes to openwrt-mcp on its standard input and nowhere else: not an argument, which
@@ -865,6 +983,12 @@ list)
 		json_add_array  "lan_allow"; json_close_array
 	json_close_object
 	json_add_object "reset_tries";          json_close_object
+	json_add_object "set_owner_bot"
+		json_add_string "token" ""
+	json_close_object
+	json_add_object "bind_owner_bot";       json_close_object
+	json_add_object "owner_bot_done";       json_close_object
+	json_add_object "clear_owner_bot";      json_close_object
 	json_dump
 	;;
 call)
@@ -885,6 +1009,10 @@ call)
 		set_approver)         method_set_approver ;;
 		set_network)          method_set_network ;;
 		reset_tries)          method_reset_tries ;;
+		set_owner_bot)        method_set_owner_bot ;;
+		bind_owner_bot)       method_bind_owner_bot ;;
+		owner_bot_done)       method_owner_bot_done ;;
+		clear_owner_bot)      method_clear_owner_bot ;;
 		*) json_init; json_add_string "error" "unknown method"; json_dump ;;
 	esac
 	;;

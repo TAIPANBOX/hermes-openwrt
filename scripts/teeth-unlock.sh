@@ -2,7 +2,7 @@
 # teeth-unlock.sh -- prove gate-unlock.sh can fail, and fail at the right check.
 #
 # One planted fault for each check the gate implements, and more for the ones that guard a secret
-# or have several ways to go wrong (ninety-five in all, over sixty checks). Each is a change a
+# or have several ways to go wrong (a hundred in all, over sixty checks). Each is a change a
 # real edit could make, applied to a copy of the installed file and laid over the
 # installation inside the gate's container (OVERLAY), and each must turn ITS check red and
 # no other: the gate is run with ONLY naming that one check, and the FAIL line has to be
@@ -616,7 +616,7 @@ plant "$PLUGIN" '    if reached:
 expect_red "a notice at every listing" check_owner_told_of_tries_by_someone_else
 
 # ---- 92. the listing read only when somebody can approve ----
-plant "$PLUGIN" '    if _approvals_on() or _factor() in FACTORS:' '    if _approvals_on():'
+plant "$PLUGIN" '    if not _router_chat() and (_approvals_on() or _factor() in FACTORS):' '    if not _router_chat() and _approvals_on():'
 expect_red "no notice with nobody to approve" check_owner_told_with_nobody_to_approve
 
 # ---- 93. a reset that says it worked and runs nothing ----
@@ -631,6 +631,26 @@ expect_red "the page told no failed tries" check_luci_reset_ends_the_wait
 plant "$RPCD" '			*"most common"*) sec_refuse "that PIN is one of the most common ones, the first a guesser tries: choose another" ;;
 ' '' "$LUCI_TREE"
 expect_red "a common PIN refused without saying why" check_luci_pin_write_only
+
+# ---- 96. the plugin never notices the router's chat approves ----
+plant "$PLUGIN" '    return os.environ.get("HERMES_OPENWRT_APPROVALS", "").strip() == "router"' '    return False'
+expect_red "the plugin takes the owner's secrets as if it still approved" check_owner_approves_in_the_routers_chat
+
+# ---- 97. the owner's client paired with the router's bot bound ----
+plant "$INIT" '	if [ "$approvals" = router ]; then' '	if false; then'
+expect_red "the owner's client paired with the router's bot bound" check_owner_approves_in_the_routers_chat
+
+# ---- 98. the owner's token file handed over with the router's bot bound ----
+plant "$INIT" '		[ "$approvals" = router ] || procd_append_param env HERMES_MCP_OWNER_TOKEN_FILE=' '		procd_append_param env HERMES_MCP_OWNER_TOKEN_FILE='
+expect_red "the owner's token file handed over with the router's bot bound" check_owner_approves_in_the_routers_chat
+
+# ---- 99. the init never notices the router's bot ----
+plant "$INIT" '	if [ "$profile" = owner ] && mcp_owner_bot_bound; then' '	if false; then'
+expect_red "the init not noticing the router's bot" check_owner_approves_in_the_routers_chat
+
+# ---- 100. the agent not told where the owner approves ----
+plant usr/libexec/hermes-set-toolsets '            text += OWNER_NOTE_HELD_ROUTER' '            pass'
+expect_red "the agent not told to read action_status" check_owner_approves_in_the_routers_chat
 
 # ---- and the controls ----
 # Nothing planted: every implemented check passes, so the reds above were the faults and not the harness.
@@ -666,6 +686,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 95 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 95 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 100 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 100 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 95 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 100 faults (shard $SHARD), $N distinct checks, controls green"

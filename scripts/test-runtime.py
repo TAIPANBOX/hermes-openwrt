@@ -1402,6 +1402,25 @@ procd_close_service
                              check=False, capture_output=True, text=True)
         self.assertNotEqual(bad.returncode, 0)
 
+    def test_owner_note_says_the_router_chat_approves(self):
+        # With the router's own bot bound (HERMES_OPENWRT_APPROVALS router, 0.21.5-r24): the agent is told
+        # to send the owner to the router's chat for /unlock, that a held change went to the router's chat,
+        # and to read its outcome with action_status, since no turn tells it; and not that the owner taps
+        # Approve under a card in this chat.
+        url = "http://127.0.0.1:8730/mcp"
+        (self.home / "config.yaml").unlink(missing_ok=True)
+        env = dict(self.env, HERMES_OPENWRT_FACTOR="pin+totp", HERMES_OPENWRT_APPROVALS="router")
+        result = subprocess.run(["python3", str(FILES / "set-toolsets.py"), str(self.home), "memory", url,
+                                 "http://127.0.0.1:9/v1", "runtime-model", "owner"], env=env, check=False,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (self.config().get("agent") or {}).get("system_prompt", "")
+        for sentence in ("send /unlock in the router's own chat", "in the router's own chat, not in this one",
+                         "read it with action_status", "Such a call answers HELD with an id", "do not retry it"):
+            self.assertIn(sentence, prompt)
+        for sentence in ("Approve button under the card the bot sent", "send /unlock in the private chat with you"):
+            self.assertNotIn(sentence, prompt)
+
     def test_owner_client_is_paired_and_the_policies_name_its_approval(self):
         # The owner's client, hermes-<agent>-owner, is paired beside the agent's into a root-only
         # file of its own, and openwrt-mcp's approval section names it; the change policies name the

@@ -92,6 +92,34 @@ uci commit hermes && /etc/init.d/hermes-agent restart
 Run it in an SSH session with a terminal (`ssh -t`), so the PIN is read without echoing.
 </details>
 
+### The router's own chat (optional, recommended)
+
+The router can ask you itself, through a Telegram bot of its own: the card of a change and your
+answer then go between openwrt-mcp and Telegram directly, and neither the agent nor the part of
+openwrt-mcp that meets the network carries them. You approve exactly as below, one tap and one message
+with your PIN and code, in the chat with that bot. It needs openwrt-mcp with the router's own bot; the
+Security page shows *The router's own chat* only when it is there.
+
+1. In Telegram, ask **@BotFather** for a new bot (`/newbot`) and copy the token it gives.
+2. Paste it under *The router's own chat* on the Security page and press *Save and bind*.
+3. Open the link the page shows and press **Start**. The page notices, says your chat is bound, and
+   the agent restarts.
+
+From then on `/unlock`, `/lock` and approvals happen in the router's chat. A PIN or a code sent to the
+agent's chat by habit is deleted at once, never reaches the model, and the bot says where it belongs.
+*Remove* takes the router's bot away again, and approvals go back to the agent's chat.
+
+<details>
+<summary>Over SSH instead of the web page</summary>
+
+```sh
+openwrt-mcp owner-bot set < token.txt     # the token on standard input, never as an argument
+openwrt-mcp owner-bot bind                # a one-time code and the t.me link; press Start on it
+openwrt-mcp owner-bot status              # bound, the bot's name, its last error
+/etc/init.d/hermes-agent restart          # once bound, so the agent leaves the approval path
+```
+</details>
+
 ## Approving a change
 
 ![The approval in Telegram: the card with Approve and Reject, the bot repeating the change, the PIN and code deleted at once, Approved and applied, and the agent confirming](approve-chat.svg)

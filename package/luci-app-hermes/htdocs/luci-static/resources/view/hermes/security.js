@@ -41,6 +41,14 @@
  * the house the owner adds, as host:port lines the page holds to the shape the agent reads. And the
  * wrong tries on record (openwrt-mcp 0.5.0.8), which survive a restart: the count, and a Reset that
  * runs `openwrt-mcp mfa reset`, the way out for an owner a guesser has left waiting.
+ *
+ * And the router's own bot (luci-app-hermes 0.21.5-r7, openwrt-mcp with owner_approves_past_the_listener).
+ * @decided 2026-11-08 (openwrt-mcp's docs/approval-path.md, option A2, paraphrased): openwrt-mcp sends
+ * the card and reads the owner's answer itself, through a bot of the router's own, so the agent's
+ * gateway leaves the approval path. The token field is a key's field: never filled from the router,
+ * emptied as soon as it is sent. What comes back is a one-time code and the t.me link that sends it
+ * when Start is pressed, shown on the page once and nowhere else; once the chat is bound the agent
+ * starts again, and from then on the owner unlocks and approves in the router's chat.
  */
 
 var callStatus   = rpc.declare({ object: 'hermes', method: 'security_status' });
@@ -53,6 +61,29 @@ var callPackages = rpc.declare({ object: 'hermes', method: 'set_packages', param
 var callApprover = rpc.declare({ object: 'hermes', method: 'set_approver', params: ['approver_id'] });
 var callNetwork  = rpc.declare({ object: 'hermes', method: 'set_network', params: ['agent_network', 'lan_allow'] });
 var callReset    = rpc.declare({ object: 'hermes', method: 'reset_tries' });
+var callBotSet   = rpc.declare({ object: 'hermes', method: 'set_owner_bot', params: ['token'] });
+var callBotBind  = rpc.declare({ object: 'hermes', method: 'bind_owner_bot' });
+var callBotDone  = rpc.declare({ object: 'hermes', method: 'owner_bot_done' });
+var callBotClear = rpc.declare({ object: 'hermes', method: 'clear_owner_bot' });
+
+/* A bot token as BotFather gives it, the shape the backend and openwrt-mcp accept. */
+var BOT_TOKEN = /^[0-9]{5,16}:[A-Za-z0-9_-]{30,80}$/;
+
+/* What a failure of the router's bot is told by: one word of openwrt-mcp's fixed set, each with its
+ * own sentence here. A word outside the set is told as "other", never shown as it came. */
+var BOT_FAILURES = {
+	token_rejected: _('Telegram does not know this token: paste the token again from @BotFather.'),
+	telegram_refused: _('Telegram refused a call of the router\'s bot.'),
+	telegram_error: _('Telegram answered the router\'s bot with an error.'),
+	tls: _('The connection to Telegram failed its TLS check: check the router\'s date and time.'),
+	pipe: _('openwrt-mcp\'s listener, which carries the bot\'s connection, is not answering.'),
+	network: _('The router could not reach Telegram.'),
+	other: _('The router\'s bot failed.')
+};
+
+/* Text from the router always goes into the page as text. In LuCI a string given to E() as its only
+ * child is set as HTML, and one inside an array is a text node, so every child here is an array. */
+var BIND_CODE = /^[A-Za-z0-9_-]{22}$/;
 
 /* The same shapes the backend and the init accept, so nothing is sent that would be refused. */
 var PIN = /^[0-9]{4,8}$/;
@@ -94,7 +125,7 @@ function allowed(factor, st) {
 }
 
 function say(text, kind) {
-	ui.addNotification(null, E('p', {}, text), kind || 'info');
+	ui.addNotification(null, E('p', {}, [ text ]), kind || 'info');
 }
 
 function fail(text) { say(text, 'danger'); }
@@ -102,8 +133,8 @@ function fail(text) { say(text, 'danger'); }
 /* A field of the page: title left, control right, the way LuCI lays out its own. */
 function row(title, control, hint) {
 	return E('div', { 'class': 'cbi-value' }, [
-		E('label', { 'class': 'cbi-value-title' }, title),
-		E('div', { 'class': 'cbi-value-field' }, [ control, hint ? E('div', { 'class': 'cbi-value-description' }, hint) : '' ])
+		E('label', { 'class': 'cbi-value-title' }, [ title ]),
+		E('div', { 'class': 'cbi-value-field' }, [ control, hint ? E('div', { 'class': 'cbi-value-description' }, [ hint ]) : '' ])
 	]);
 }
 
@@ -111,7 +142,7 @@ function pill(ok, yes, no) {
 	return E('span', {
 		'class': ok ? 'label' : 'label warning',
 		'style': 'padding:2px 8px;border-radius:10px;' + (ok ? 'background:#5cb85c;color:#fff' : 'background:#f0ad4e;color:#fff')
-	}, ok ? yes : no);
+	}, [ ok ? yes : no ]);
 }
 
 function factorName(f) {
@@ -123,7 +154,7 @@ function factorName(f) {
 function nothing(title, lines) {
 	return E('div', {}, [
 		E('h2', {}, _('Security')),
-		E('div', { 'class': 'alert-message warning' }, [ E('h4', {}, title) ].concat(lines.map(function (l) { return E('p', {}, l); })))
+		E('div', { 'class': 'alert-message warning' }, [ E('h4', {}, title) ].concat(lines.map(function (l) { return E('p', {}, [ l ]); })))
 	]);
 }
 
@@ -171,13 +202,13 @@ return view.extend({
 			? (st.totp_pending ? _('enrolled; another is being added and does not count until its code is entered') : _('enrolled'))
 			: (st.totp_pending ? _('being added: not in force until its code is entered') : _('not enrolled'));
 		var facts = [
-			[_('Profile'), E('span', {}, st.profile)],
-			[_('Factor in force'), E('span', {}, factorName(st.factor))],
+			[_('Profile'), E('span', {}, [ st.profile ])],
+			[_('Factor in force'), E('span', {}, [ factorName(st.factor) ])],
 			[_('PIN'), pill(st.pin_set, _('set'), _('not set'))],
-			[_('Phone'), E('span', {}, phone)],
-			[_('Unlock window'), E('span', {}, st.window)],
-			[_('Wrong tries before the first wait'), E('span', {}, String(st.max_failures))],
-			[_('First wait after them'), E('span', {}, st.lockout)],
+			[_('Phone'), E('span', {}, [ phone ])],
+			[_('Unlock window'), E('span', {}, [ st.window ])],
+			[_('Wrong tries before the first wait'), E('span', {}, [ String(st.max_failures) ])],
+			[_('First wait after them'), E('span', {}, [ st.lockout ])],
 			[_('Package installs'), E('span', {}, st.packages === 'official' ? _('on: the official OpenWrt feed only') : (st.packages === 'invalid' ? _('not a value the service accepts') : _('off')))],
 			[_('Who approves high-impact changes'), st.approver
 				? E('span', {}, [ _('Telegram id %s').format(st.approver), ' ', pill(!!st.approvals_ready, _('ready'), _('needs a PIN and a phone')) ])
@@ -308,7 +339,7 @@ return view.extend({
 						'src': 'data:image/png;base64,' + held.png })
 				]),
 				E('p', {}, [ _('Or type this secret into the app: '),
-					E('code', { 'id': 'hermes-sec-secret', 'style': 'font-size:1.2em;letter-spacing:.08em;word-break:break-all' }, held.secret) ]),
+					E('code', { 'id': 'hermes-sec-secret', 'style': 'font-size:1.2em;letter-spacing:.08em;word-break:break-all' }, [ held.secret ]) ]),
 				E('p', { 'class': 'cbi-value-description' }, _('This is shown here once. Leaving the page, or Cancel, takes it off; the router keeps nothing that can show it again, so a new QR code is made if you start again.')),
 				row(_('Code from the app'), codeIn),
 				E('div', { 'class': 'cbi-page-actions' }, [
@@ -440,7 +471,7 @@ return view.extend({
 			[ E('option', { 'value': '' }, auto) ].concat(choices.map(function (id) {
 				var attrs = { 'value': id };
 				if (st.approver_id === id) attrs.selected = 'selected';
-				return E('option', attrs, _('Telegram id %s').format(id));
+				return E('option', attrs, [ _('Telegram id %s').format(id) ]);
 			})));
 		if (!choices.length) apSel.disabled = 'disabled';
 		var apSave = E('button', { 'class': 'cbi-button cbi-button-save', 'id': 'hermes-sec-approver-save',
@@ -458,7 +489,9 @@ return view.extend({
 			}) }, _('Save'));
 		if (!choices.length) apSave.disabled = 'disabled';
 		var apWhy = '';
-		if (!choices.length)
+		if (st.approvals_where === 'router')
+			apWhy = E('div', { 'class': 'alert-message info', 'id': 'hermes-sec-approver-router' }, _('You approve in the router\'s own chat (above), so who approves here is not used.'));
+		else if (!choices.length)
 			apWhy = E('div', { 'class': 'alert-message warning' }, _('Approvals are given in the private Telegram chat with the agent. Turn Telegram on and allow your Telegram id on the Settings tab first; until then high-impact changes are refused.'));
 		else if (st.approver && !st.approvals_ready)
 			apWhy = E('div', { 'class': 'alert-message warning' }, _('Approving takes both your PIN and a code from your phone, and one of them is not set up yet, so a high-impact change is refused until it is. Set up what is missing above.'));
@@ -471,6 +504,82 @@ return view.extend({
 			apWhy,
 			E('div', { 'class': 'cbi-page-actions' }, [ apSave ])
 		]);
+
+		/* ---- the router's own bot: where the owner approves, past the agent ---- */
+		var botSection = '';
+		if (st.owner_bot_supported) {
+			var botToken = E('input', { 'type': 'password', 'id': 'hermes-sec-bot-token', 'class': 'cbi-input-password',
+				'autocomplete': 'off', 'spellcheck': 'false', 'placeholder': '123456789:AA...' });
+			var botLink = E('div', { 'id': 'hermes-sec-bot-link' });
+			var waiting = 0;
+			/* The code and its link, once, on this page; then the page asks every three seconds, for ten
+			 * minutes at most, whether the chat is bound, and once it is restarts the agent and reloads. */
+			var showLink = function (r) {
+				var code = String((r && r.code) || ''), link = String((r && r.link) || '');
+				if (!BIND_CODE.test(code)) return fail(_('The router answered without a code to bind your chat.'));
+				var lines = [ E('p', {}, _('Open the router\'s bot in Telegram and press Start; this page notices when your chat is bound.')) ];
+				if (/^https:\/\/t\.me\/[A-Za-z0-9_]+\?start=[A-Za-z0-9_-]{22}$/.test(link))
+					lines.push(E('p', {}, E('a', { 'href': link, 'target': '_blank', 'rel': 'noopener noreferrer', 'id': 'hermes-sec-bot-start' }, [ link ])));
+				lines.push(E('p', {}, [ _('Or send it this code after pressing Start:'), ' ', E('code', { 'id': 'hermes-sec-bot-code' }, [ code ]) ]));
+				lines.push(E('p', {}, _('The code works once, for 30 minutes.')));
+				dom.content(botLink, lines);
+				var round = ++waiting, tries = 0;
+				var ask = function () {
+					if (round !== waiting || ++tries > 200) return;
+					return callStatus().then(function (s) {
+						if (round !== waiting) return;
+						if (!s || !s.owner_bot_bound) return void window.setTimeout(ask, 3000);
+						waiting++;
+						dom.content(botLink, []);
+						return callBotDone().then(function () {
+							flash.keep(_('Your chat is bound. From now on you unlock and approve in the router\'s own chat; the agent restarts to leave the approval path.'), 'info');
+							window.location.reload();
+						});
+					}, function () { if (round === waiting) window.setTimeout(ask, 3000); });
+				};
+				window.setTimeout(ask, 3000);
+			};
+			var botSave = E('button', { 'class': 'cbi-button cbi-button-save', 'id': 'hermes-sec-bot-save',
+				'click': ui.createHandlerFn(this, function () {
+					var tok = botToken.value.trim();
+					botToken.value = '';
+					if (!BOT_TOKEN.test(tok)) return fail(_('That is not a bot token as BotFather gives it: digits, a colon, then the secret.'));
+					return callBotSet(tok).then(function (r) {
+						tok = '';
+						if (!r || r.ok === false) return fail((r && r.error) || _('The token was not saved.'));
+						showLink(r);
+					}, function () { tok = ''; fail(_('The token was not saved: the router did not answer.')); });
+				}) }, _('Save and bind'));
+			var botBind = E('button', { 'class': 'cbi-button cbi-button-action', 'id': 'hermes-sec-bot-bind',
+				'click': ui.createHandlerFn(this, function () {
+					return callBotBind().then(function (r) {
+						if (!r || r.ok === false) return fail((r && r.error) || _('No code was made.'));
+						showLink(r);
+					}, function () { fail(_('No code was made: the router did not answer.')); });
+				}) }, st.owner_bot_bound ? _('Bind another chat') : _('Show a code again'));
+			var botClear = E('button', { 'class': 'cbi-button cbi-button-reset', 'id': 'hermes-sec-bot-clear',
+				'click': ui.createHandlerFn(this, function () {
+					return callBotClear().then(function (r) {
+						if (!r || r.ok === false) return fail((r && r.error) || _('The bot was not removed.'));
+						flash.keep(_('Removed. Unlocking and approving are back in the chat with the agent; the agent restarts.'), 'info');
+						window.location.reload();
+					}, function () { fail(_('The bot was not removed: the router did not answer.')); });
+				}) }, _('Remove'));
+			if (!st.owner_bot_configured) { botBind.disabled = 'disabled'; botClear.disabled = 'disabled'; }
+			var botState = st.owner_bot_bound
+				? pill(true, st.owner_bot_name ? _('bound: you approve in the chat with @%s').format(st.owner_bot_name) : _('bound: you approve in the router\'s chat'), '')
+				: st.owner_bot_configured ? pill(false, '', _('token set, your chat is not bound yet')) : pill(false, '', _('not set up'));
+			botSection = E('div', { 'class': 'cbi-section', 'id': 'hermes-sec-bot-section' }, [
+				E('h3', {}, _('The router\'s own chat')),
+				E('p', { 'class': 'cbi-section-descr' }, _('The router can ask you itself, through a Telegram bot of its own: the card of a change and your answer then never pass through the agent. You approve the same way, one tap and one message with your PIN and a code, in that chat. It takes about two minutes, once: create a bot with @BotFather (/newbot), paste its token here, then press Start on the link this page shows.')),
+				row(_('State'), E('span', { 'id': 'hermes-sec-bot-state' }, botState)),
+				st.owner_bot_failure ? E('div', { 'class': 'alert-message warning', 'id': 'hermes-sec-bot-error' },
+					[ BOT_FAILURES[st.owner_bot_failure] || BOT_FAILURES.other ]) : '',
+				row(_('Bot token'), botToken, _('From @BotFather. Kept on the router, root only; never shown again.')),
+				botLink,
+				E('div', { 'class': 'cbi-page-actions' }, [ botSave, ' ', botBind, ' ', botClear ])
+			]);
+		}
 
 		/* ---- wrong tries on record ---- */
 		var triesSection = '';
@@ -488,7 +597,7 @@ return view.extend({
 			triesSection = E('div', { 'class': 'cbi-section', 'id': 'hermes-sec-tries-section' }, [
 				E('h3', {}, _('Wrong tries')),
 				E('p', { 'class': 'cbi-section-descr' }, _('Wrong tries in a row count against unlocking and approving, yours and anyone else\'s alike. Past the limit each one costs a wait that doubles up to an hour, for you too, and neither a restart nor a reboot clears them. A right answer does, and so does a day with none. If some of them did not come from your Telegram chat, the bot tells you there.')),
-				row(_('On record'), E('strong', { 'id': 'hermes-sec-tries' }, String(st.failed_tries))),
+				row(_('On record'), E('strong', { 'id': 'hermes-sec-tries' }, [ String(st.failed_tries) ])),
 				st.tries_saved === false ? E('div', { 'class': 'alert-message warning' }, _('openwrt-mcp cannot save this count right now, its storage may be full, so it counts in memory and this number can be behind.')) : '',
 				E('div', { 'class': 'cbi-page-actions' }, [ E('button', resetAttrs, _('Reset')) ])
 			]);
@@ -548,6 +657,7 @@ return view.extend({
 			phoneSection,
 			factorSection,
 			triesSection,
+			botSection,
 			approverSection,
 			networkSection,
 			packagesSection

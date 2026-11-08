@@ -76,6 +76,12 @@ plugins.entries.openwrt-unlock.allow_gateway_injection is set, so the plugin can
 that tells the agent the owner's answer; the other profiles take it out again, when this bridge
 was what set it (the same marker as the plugin's).
 
+@decided 2026-11-08 (openwrt-mcp's docs/approval-path.md, option A2, paraphrased): once the owner's
+chat is bound to the router's own bot, openwrt-mcp sends the card and reads the owner's answer
+itself, and the gateway leaves the approval path. The init then passes HERMES_OPENWRT_APPROVALS
+router, and the owner note says the owner unlocks and approves in the router's own chat, and that
+the agent learns the outcome from action_status, since no turn tells it.
+
 @decided 2026-11-07: the agent's own connections are limited (see /usr/libexec/hermes-net). The owner
 note says so while they are on (HERMES_OPENWRT_NETWORK limited), or the agent reports a refused
 connection as a dead network.
@@ -169,6 +175,20 @@ OWNER_NOTE_HELD = (" Some changes wait for the owner's approval of that one chan
                    "Say that it waits for their approval; do not retry it, do not "
                    "ask for a PIN or a code, and do not try another way to make the change. When you are "
                    "told it was applied, check the router, then confirm it with uci_confirm.")
+# Since 0.21.5-r24, when the owner approves in the router's own chat (HERMES_OPENWRT_APPROVALS router).
+OWNER_NOTE_HELD_ROUTER = (" Some changes wait for the owner's approval of that one change, however the "
+                          "unlock stands: opening a port to the internet, weakening the firewall, rewiring the "
+                          "router's ports, VLANs or what an interface sits on, changing VPN routing, DNS or the "
+                          "time servers, opening a Wi-Fi without a password into a trusted network, stopping a "
+                          "service that guards the router, a reboot. A guest network still runs in the unlock "
+                          "window when it is a new bridge named br-<name> with no ports, an interface on it, a "
+                          "Wi-Fi with a password on that network and its own zone. Such a call answers HELD with "
+                          "an id: nothing was applied, and the router itself sent the owner the change to approve "
+                          "in the router's own chat, not in this one. You are not told their answer: read it with "
+                          "action_status before you go on. Say that it waits for their approval in the router's "
+                          "chat; do not retry it, do not ask for a PIN or a code, and do not try another way to "
+                          "make the change. When action_status says it was applied, check the router, then "
+                          "confirm it with uci_confirm.")
 OWNER_NOTE_HELD_OFF = (" Some changes need the owner's approval of that one change: opening a port to the "
                        "internet, weakening the firewall, rewiring the router's ports, VLANs or what an "
                        "interface sits on, changing VPN routing, DNS or the time servers, "
@@ -176,6 +196,13 @@ OWNER_NOTE_HELD_OFF = (" Some changes need the owner's approval of that one chan
                        "guards the router, a reboot. Nobody is chosen to approve them on this router, so "
                        "they are refused: say so, and that the owner chooses who approves in LuCI "
                        "(Services -> Hermes Agent -> Security), or makes the change by hand.")
+OWNER_NOTE_LOCKED_ROUTER = ("A change is refused until the owner has unlocked it. When a tool answers that "
+                            "a second factor is required, tell the owner to send /unlock in the router's own "
+                            "chat, with the router's bot, not in this one, and try again once they say it is "
+                            "done. Never ask the owner for a PIN or a code in a message, and never repeat one "
+                            "you were given. The owner's PIN or code never reaches you: if one of their "
+                            "messages is replaced by a notice that it was removed, it was sent to the wrong "
+                            "chat. Answer what you were doing, then ask them to unlock in the router's chat.")
 # Only while the limits are on (HERMES_OPENWRT_NETWORK, see the docstring): since 0.21.5-r21 a refused
 # connection fails with one of these, and without this the agent reports a dead network.
 OWNER_NOTE_NETWORK = (" Your own connections reach the internet, DNS, openwrt-mcp and the model "
@@ -205,11 +232,14 @@ def _note_for(profile, factor: str, packages: bool = False, approvals=None, netw
     if profile == "assistant":
         text = ASSISTANT_NOTE
     elif profile == "owner":
-        text = OWNER_NOTE + (OWNER_NOTE_NO_FACTOR if factor == "none" else OWNER_NOTE_LOCKED)
+        locked = OWNER_NOTE_LOCKED_ROUTER if approvals == "router" else OWNER_NOTE_LOCKED
+        text = OWNER_NOTE + (OWNER_NOTE_NO_FACTOR if factor == "none" else locked)
         if packages:
             text += OWNER_NOTE_PACKAGES
         if factor != "none" and approvals == "on":
             text += OWNER_NOTE_HELD
+        elif factor != "none" and approvals == "router":
+            text += OWNER_NOTE_HELD_ROUTER
         elif factor != "none" and approvals == "off":
             text += OWNER_NOTE_HELD_OFF
         if network == "limited":
@@ -294,7 +324,7 @@ UNLOCK_MARKER = "_openwrt_unlock_managed"
 # Upstream's per-plugin consent to start a gateway turn (hermes_cli/plugins.py inject_message).
 INJECTION_KEY = "allow_gateway_injection"
 # What the init passes as HERMES_OPENWRT_APPROVALS: whether a held change can be approved.
-APPROVALS = ("off", "on")
+APPROVALS = ("off", "on", "router")
 
 # The tools of openwrt-mcp the model is never offered, in any profile. mfa_unlock and mfa_lock are
 # how the OWNER proves who they are, and a model that could call them would be asking for a PIN.
@@ -663,7 +693,7 @@ def main() -> int:
             # Unset, as from a caller that is not this package's init: nothing is said either way.
             approvals = os.environ.get("HERMES_OPENWRT_APPROVALS")
             if approvals is not None and approvals not in APPROVALS:
-                raise ValueError("HERMES_OPENWRT_APPROVALS must be off or on")
+                raise ValueError("HERMES_OPENWRT_APPROVALS must be off, on or router")
             network = os.environ.get("HERMES_OPENWRT_NETWORK")
             if network is not None and network not in NETWORKS:
                 raise ValueError("HERMES_OPENWRT_NETWORK must be limited or open")

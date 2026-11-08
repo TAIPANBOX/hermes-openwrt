@@ -50,7 +50,7 @@
 #   gate-unlock.sh --selftest       the check names, for gate-scenarios-bound.sh
 set -eu
 
-IMPLEMENTED='check_window_cannot_lift_the_network_limits check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only check_luci_reset_ends_the_wait check_owner_told_of_tries_by_someone_else check_owner_told_with_nobody_to_approve check_agent_cannot_unlock_itself check_no_change_policy_without_held_capability check_high_impact_change_held_in_window check_held_change_approved_from_the_chat check_held_change_rejected_from_the_chat check_owner_token_never_reaches_the_agent'
+IMPLEMENTED='check_window_cannot_lift_the_network_limits check_gateway_runs_as_hermes_user check_key_files_root_only check_memory_ceiling_non_root check_upgrade_hands_data_dir_to_hermes check_root_profile_is_opt_in_and_warned check_fresh_router_without_srv_starts check_unreachable_parent_is_named check_agent_tools_cannot_read_router_secrets check_router_secret_never_reaches_model check_agent_diagnostics_still_work check_stop_leaves_nothing_running check_reads_need_no_unlock check_change_refused_while_locked check_no_factor_means_no_changes check_unlock_tools_hidden_from_model check_unlock_is_per_agent check_rollback_survives_reboot check_change_policy_hands_out_no_private_key check_window_changes_settings_never_runs_commands check_window_cannot_reach_the_agents_own_config check_no_change_policy_without_code_exec_refusal check_wireless_and_network_reads_are_redacted check_wide_reads_only_from_a_daemon_that_redacts check_daemon_from_before_the_upgrade_gets_no_wide_reads check_no_package_policy_from_a_daemon_from_before_the_upgrade check_package_install_needs_the_unlock check_service_state_is_read_with_rc_list check_installed_package_config_is_read_redacted check_package_config_reads_only_from_a_daemon_that_redacts check_scheduled_job_cannot_change check_pin_alone_unlocks check_code_alone_unlocks check_pin_and_code_both_required check_pin_stored_as_slow_hash check_wrong_attempts_lock_out check_code_works_once check_unlock_window_ends check_lock_closes_at_once check_unlock_message_deleted_and_never_reaches_model check_unlock_while_busy_never_reaches_model check_bare_code_is_an_unlock_attempt check_secret_in_no_log check_unlock_refused_in_group check_unlock_only_from_allowlist check_edited_unlock_never_reaches_model check_agent_told_window_is_open check_agent_not_told_after_window_ends check_luci_enrol_shows_qr_and_verifies check_cli_enrol_prints_qr check_luci_pin_write_only check_luci_reset_ends_the_wait check_owner_told_of_tries_by_someone_else check_owner_told_with_nobody_to_approve check_agent_cannot_unlock_itself check_no_change_policy_without_held_capability check_high_impact_change_held_in_window check_held_change_approved_from_the_chat check_held_change_rejected_from_the_chat check_owner_token_never_reaches_the_agent check_owner_approves_in_the_routers_chat'
 # Nothing is left to build: stage 4 (the unlock from Telegram) and stage 5 (the LuCI Security page
 # and the SSH enrolment) are both in IMPLEMENTED. The two lists stay, empty, because a scenario
 # added before its check is written has to be red and not skipped, and this is where it goes.
@@ -1812,6 +1812,7 @@ logging:
 EOF
 	chown -R hermes:hermes /srv/hermes
 	rm -rf /tmp/fakes /tmp/totp.secret
+	[ -z "${ROUTER_BOT:-}" ] || router_bot_bound
 	python3 /harness.py fakes >/tmp/fakes.log 2>&1 &
 	echo $! > /tmp/fakes.pid
 	started
@@ -1872,6 +1873,21 @@ check_scheduled_job_cannot_change()                       { scenario "$CUR_NAME"
 check_held_change_approved_from_the_chat()                { scenario "$CUR_NAME" pin+totp; }
 check_held_change_rejected_from_the_chat()                { scenario "$CUR_NAME" pin+totp; }
 check_owner_token_never_reaches_the_agent()               { scenario "$CUR_NAME" pin; }
+
+# The router's own bot, bound (openwrt-mcp with owner_approves_past_the_listener): a token and a bound
+# chat, as openwrt-mcp's helper leaves them when the owner presses Start. Nothing reaches Telegram from
+# here: the gate's network is down. Done before the init runs, which is what decides the mode.
+router_bot_bound() {
+	[ "$(/usr/bin/openwrt-mcp status --json --audit 0 | jsonfilter -e '@.capabilities.owner_approves_past_the_listener')" = true ] \
+		|| fail "measured nothing: the openwrt-mcp installed here has no bot of its own"
+	printf '%s\n' '123456789:GATE-not-a-real-token-AAAAAAAAAAAAAAAA' | /usr/bin/openwrt-mcp owner-bot set >/dev/null \
+		|| fail "openwrt-mcp would not take a bot token"
+	printf '4242\n' > /etc/openwrt-mcp/owner-bot/chat && chmod 600 /etc/openwrt-mcp/owner-bot/chat
+	[ "$(/usr/bin/openwrt-mcp owner-bot status --json | jsonfilter -e '@.bound')" = true ] || fail "measured nothing: the bot does not read as bound"
+}
+# @decided 2026-11-08 (openwrt-mcp's docs/approval-path.md, option A2): with the router's own bot bound,
+# the gateway leaves the approval path and keeps the owner's secrets away all the same.
+check_owner_approves_in_the_routers_chat()                { ROUTER_BOT=1 scenario "$CUR_NAME" pin+totp; }
 
 # ======================================================= the LuCI Security page, and the SSH enrolment
 
