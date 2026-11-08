@@ -694,6 +694,11 @@ mutants = [
      'test_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp'),
     ('the shipped file says an empty option turns the connection off', 'hermes-agent.config', 'so emptying it turns nothing off.',
      'Empty disables this connection.', 'test_an_emptied_endpoint_leaves_the_connection_to_openwrt_mcp'),
+    ("the agent not told the router's chat approves", 'set-toolsets.py', '            text += OWNER_NOTE_HELD_ROUTER\n', '            pass\n',
+     'test_owner_note_says_the_router_chat_approves'),
+    ("the agent sent to this chat for /unlock with the router's bot bound", 'set-toolsets.py',
+     '        locked = OWNER_NOTE_LOCKED_ROUTER if approvals == "router" else OWNER_NOTE_LOCKED\n',
+     '        locked = OWNER_NOTE_LOCKED\n', 'test_owner_note_says_the_router_chat_approves'),
     ('the shipped file promises one flat wait', 'hermes-agent.config', 'each further wrong attempt doubles it, up to an', 'the lockout lasts that long, up to an',
      'test_shipped_file_says_the_lockout_is_the_first_of_waits_that_grow'),
 ]

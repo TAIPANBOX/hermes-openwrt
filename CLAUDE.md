@@ -241,7 +241,21 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     announced the way set_factor is (gate: `scripts/gate-luci.sh`
     `check_security_approver_chosen_only_from_the_allowed_ids`; the page,
     `check_security_approver_offered_only_from_the_allowed_ids` in `scripts/test-luci-views.mjs`; teeth:
-    `scripts/teeth-luci.sh` faults 43 to 46). `@claude` 2026-10-08, LuCI 0.21.5-r2: a PIN saved while the factor in
+    `scripts/teeth-luci.sh` faults 43 to 46). `@claude` 2026-11-08, LuCI 0.21.5-r7: security_status also answers
+    the router's own bot as facts (`owner_bot_supported`, `owner_bot_configured`, `owner_bot_bound`,
+    `owner_bot_binding`, `owner_bot_name`, `owner_bot_error`) and `approvals_where` (router, agent or none), and
+    approvals_ready counts a bound bot as someone who approves; `set_owner_bot`, `bind_owner_bot`,
+    `owner_bot_done` and `clear_owner_bot` are write permission alone. set_owner_bot takes a token only of a
+    bot token's shape and hands it to `openwrt-mcp owner-bot set` on standard input from the shell's own
+    printf and to nothing else; it and bind_owner_bot return a one-time code and its t.me link, written with
+    printf like enrol_start's reply; owner_bot_done restarts the agent only with a chat bound, clear_owner_bot
+    removes the bot and restarts it. The page shows the section only when openwrt-mcp reports
+    owner_approves_past_the_listener, never fills the token field and empties it once sent, shows the code once,
+    and restarts the agent only once the chat is bound (gate: `scripts/gate-luci.sh`
+    `check_security_owner_bot_token_written_only_to_openwrt_mcp`; `scripts/test-luci-views.mjs`
+    `check_security_owner_bot_token_never_filled_and_the_code_shown_once`,
+    `check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp`; teeth: `scripts/teeth-luci.sh` faults 66 to
+    72). `@claude` 2026-10-08, LuCI 0.21.5-r2: a PIN saved while the factor in
     force is `none` says, after the reload and as a warning, to choose PIN under "What unlocking
     asks for" and press Save there, since the PIN and the factor have a Save each and a person
     set one and missed the other (gate: `scripts/test-luci-views.mjs`
@@ -988,6 +1002,21 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     twelve seconds later; the rule and the firewall file were then put back by hand. Two limits seen
     on the way, named and not fixed: a bare PIN sent while no approval waits for one is an /unlock
     and opens the window, and the agent still tells the owner to send /unlock first.
+    `@decided 2026-11-08` (openwrt-mcp's docs/approval-path.md, option A2, paraphrased): openwrt-mcp's root
+    helper sends the card and reads the owner's answer itself, through a bot of the router's own; the agent's
+    gateway and openwrt-mcp's listener leave the approval path; the owner approves as before, one tap and one
+    message with the PIN and the code, in the router's own chat; once per router the owner makes a bot, gives
+    the router its token and presses Start. This deliberately replaces the same bot decided above.
+    `@claude` 2026-11-08, how (0.21.5-r24, LuCI 0.21.5-r7, openwrt-mcp with owner_approves_past_the_listener):
+    the init asks openwrt-mcp whether it reports the capability and its bot has a chat bound
+    (`mcp_owner_bot_bound`); then approvals are `router` whatever this agent's Telegram says, the approval
+    section is written on, the owner's client is not paired, any token of it is revoked and its file removed,
+    and procd is handed no owner token file. The gateway is told HERMES_OPENWRT_APPROVALS=router: the wrapper
+    reads no owner token, the plugin starts no poller and answers every /unlock, bare PIN and code, /approve,
+    /reject and /lock with where they belong, after its four lines of defence took them, and the owner note
+    says to send /unlock in the router's chat and to read a held change's outcome with action_status. A router
+    with no bot bound keeps everything above (gate: `scripts/gate-unlock.sh`
+    `check_owner_approves_in_the_routers_chat`; teeth: `scripts/teeth-unlock.sh` faults 96 to 100).
     `@decided 2026-10-22` (the owner's, paraphrased): a code from the app must still work while it is
     typed after the PIN. openwrt-mcp 0.5.0.6 (the fork's PR #10, pinned in CI at 2075e0b) accepts a
     code until 60 s after it leaves the app's screen, two steps back and one ahead.

@@ -25,7 +25,7 @@
 # calls the pages make return what the pages expect.
 set -eu
 
-CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_packages_written_only_with_a_factor check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_chosen_only_from_the_allowed_ids check_security_approver_offered_only_from_the_allowed_ids check_security_network_limits_written_only_as_the_agent_reads_them check_security_network_limits_offered_on_the_page check_security_failed_tries_reset_through_openwrt_mcp check_security_failed_tries_shown_with_a_reset check_security_pin_alone_is_warned check_clean_removal'
+CHECKS='check_installs check_files_land check_json_valid check_js_parses check_ubus_object check_status_answers check_status_reads_version_from_disk check_free_space_before_first_start check_secret_written_0600 check_secret_never_returned check_telegram_state_reported check_read_acl_is_narrow check_secret_write_failure_reported check_secret_path_mismatch_refused check_provider_key_written_0600 check_provider_key_name_refused check_provider_key_path_mismatch_refused check_chatgpt_sign_in_from_the_page check_upgrade_restarts_rpcd check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_status_reports_facts_only check_security_factor_never_outruns_what_exists check_security_factor_announced_when_reload_cannot_tell check_security_packages_written_only_with_a_factor check_security_refused_outside_the_owner_profile check_security_page_calls_are_granted check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_chosen_only_from_the_allowed_ids check_security_approver_offered_only_from_the_allowed_ids check_security_network_limits_written_only_as_the_agent_reads_them check_security_network_limits_offered_on_the_page check_security_failed_tries_reset_through_openwrt_mcp check_security_failed_tries_shown_with_a_reset check_security_pin_alone_is_warned check_security_owner_bot_token_written_only_to_openwrt_mcp check_security_owner_bot_token_never_filled_and_the_code_shown_once check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp check_clean_removal'
 
 if [ "${1:-}" = "--selftest" ]; then
 	n=0; for c in $CHECKS; do echo "$c"; n=$((n + 1)); done
@@ -485,7 +485,7 @@ want "$st" pin_set false; want "$st" totp_enrolled false; want "$st" totp_pendin
 want "$st" agent_network limited; want "$st" failed_tries 0; want "$st" tries_counted true; want "$st" tries_saved true
 # Exactly these facts and no other key: a debugging field added later is the way a secret gets in.
 keys_of() { ( set +u; . /usr/share/libubox/jshn.sh; json_load "$1"; json_get_keys k; echo "$k" | tr ' ' '\n' | sort | tr '\n' ' ' ); }
-[ "$(keys_of "$st")" = "agent_network applies approvals_ready approver approver_choices approver_id factor factor_ready failed_tries lan_allow lockout max_failures mcp_ok packages paired pin_set profile totp_enrolled totp_pending tries_counted tries_saved window " ] \
+[ "$(keys_of "$st")" = "agent_network applies approvals_ready approvals_where approver approver_choices approver_id factor factor_ready failed_tries lan_allow lockout max_failures mcp_ok owner_bot_binding owner_bot_bound owner_bot_configured owner_bot_error owner_bot_name owner_bot_supported packages paired pin_set profile totp_enrolled totp_pending tries_counted tries_saved window " ] \
 	|| sf "the reply carries other keys than the facts: $(keys_of "$st")"
 # It follows what openwrt-mcp holds.
 SECRETPIN=73195028
@@ -874,6 +874,69 @@ mv -f $MCP.real $MCP
 rm -f /etc/openwrt-mcp/throttle /tmp/mcp-calls; $MCP unpair hermes-main >/dev/null 2>&1 || true
 echo "PASS check_security_failed_tries_reset_through_openwrt_mcp"
 
+# ---- 18g. the router's own bot: the token to openwrt-mcp on standard input, a code once, facts after ----
+# @decided 2026-11-08 (openwrt-mcp's docs/approval-path.md, option A2): openwrt-mcp's root helper sends
+# the card and reads the owner's answer itself through a bot of the router's own. The page gives it the
+# bot's token, which goes to `openwrt-mcp owner-bot set` on standard input and to nothing else, and
+# hands back a one-time code to bind the owner's chat, once. The status then says facts only. Once a
+# chat is bound the agent is restarted, and not before; removing the bot restarts it too.
+ob() { fail check_security_owner_bot_token_written_only_to_openwrt_mcp "$1"; }
+[ "$($MCP status --json --audit 0 2>/dev/null | jsonfilter -e '@.capabilities.owner_approves_past_the_listener')" = true ] \
+	|| ob "measured nothing: the openwrt-mcp installed here has no bot of its own"
+# What the backend hands openwrt-mcp the token by: standard input, from the shell's own printf.
+grep -q 'printf .%s\\n. "$tok" | "$MCP_BIN" owner-bot set' /usr/libexec/rpcd/hermes \
+	|| ob "the backend does not hand the token to openwrt-mcp on standard input"
+grep -n '\$tok' /usr/libexec/rpcd/hermes | grep -v 'printf .%s\\n. "$tok" |' | grep -v 'tok=\$(msg_get token)' | grep -q . \
+	&& ob "the token is used somewhere other than on openwrt-mcp's standard input: $(grep -n '\$tok' /usr/libexec/rpcd/hermes | head -3)"
+$MCP unpair hermes-main >/dev/null 2>&1 || true; $MCP pair hermes-main >/dev/null || ob "could not pair"
+$MCP owner-bot clear >/dev/null 2>&1 || true
+uci set hermes.main.profile=owner; uci commit hermes
+service_standin check_security_owner_bot_token_written_only_to_openwrt_mcp
+TOK='123456789:GATE-not-a-real-token-AAAAAAAAAAAAAAAA'
+ob_get() { ubus call hermes security_status 2>/dev/null | jsonfilter -e "@.$1"; }
+[ "$(ob_get owner_bot_supported)" = true ] && [ "$(ob_get owner_bot_configured)" = false ] && [ "$(ob_get owner_bot_bound)" = false ] \
+	|| ob "before a token the status does not say a bot can be set up and none is"
+for v in abc '123:short' '123456789:has a space AAAAAAAAAAAAAAAAAAAAAAAAAAAA' '123456789:GATE;reboot-AAAAAAAAAAAAAAAAAAAAAAAAAAA'; do
+	out=$(ubus call hermes set_owner_bot "{\"token\":\"$v\"}" 2>&1)
+	echo "$out" | grep -q '"ok": false' || { echo "$out"; ob "the token '$v' was accepted"; }
+done
+[ ! -e /etc/openwrt-mcp/owner-bot/token ] || ob "a refused token reached openwrt-mcp"
+out=$(ubus call hermes owner_bot_done 2>&1); echo "$out" | grep -q '"ok": false' || ob "owner_bot_done went through with no bot"
+out=$(ubus call hermes set_owner_bot "{\"token\":\"$TOK\"}" 2>&1)
+echo "$out" | grep -q '"ok": true' || { echo "$out"; ob "a token of the right shape was refused"; }
+code=$(echo "$out" | jsonfilter -e '@.code')
+echo "$code" | grep -Eqx '[A-Za-z0-9_-]{22}' || ob "the reply carries no binding code: $out"
+echo "$out" | grep -q 'GATE-not-a-real-token' && ob "the reply holds the token"
+[ "$(cat /etc/openwrt-mcp/owner-bot/token 2>/dev/null)" = "$TOK" ] || ob "openwrt-mcp does not hold the token the page gave"
+[ "$(stat -c '%a %U' /etc/openwrt-mcp/owner-bot/token)" = '600 root' ] || ob "the token file is $(stat -c '%a %U' /etc/openwrt-mcp/owner-bot/token), not 600 root"
+st=$(ubus call hermes security_status)
+for needle in 'GATE-not-a-real-token' "$code"; do echo "$st" | grep -q -- "$needle" && ob "the status holds '$needle'"; done
+[ "$(ob_get owner_bot_configured)" = true ] && [ "$(ob_get owner_bot_bound)" = false ] && [ "$(ob_get owner_bot_binding)" = true ] \
+	|| ob "after the token the status does not say a code waits and no chat is bound: $st"
+# No chat bound yet: the agent is not restarted for it.
+out=$(ubus call hermes owner_bot_done 2>&1); echo "$out" | grep -q '"ok": false' || ob "owner_bot_done went through before a chat was bound"
+sleep 1; [ "$(hermes_events)" = 0 ] || ob "the agent was restarted before a chat was bound"
+# The chat bound, as openwrt-mcp's helper writes it when the code arrives: the router's chat approves,
+# and owner_bot_done restarts the agent once.
+mkdir -p /etc/openwrt-mcp/owner-bot; printf '4242\n' > /etc/openwrt-mcp/owner-bot/chat; chmod 600 /etc/openwrt-mcp/owner-bot/chat
+[ "$(ob_get owner_bot_bound)" = true ] && [ "$(ob_get approvals_where)" = router ] || ob "a bound chat is not said to approve: $(ubus call hermes security_status)"
+out=$(ubus call hermes owner_bot_done 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ob "owner_bot_done was refused with a chat bound"; }
+i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+sleep 1; [ "$(hermes_events)" = 1 ] || ob "a bound chat restarted the agent $(hermes_events) times, not once"
+# A new code is another code.
+out=$(ubus call hermes bind_owner_bot 2>&1); code2=$(echo "$out" | jsonfilter -e '@.code')
+echo "$code2" | grep -Eqx '[A-Za-z0-9_-]{22}' && [ "$code2" != "$code" ] || ob "bind_owner_bot gave no new code: $out"
+# Removed: openwrt-mcp holds nothing, and the agent restarts to take the approval path back.
+rm -f /tmp/service-events
+out=$(ubus call hermes clear_owner_bot 2>&1); echo "$out" | grep -q '"ok": true' || { echo "$out"; ob "clear_owner_bot was refused"; }
+[ ! -e /etc/openwrt-mcp/owner-bot/token ] && [ ! -e /etc/openwrt-mcp/owner-bot/chat ] || ob "removing the bot left its token or chat"
+i=0; while [ "$(hermes_events)" = 0 ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+[ "$(hermes_events)" -ge 1 ] || ob "removing the bot did not restart the agent"
+[ "$(ob_get owner_bot_configured)" = false ] && [ "$(ob_get approvals_where)" != router ] || ob "after removal the status still says a bot approves"
+service_standin_gone
+$MCP unpair hermes-main >/dev/null 2>&1 || true
+echo "PASS check_security_owner_bot_token_written_only_to_openwrt_mcp"
+
 # ---- 19. outside the owner profile the Security calls refuse ----
 # The page says it offers nothing there, and that is the page. The backend is what a script, an
 # old tab or a hand-made request reaches, and in the root and assistant profiles the agent has no
@@ -959,7 +1022,7 @@ CONTAINER
 # (LuCI then does not reload), and an old message is not shown.
 echo "-- the views, on the installed files --"
 docker run --rm -v "$ROOT/scripts/test-luci-views.mjs:/test.mjs:ro" -v "$WWW:/www:ro" node:22-alpine \
-	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_offered_only_from_the_allowed_ids check_security_network_limits_offered_on_the_page check_security_failed_tries_shown_with_a_reset check_security_pin_alone_is_warned
+	node /test.mjs /www check_removed_provider_takes_its_key check_messages_survive_the_reload check_saved_when_only_a_key_changed check_stale_message_not_shown check_profile_field_defaults_to_owner check_llm_gateway_switch_leaves_the_endpoint_alone check_security_pin_fields_never_prefilled check_security_pin_saved_points_to_the_factor check_security_qr_shown_once check_security_factor_needs_its_prerequisite check_security_page_offers_nothing_it_cannot_do check_security_packages_switch_needs_a_factor check_security_approver_offered_only_from_the_allowed_ids check_security_network_limits_offered_on_the_page check_security_failed_tries_shown_with_a_reset check_security_pin_alone_is_warned check_security_owner_bot_token_never_filled_and_the_code_shown_once check_security_owner_bot_offered_only_with_a_bot_in_openwrt_mcp
 
 # Counted from $CHECKS itself, the same way --selftest counts them, so this line
 # cannot go stale the next time a check is added or removed here.

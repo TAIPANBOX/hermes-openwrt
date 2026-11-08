@@ -273,6 +273,8 @@ hand_over_data_dir() {
 #   mcp_policy_batch <client> <section prefix> <factor> <window> <max failures> <lockout> <uci scopes> <may change> [<may packages> [<approvals>]]
 mcp_policy_batch() {
 	local client=$1 prefix=$2 factor=$3 window=$4 max_failures=$5 lockout=$6 read_uci=$7 may_change=$8 may_packages=${9:-no} approvals=${10:-off} scope
+	# The router's own chat approves (router): to openwrt-mcp that is approvals on, whoever answers.
+	[ "$approvals" != router ] || approvals=on
 	set -f
 	printf 'set openwrt-mcp.%sread_ubus=policy\nset openwrt-mcp.%sread_ubus.client=%s\nadd_list openwrt-mcp.%sread_ubus.tools=ubus_call\n' "$prefix" "$prefix" "$client" "$prefix"
 	for scope in $MCP_READ_UBUS; do printf "add_list openwrt-mcp.%sread_ubus.scopes='%s'\n" "$prefix" "$scope"; done
@@ -395,7 +397,15 @@ hermes_mcp_agent() {
 	[ -x "$MCP_BIN" ] || {
 		echo "$NAME: openwrt-mcp is not installed ($MCP_BIN); apk add openwrt-mcp" >&2; return 1; }
 	mcp_pair "$client" "$token_file" || return 1
-	mcp_pair "$client-owner" "$(mcp_owner_token_file "$token_file")" || return 1
+	# Once the owner approves in the router's own chat (router, see start_service), the owner's client
+	# can do nothing (openwrt-mcp refuses its approver's tools, and revoked its token at binding), so it
+	# is not paired, any token left for it is revoked, and its file goes: nothing hands it over.
+	if [ "$approvals" = router ]; then
+		"$MCP_BIN" unpair "$client-owner" >/dev/null 2>&1
+		rm -f "$(mcp_owner_token_file "$token_file")"
+	else
+		mcp_pair "$client-owner" "$(mcp_owner_token_file "$token_file")" || return 1
+	fi
 	# Every config (wireless, the whole of network, a package's own) only from a daemon that redacts
 	# every secret in a uci_get answer, and
 	# a change policy only from one that refuses an apply that would run code.
@@ -419,6 +429,15 @@ hermes_mcp_agent() {
 		echo "$NAME: the approval section for $client did not read back from /etc/config/openwrt-mcp, so no change policy is written" >&2
 		mcp_policies "$client" "$agent" "$factor" "$window" "$max_failures" "$lockout" "$read_uci" no no none
 	fi
+}
+
+# Whether the owner unlocks and approves in the router's own chat: openwrt-mcp reports
+# owner_approves_past_the_listener and its bot has a chat bound (`openwrt-mcp owner-bot status`, facts
+# only, never the token). Anything that cannot be read is no.
+mcp_owner_bot_bound() {
+	[ -x "$MCP_BIN" ] || return 1
+	[ "$("$MCP_BIN" status --json --audit 0 2>/dev/null | jsonfilter -e '@.capabilities.owner_approves_past_the_listener' 2>/dev/null)" = true ] || return 1
+	[ "$("$MCP_BIN" owner-bot status --json 2>/dev/null | jsonfilter -e '@.bound' 2>/dev/null)" = true ]
 }
 
 # Where the owner's client's token lives, beside the agent's: router-mcp.token gives
@@ -706,6 +725,17 @@ start_service() {
 			echo "$NAME: several Telegram users may talk to the agent and hermes.security.approver_id names none of them, so nobody can approve a high-impact change and it is refused; set it in LuCI under Security" >&2
 		fi
 	fi
+	# The router's own bot. @decided 2026-11-08 (openwrt-mcp's docs/approval-path.md, option A2,
+	# paraphrased): openwrt-mcp's root helper sends the card and reads the owner's answer itself,
+	# through a bot of the router's own, and this gateway leaves the approval path. Once the owner's
+	# chat is bound there (openwrt-mcp reports owner_approves_past_the_listener and its bot is bound),
+	# the owner unlocks and approves in that chat whatever this agent's Telegram says, so approvals are
+	# given there (router) and nobody is chosen here. Unbound, everything above stands.
+	if [ "$profile" = owner ] && mcp_owner_bot_bound; then
+		approvals=router
+		sec_approver=''
+		echo "$NAME: the owner unlocks and approves in the router's own chat (openwrt-mcp's bot is bound); this agent's gateway takes no approval" >&2
+	fi
 
 	# Data moved to a USB stick by hermes-usb: start only on that stick. Without it the
 	# directory underneath is the router's own storage, and an agent starting there empty
@@ -860,8 +890,11 @@ start_service() {
 	# exactly that on 2026-09-08, from a package deliberately built with one .pyc
 	# missing.
 
-	[ -n "$mcp_url" ] && procd_append_param env HERMES_MCP_TOKEN_FILE="$mcp_token_file" \
-		HERMES_MCP_OWNER_TOKEN_FILE="$(mcp_owner_token_file "$mcp_token_file")"
+	if [ -n "$mcp_url" ]; then
+		procd_append_param env HERMES_MCP_TOKEN_FILE="$mcp_token_file"
+		# Only while the owner's client approves: in the router's own chat nothing is handed over.
+		[ "$approvals" = router ] || procd_append_param env HERMES_MCP_OWNER_TOKEN_FILE="$(mcp_owner_token_file "$mcp_token_file")"
+	fi
 
 	# ---- Telegram: the export half ----
 	# Validated above, before any procd state was touched. Only the handover is left,

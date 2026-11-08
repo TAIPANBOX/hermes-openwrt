@@ -308,6 +308,12 @@ Feature: What is set on the router is what the gateway runs with
     And with no factor or no connection it says neither, and a value the start never passes is refused
     # -> check_owner_note_says_what_a_held_change_means
 
+  Scenario: with the router's own bot bound, the agent is told the owner approves in the router's chat
+    Given the owner profile with a factor and the router MCP connection, and the router's own bot bound
+    Then the note says to send /unlock in the router's own chat, that a held change went there and not to this chat, and to read its outcome with action_status
+    And it does not say the owner taps Approve under a card in this chat
+    # -> check_owner_note_says_the_router_chat_approves
+
   Scenario: the owner's client is paired beside the agent's and the policies name its approval
     When the init sets up the agent's way to the router
     Then hermes-<agent>-owner is paired into a root-only token file of its own, and openwrt-mcp's approval section names it as the approver, with the PIN and a code

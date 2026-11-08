@@ -211,7 +211,7 @@ esac
 # agent talks to runs as the account openwrt-mcp with no capability, and the root helper that decides
 # and acts has no network socket (G3.14). Nothing of the agent changes; the release moves so the feed
 # carries the pair as gated together. CLAUDE.md, invariant 30.
-PKGREL=${PKGREL:-23}
+PKGREL=${PKGREL:-24}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
