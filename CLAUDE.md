@@ -1271,6 +1271,22 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     0.21.5-r8, stated under the Security page's item above). The floor stays `openwrt-mcp>=0.5.0.8`: with an
     openwrt-mcp that does not tell the router, the page restarts the agent itself, once. (companions:
     `scripts/gate-runtime.sh` `check_companions_are_built_from_the_commits_ci_pins`.)
+    `@measured` 2026-11-08 on CI run 42518484892 (PR #92, aarch64 runner): 19 jobs green, `gate-unlock: 61
+    passed, 0 failed` with `openwrt-mcp-0.5.0.11-r1.apk` built from `ca97a09`. Published from that run's packages
+    (#92 squash `754b306`, tree equal to the run's; gh-pages `6987452`, gate-feed 3 of 3, key `b218189a8ffb35cc`);
+    the r24 feed is kept under the tag `feed-0.21.5-r24`. `@measured` 2026-11-08 20:57 to 21:02 London on a Flint 2
+    (25.12.5, owner profile, factor pin, the router's own bot bound), from the feed with `apk upgrade hermes-agent
+    luci-app-hermes openwrt-mcp` after a simulation that moved exactly those three (239 packages before and after,
+    world unchanged), no reboot: the helper Uid 0, CapEff `30fb`, NoNewPrivs 1, Seccomp 2 on 9 of 9 threads, the
+    Unix socket only; the listener Uid 32769, every capability set 0, Seccomp 2, its sockets 127.0.0.1:8730 and the
+    relay; `/health` `openwrt-mcp 0.5.0.11 ok`; `status` reporting `owner_bot_tells_the_router`; `owner-bot status`
+    bound, channel `bot`; procd's triggers for hermes-agent `config.change` and `openwrt-mcp.owner_bot` (restart);
+    the gateway with `HERMES_OPENWRT_APPROVALS=router`, 9 openwrt tools registered over an authenticated session,
+    Telegram connected, no HTTP error in its logs since the restart; every file of the three packages root's
+    (openwrt-mcp's ten had been `65534:65534` under 0.5.0.10). `hw-flow.sh start`: up as hermes, 181 MB, no refusal,
+    ping as hermes answered. attestryx on forge: flint2 INFO, `package_upgraded` naming exactly the three, no
+    alarm. The r24 packages and a snapshot of the configuration are in `/root/rel-20261108/prev3`. 41.2 °C before,
+    41.5 to 41.7 °C after.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

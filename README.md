@@ -19,13 +19,15 @@ routers.
 ![The agent runs on the router, the model runs elsewhere, and the router itself is reached through a narrow audited window](docs/hero.svg)
 
 **Current release**, in the feed since 2026-11-08 ([taipanbox.github.io/hermes-openwrt](https://taipanbox.github.io/hermes-openwrt/)):
-`hermes-agent` 0.21.5-r24, `openwrt-mcp` 0.5.0.10-r1, `luci-app-hermes` 0.21.5-r7,
+`hermes-agent` 0.21.5-r25, `openwrt-mcp` 0.5.0.11-r1, `luci-app-hermes` 0.21.5-r8,
 `hermes-agent-telegram` 0.21.5-r2. The router can ask you for an approval itself, through a Telegram bot
 of its own: the Security page sets it up in about two minutes, and the card and your answer then never
-pass through the agent ([approval.md](docs/approval.md)). openwrt-mcp's part that the agent talks to runs
+pass through the agent ([approval.md](docs/approval.md)). You send the PIN and the code in one message or
+two, the code as the app shows it, and the agent restarts by itself once your chat is bound, even with the
+page closed. openwrt-mcp's part that the agent talks to runs
 with no root and no capability, and its part that holds root does not listen. The previous release stays
 installable, signed with the same key, from the tag
-[`feed-0.21.5-r23`](https://github.com/TAIPANBOX/hermes-openwrt/tree/feed-0.21.5-r23). It can take its model
+[`feed-0.21.5-r24`](https://github.com/TAIPANBOX/hermes-openwrt/tree/feed-0.21.5-r24). It can take its model
 from [a computer in your house](#a-model-on-a-computer-in-your-house) through llm-gateway, and it
 carries the security updates of eleven libraries under Hermes. A router set up before 2026-10-22
 runs the `wget` line of [step 1](#install) once more: the feed has a new signing key since then.
