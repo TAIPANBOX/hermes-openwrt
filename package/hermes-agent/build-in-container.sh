@@ -211,6 +211,9 @@ esac
 # agent talks to runs as the account openwrt-mcp with no capability, and the root helper that decides
 # and acts has no network socket (G3.14). Nothing of the agent changes; the release moves so the feed
 # carries the pair as gated together. CLAUDE.md, invariant 30.
+# 0.21.5-r24: once openwrt-mcp's own bot (0.5.0.10, owner_approves_past_the_listener) has a chat bound,
+# the init writes approvals on, pairs no owner's client and tells the gateway the owner approves in the
+# router's chat; a router with no bot bound keeps r23's path. Gated beside openwrt-mcp 0.5.0.10.
 PKGREL=${PKGREL:-24}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
