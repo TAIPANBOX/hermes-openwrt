@@ -207,7 +207,11 @@ esac
 # per delay, read from the listing the plugin already asks for (action_list's throttle, openwrt-mcp
 # 0.5.0.8), in upstream's language setting; the shipped file says the lockout is the first of waits
 # that grow; two comments no longer say router_mcp_url can be emptied. CLAUDE.md, invariant 29.
-PKGREL=${PKGREL:-22}
+# 0.21.5-r23: built and gated beside openwrt-mcp 0.5.0.9, whose daemon is two parts: the listener the
+# agent talks to runs as the account openwrt-mcp with no capability, and the root helper that decides
+# and acts has no network socket (G3.14). Nothing of the agent changes; the release moves so the feed
+# carries the pair as gated together. CLAUDE.md, invariant 30.
+PKGREL=${PKGREL:-23}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

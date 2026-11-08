@@ -385,34 +385,84 @@ EOF
 }
 
 # openwrt-mcp's daemon, started the way ITS init starts it: the init under stubbed procd
-# functions, then the command it built, with ubus and logread answered by the stand-ins.
+# functions, then what procd would run for each instance it opened, with ubus and logread
+# answered by the stand-ins.
+#
+# Since openwrt-mcp 0.5.0.9 (0.21.5-r23) the daemon is two instances: `helper`, root with the
+# nine capabilities of /etc/capabilities/openwrt-mcp.json, and `serve`, the listener, as the
+# account openwrt-mcp with /etc/capabilities/openwrt-mcp-serve.json, all five lists empty; each
+# installs its own seccomp filter and refuses to run unless the kernel shows what procd gives it.
+# procd applies a user, a capability file and no_new_privs only through ujail, as
+# `ujail -n <jail> [-U user -G group] -C <file> -c [-e VAR] -- <command>`, building no jail, so the
+# gate runs the installed ujail with exactly what the init asked for. An init that opens anything
+# but those two instances, or names a capability file the package did not install, is a failure
+# here, before any check runs.
 daemon_start() {
 	daemon_stop
+	ubus_up
 	cat > /tmp/fakemcp.sh <<'STUB'
 . /lib/functions.sh
-procd_open_instance()  { :; }
+i=
+procd_open_instance()  { i=${1:-unnamed}; echo "$i" >> /tmp/mcp.instances; : > "/tmp/mcp.$i.jail"; rm -f "/tmp/mcp.$i.argv" "/tmp/mcp.$i.name"; }
 procd_close_instance() { :; }
-procd_set_param() { k=$1; shift; [ "$k" = command ] && printf '%s\n' "$@" > /tmp/mcp.argv; return 0; }
+procd_add_jail() { printf '%s\n' -n "$1" > "/tmp/mcp.$i.name"; }
+procd_set_param() {
+	k=$1; shift
+	case "$k" in
+		command) printf '%s\n' "$@" > "/tmp/mcp.$i.argv" ;;
+		user) printf '%s\n' -U "$1" >> "/tmp/mcp.$i.jail" ;;
+		group) printf '%s\n' -G "$1" >> "/tmp/mcp.$i.jail" ;;
+		capabilities) printf '%s\n' -C "$1" >> "/tmp/mcp.$i.jail" ;;
+		no_new_privs) [ "$1" != 1 ] || printf '%s\n' -c >> "/tmp/mcp.$i.jail" ;;
+		env) for v in "$@"; do printf '%s\n' -e "${v%%=*}" >> "/tmp/mcp.$i.jail"; done ;;
+	esac
+	return 0
+}
 . /etc/init.d/openwrt-mcp
 start_service
 STUB
-	rm -f /tmp/mcp.argv
-	sh /tmp/fakemcp.sh >/dev/null 2>&1
-	[ -s /tmp/mcp.argv ] || fail "openwrt-mcp's own init built no command"
-	set -- $(cat /tmp/mcp.argv)
-	PATH=/stubs:$PATH "$@" >/tmp/mcp.log 2>&1 &
-	echo $! > /tmp/mcp.pid
+	rm -f /tmp/mcp.instances /tmp/mcp.log
+	sh /tmp/fakemcp.sh >/tmp/mcp.init.log 2>&1 || { cat /tmp/mcp.init.log; fail "openwrt-mcp's own init failed to start: $(tail -n 1 /tmp/mcp.init.log)"; }
+	[ "$(tr '\n' ' ' < /tmp/mcp.instances 2>/dev/null)" = "helper serve " ] \
+		|| fail "openwrt-mcp's own init opened '$(tr '\n' ' ' < /tmp/mcp.instances 2>/dev/null)', not the two parts helper and serve"
+	for inst in helper serve; do
+		[ -s "/tmp/mcp.$inst.argv" ] || fail "openwrt-mcp's own init built no command for $inst"
+		[ -s "/tmp/mcp.$inst.name" ] || fail "openwrt-mcp's $inst instance has no jail line, so procd would apply neither its account nor its capability file"
+		caps=$(sed -n '/^-C$/{n;p;}' "/tmp/mcp.$inst.jail")
+		[ -n "$caps" ] && [ -f "$caps" ] || fail "openwrt-mcp's $inst instance names the capability file '$caps', which the package did not install"
+		grep -qx -- -c "/tmp/mcp.$inst.jail" || fail "openwrt-mcp's $inst instance does not ask for no_new_privs"
+	done
+	grep -qx -- -U "/tmp/mcp.serve.jail" || fail "openwrt-mcp's listener is not given an account of its own"
+	: > /tmp/mcp.pid
+	for inst in helper serve; do
+		# shellcheck disable=SC2046
+		set -- /sbin/ujail $(cat "/tmp/mcp.$inst.name") $(cat "/tmp/mcp.$inst.jail") -- $(cat "/tmp/mcp.$inst.argv")
+		PATH=/stubs:$PATH "$@" >>/tmp/mcp.log 2>&1 &
+		echo $! >> /tmp/mcp.pid
+	done
 	i=0
 	until python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8730/health", timeout=2)' 2>/dev/null; do
 		i=$((i + 1)); [ "$i" -lt 30 ] || { cat /tmp/mcp.log; fail "openwrt-mcp did not come up"; }
 		sleep 1
 	done
 }
+# Every process of the daemon: each ujail the gate started and what runs under it.
+daemon_pids() {
+	[ -f /tmp/mcp.pid ] || return 0
+	for p in $(cat /tmp/mcp.pid); do service_tree "$p"; done
+}
 daemon_stop() {
-	if [ -f /tmp/mcp.pid ]; then kill "$(cat /tmp/mcp.pid)" 2>/dev/null || true; rm -f /tmp/mcp.pid; fi
-	# busybox here has no pkill.
+	for p in $(daemon_pids); do kill "$p" 2>/dev/null || true; done
+	rm -f /tmp/mcp.pid
+	# busybox here has no pkill; a part left without its ujail (unlock_down kills every ujail).
 	for p in $(pgrep -x openwrt-mcp 2>/dev/null); do kill "$p" 2>/dev/null || true; done
 	sleep 1
+}
+# The daemon dies at once, as in a reboot: SIGKILL reaches no process through ujail, so every one.
+daemon_kill9() {
+	for p in $(daemon_pids); do kill -9 "$p" 2>/dev/null || true; done
+	rm -f /tmp/mcp.pid
+	for p in $(pgrep -x openwrt-mcp 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
 }
 # mcp <token-file> <tool> [json]: prints the text; status 0 answered, 3 refused.
 mcp() {
@@ -986,7 +1036,7 @@ check_rollback_survives_reboot() {
 	done
 	ls /tmp/openwrt-mcp-rollback-* /var/tmp/openwrt-mcp-rollback-* >/dev/null 2>&1 && fail "a rollback snapshot is in /tmp, which a reboot empties"
 	# A reboot: the daemon dies mid-window and everything in /tmp goes.
-	kill -9 "$(cat /tmp/mcp.pid)"; rm -f /tmp/mcp.pid
+	daemon_kill9
 	sleep 1
 	find /tmp -mindepth 1 -maxdepth 1 ! -name pristine ! -name mcpcall.py ! -name cronrun.py ! -name run-cron-job.sh ! -name 'fake*.sh' ! -name 'verdict' -exec rm -rf {} + 2>/dev/null
 	daemon_start

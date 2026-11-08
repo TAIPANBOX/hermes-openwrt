@@ -130,6 +130,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] The main model can come from llm-gateway, the router's own gateway to the model servers in the house: one option, a client paired at every start, its key in a root-only file, the owner's `base_url` and key left alone (0.21.5-r20, LuCI 0.21.5-r5)
 - [x] The agent's own connections reach the internet, its model and the router's tools, and not the router's other ports or the house (0.21.5-r21); the Security page sets limited or open and the hosts it may add (LuCI 0.21.5-r6)
 - [x] Wrong tries cost a wait that grows to an hour and survives a restart (openwrt-mcp 0.5.0.8); the owner hears in the chat of tries that did not come from it, once per wait, and the Security page shows the count with a Reset and warns beside PIN alone (0.21.5-r22, LuCI 0.21.5-r6)
+- [x] openwrt-mcp's part that meets the network holds no root: the listener runs as its own account with no capability, the root helper has no network socket, each under its own seccomp filter (openwrt-mcp 0.5.0.9, gated beside 0.21.5-r23)
 
 ## Prior art, and what is not ours
 
