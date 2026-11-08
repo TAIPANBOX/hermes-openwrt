@@ -1186,6 +1186,23 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     Seccomp 2, the listener Uid 32768 with CapEff and CapBnd 0, NoNewPrivs 1 and Seccomp 2; a stop, a SIGKILL,
     the parts orphaned by a SIGKILL of both ujails and then a start, and a stop behind a shell stand-in for the
     binary each left no process of the daemon (counted with `pgrep -f`).
+    `@measured` 2026-11-08 on CI run 42466722855 (PR #87, aarch64 runner): `gate-unlock: 60 passed, 0 failed`, with
+    `openwrt-mcp-0.5.0.9-r1.apk (openwrt-mcp 0.5.0.9 from 81960b1)`. Published from that run's packages (gh-pages
+    `e325d92`, gate-feed 3 of 3); the r22 feed is kept under the tag `feed-0.21.5-r22`. `@measured` 2026-11-08
+    10:03 to 10:09 London on a Flint 2 (25.12.5, owner profile, factor pin, approvals on), from the feed with
+    `apk upgrade hermes-agent openwrt-mcp` after a simulation that moved exactly those two (239 packages before and
+    after, world unchanged), no reboot: the account `openwrt-mcp` made with uid 32769; procd's instances `helper`
+    and `serve`; the helper Uid 0, CapEff, CapPrm and CapBnd `30fb`, NoNewPrivs 1, Seccomp 2 on all 8 threads, one
+    socket, the Unix socket `/var/run/openwrt-mcp/helper.sock`; the listener Uid 32769, every capability set 0,
+    NoNewPrivs 1, Seccomp 2 on all 7 threads, its sockets on 127.0.0.1:8730 only; `/health` `openwrt-mcp 0.5.0.9 ok`;
+    `status` reporting `listener_holds_no_root`. `hw-flow.sh start`: gateway up as hermes, 193 MB, no refusal, ping as
+    hermes answered; Telegram connected; security_status `mcp_ok`, `paired` and `approvals_ready` true; the
+    agent's table loaded. Run as hermes through `hermes-drop`, upstream's own discovery offered the model 9 openwrt
+    tools (action_status, action_withdraw, apk_add, logread, ubus_call, ubus_list, uci_apply, uci_confirm, uci_get).
+    A one-off scheduled job on anthropic/claude-haiku-5.5 read the hostname through `uci_get` (`flint2`) and changed
+    nothing; openwrt-mcp's audit log has that call, client hermes-main, OK, 2 ms. No held change was made. The r22
+    packages and a snapshot of the configuration are kept on the router for a way back. Temperature 41.4 °C before
+    and 41.5 °C after, 78 °C below the hot trip point.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
