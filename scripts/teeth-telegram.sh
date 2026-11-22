@@ -176,9 +176,9 @@ cp /tmp/init.bak "$INIT"
 # The one place a token becomes readable by every user on the router: /proc/<pid>/cmdline
 # is world-readable, the environment is not. The launcher is the last thing between the
 # init's careful file handling and the process, so the fault goes there.
-grep -q 'exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"' "$LAUNCHER" || {
+grep -q 'exec /usr/bin/python3 /usr/lib/hermes-agent/hermes-start "$SITE/hermes_cli/main.py" "$@"' "$LAUNCHER" || {
 	echo "TEETH FAIL: the launcher's exec line moved; retarget fault 5"; exit 1; }
-sed 's|exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"|exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@" ${TELEGRAM_BOT_TOKEN:+"--bot-token=$TELEGRAM_BOT_TOKEN"} # teeth-telegram fault 5|' \
+sed 's|exec /usr/bin/python3 /usr/lib/hermes-agent/hermes-start "$SITE/hermes_cli/main.py" "$@"|exec /usr/bin/python3 /usr/lib/hermes-agent/hermes-start "$SITE/hermes_cli/main.py" "$@" ${TELEGRAM_BOT_TOKEN:+"--bot-token=$TELEGRAM_BOT_TOKEN"} # teeth-telegram fault 5|' \
 	/tmp/teeth-tg-launcher.orig > "$LAUNCHER"
 chmod 0755 "$LAUNCHER"
 repack_base

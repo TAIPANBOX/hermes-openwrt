@@ -1288,6 +1288,38 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     alarm. The r24 packages and a snapshot of the configuration are in `/root/rel-20261108/prev3`. 41.2 °C before,
     41.5 to 41.7 °C after.
 
+33. `@decided 2026-11-22` (paraphrased): the segfault of a turn that needs a tool is fixed in the package.
+    `@claude` 2026-11-22, why and how (0.21.5-r26): musl gives a thread 128 KiB of stack unless the
+    program asks for more, and OpenWrt's CPython 3.13 does not ask; glibc gives `ulimit -s`, 8 MiB, which
+    is what upstream is tested with. Upstream runs each model call and each tool in a thread, so on a Beryl
+    AX with OpenWrt 25.12.6 and r25 every turn with a tool died with SIGSEGV (rc 139) as the first answer
+    came back, in a one-shot chat and in a scheduled job, which took the gateway down; `faulthandler`
+    printed nothing, its alternate stack being the main thread's (reported by the session that ran it;
+    the same turn finished with `threading.stack_size(8 MiB)` set first). The launcher's two execs run
+    upstream's main.py through `/usr/lib/hermes-agent/hermes-start`, which calls
+    `threading.stack_size(4 MiB)` before any of upstream's code is imported (so every thread started from
+    Python has it: threading, concurrent.futures, asyncio's executor, the cron scheduler), refuses to start
+    when it cannot (fail closed: musl's default would die at the first tool, silently), and runs main.py
+    with `runpy.run_path(..., run_name="__main__")`, argv and `sys.path[0]` as `python3 main.py` gives
+    them, so the command line still holds `hermes_cli/main.py gateway run` for every pgrep. The CLI, the
+    gateway (hermes-jail execs `/usr/bin/hermes`) and every scheduled job start through that launcher.
+    The size: the turn alone needs 320 KiB, but CPython's recursion guard, sized for glibc, raises
+    RecursionError on input nested from outside only with room to do it, 1.66 MiB on x86_64 and 1.75 MiB
+    on aarch64, and such input reaches a thread already as deep as the turn: about 2.1 MiB together, and
+    4 MiB is the smallest power of two above it; a reservation costs no resident memory
+    (docs/measured.md, "Thread stacks"). Threads a C extension starts on its own are outside it.
+    `@measured` 2026-11-22 in an incus container of OpenWrt 25.12.6 x86_64 on forge (CPython 3.13.18),
+    r25's tree assembled by `package/hermes-agent/build.sh x86_64` and a stand-in Anthropic Messages API:
+    the tool turn SIGSEGV at 128 and 256 KiB, answered from 320 KiB; `json.loads`, `json.dumps`, `repr` of
+    a list 200000 deep in a thread SIGSEGV up to 1.28 MiB (`repr` up to 1.5 MiB), RecursionError from 1.66
+    MiB; on aarch64_cortex-a53 under qemu-user (OpenWrt 25.12.6's python3 3.13.18-r1 and r25's own
+    payload from the feed) the turn SIGSEGV at 256 KiB and answered from 320 KiB, and `json.loads`, `json.dumps`
+    and `repr` SIGSEGV at 1.5 MiB (`json.dumps` at 1.63 MiB too), all four RecursionError from 1.75 MiB; both new tests -11
+    against r25's launcher and green with hermes-start (gate:
+    `scripts/gate-runtime.sh` `check_tool_turn_completes_in_a_chat_and_in_a_scheduled_job`,
+    `check_agent_threads_have_room_for_deep_input`, bound to `features/runtime.feature`; teeth:
+    `scripts/teeth-runtime.py`, six mutants).
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

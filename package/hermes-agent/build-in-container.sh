@@ -219,7 +219,11 @@ esac
 # the init restarts the agent on openwrt-mcp's event openwrt-mcp.owner_bot, so binding the chat or
 # removing the bot reaches the agent with the page closed (on a Flint 2, 2026-11-08). Gated beside
 # openwrt-mcp 0.5.0.11.
-PKGREL=${PKGREL:-25}
+# 0.21.5-r26: every thread the agent starts gets a 4 MiB stack (hermes-start, run by the launcher in
+# front of upstream's main.py). On musl's default of 128 KiB every turn that needed a tool died with
+# SIGSEGV, in a chat and in a scheduled job, on a Beryl AX with OpenWrt 25.12.6 (2026-11-22).
+# CLAUDE.md, invariant 33.
+PKGREL=${PKGREL:-26}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
