@@ -233,6 +233,23 @@ pairs the agent with the gateway as its client `hermes`, keeps that key in a roo
 leaves your `base_url` and key as you set them, for when the option is off again. More:
 [docs/providers.md](docs/providers.md#a-model-on-a-computer-in-the-house-through-llm-gateway).
 
+## Questions from netryx, the console on the router
+
+[netryx](https://github.com/TAIPANBOX/netryx), the traffic console on the same router, can ask the
+agent what a stretch of traffic was and show the answer in plain language. Off unless you turn it on,
+in the owner profile:
+
+```sh
+uci set hermes.api.enabled=1 && uci commit hermes && /etc/init.d/hermes-agent restart
+```
+
+The agent then answers on the router's loopback alone, to a caller holding a key that only root can
+read. Such a question can only read the router, even while you have changes unlocked: no change, no
+terminal, no files, no memory, no messages; ten an hour and 0.50 USD a day unless you set otherwise,
+and the answer goes back to netryx, never to Telegram. The contract:
+[docs/netryx-ask.md](docs/netryx-ask.md); why it is safe:
+[docs/security.md](docs/security.md#questions-from-netryx-the-routers-console).
+
 ## Where it installs
 
 ![Where Hermes goes: internal flash by default, its data on a USB stick with hermes-usb, or every package on the stick with extroot when the flash is too small](docs/usb-choice.svg)
@@ -276,6 +293,7 @@ checks them there, and teeth scripts plant faults to prove each check catches th
 | [docs/agent-install.md](docs/agent-install.md) | the install as an agent runs it |
 | [docs/approval.md](docs/approval.md) | setting up the PIN and the phone, approving a change |
 | [docs/security.md](docs/security.md) | keys, profiles, the unlock, the controls |
+| [docs/netryx-ask.md](docs/netryx-ask.md) | how netryx asks the agent a question, and what comes back |
 | [docs/measured.md](docs/measured.md) | every hardware figure, which models work |
 | [docs/usb.md](docs/usb.md) | `hermes-usb` and extroot |
 | [docs/providers.md](docs/providers.md) | several providers, a ChatGPT subscription, a model in your house, a model gateway |

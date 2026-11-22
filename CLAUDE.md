@@ -1424,6 +1424,44 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `claude-haiku-5-5`: a scheduled job asked to run `uptime` failed with that credit message; with this
     `hermes-start` over the installed one and the gateway restarted, the same job answered in two model calls.
 
+30. `@decided 2026-11-22` (the owner's, paraphrased): netryx, the console on the same router, asks the
+    agent about a stretch of traffic it selected and shows the answer; such a question may only read, the
+    answer goes back to the console and never to Telegram, with an hourly count and a daily cost budget.
+    `@claude` 2026-11-22, how (0.21.5-r28): `hermes.api` (enabled 0, port 8642, key_file, hourly_limit 10,
+    daily_budget_usd 0.50), served in the owner profile only (another profile logs one line and stays off;
+    a bad value refuses the start). The init writes the key once, 64 hex from Python's `secrets` into a
+    0600 root file, never through a command line, refuses a symbolic link or a key under 32 characters, and
+    hands procd the path only. The wrapper reads it as root and exports `HERMES_OPENWRT_API_KEY` for the
+    gateway's exec after both helpers; the gateway's sitecustomize pops it for the plugin before upstream
+    runs. Upstream's own API server is NOT used: it needs aiohttp, which the base payload (extras cron,
+    mcp, anthropic) and the Telegram add-on do not carry, and it serves some forty routes. The unlock plugin
+    serves one route, `POST /v1/ask` on 127.0.0.1, over asyncio streams in a thread of its own, and runs the
+    turn through upstream's `APIServerAdapter._run_agent` (a never-connected subclass whose `_create_agent`
+    sets `skip_background_review`), which binds the turn to the platform `api_server` in its worker thread
+    and builds the agent from `platform_toolsets.api_server`, which the bridge writes as `[openwrt]` (or
+    `[no_mcp]`) in every profile. `pre_tool_call` reads the turn's source from upstream's session
+    context, never from the caller: `api_server` gets openwrt-mcp's reads alone (the scheduled-job read
+    list, nothing outside openwrt-mcp), whatever the window, the session id or the profile; with the
+    questions on, a gateway turn bound to no platform but Telegram is treated as a scheduled job; a hook
+    that raises refuses every tool while the questions are on. The console's turn is not told the window
+    is open. The preflight refuses a `.env` naming `API_SERVER_*` or `HERMES_OPENWRT_API*`. Limits: the
+    count and the budget live in `openwrt-api-usage.json` in the data directory (UTC day), a record that
+    cannot be read refuses rather than restart the count, one question at a time, 110 s and then a
+    timeout whose turn keeps its place and is charged when it ends, an unpriced turn charged at 15 and 75
+    USD per million tokens. Limits named and not fixed: the data directory is the agent's to write, so a
+    chat turn's terminal could reset the record; the conversation stays in the session database under
+    `netryx-...`; a timed-out turn's thread cannot be killed. (gate: `scripts/gate-runtime.sh`
+    `check_console_question_reads_and_never_changes_writes_or_sends`,
+    `check_console_turn_is_upstreams_api_turn_and_its_change_is_refused`,
+    `check_console_route_answers_once_with_the_key_and_within_its_limits`,
+    `check_console_questions_stay_off_unless_the_owner_profile_turns_them_on`,
+    `check_console_key_is_made_once_root_only_and_never_in_procd`,
+    `check_wrapper_hands_the_console_key_to_the_gateway_alone`, `check_console_turn_is_shown_openwrt_mcp_alone`,
+    `check_dotenv_cannot_turn_the_console_on_or_move_it`, `check_agent_terminal_is_not_handed_the_console_key`;
+    `scripts/gate-unlock.sh` `check_console_question_reads_and_cannot_change`, the real gateway, plugin and
+    daemon with a window open; teeth: `scripts/teeth-runtime.py`, twenty-two mutants, `scripts/teeth-unlock.sh`
+    fault 13b and fault 13 moved onto `_turn_source`.)
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

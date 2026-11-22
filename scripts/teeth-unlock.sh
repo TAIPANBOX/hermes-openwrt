@@ -174,10 +174,16 @@ expect_red "wg_new_client back in the change policy" check_change_policy_hands_o
 PLUGIN=usr/lib/hermes-agent/site-packages/openwrt_unlock.py
 
 # ---- 13. a scheduled job's change let through ----
-plant "$PLUGIN" '        if not _is_scheduled(ctx):
-            return None' '        if True:
-            return None'
+plant "$PLUGIN" '    if _is_scheduled(ctx):
+        return "scheduled"' '    if False:
+        return "scheduled"'
 expect_red "a scheduled job told apart from nobody" check_scheduled_job_cannot_change
+
+# ---- 13b. a question from the console taken for the owner's chat ----
+plant "$PLUGIN" '    if "api_server" in (platform, source):
+        return "console"' '    if False:
+        return "console"'
+expect_red "a question from the console told apart from nobody" check_console_question_reads_and_cannot_change
 
 # ---- 14. the PIN sent to the daemon backwards ----
 plant "$PLUGIN" '        return {"pin": tokens[0]}' '        return {"pin": tokens[0][::-1]}'

@@ -43,6 +43,9 @@ read_required() {
 }
 
 unset OPENAI_API_KEY TELEGRAM_BOT_TOKEN OPENWRT_MCP_TOKEN OPENWRT_MCP_OWNER_TOKEN
+# Upstream's own API server starts on API_SERVER_KEY alone, and is not what answers the console (it
+# needs aiohttp, which the package does not carry): none of these reaches the gateway.
+unset API_SERVER_KEY API_SERVER_HOST API_SERVER_PORT API_SERVER_CORS_ORIGINS API_SERVER_MODEL_NAME API_SERVER_ENABLED HERMES_OPENWRT_API_KEY
 key=$(read_required "$KEY_FILE" "provider key file")
 export OPENAI_API_KEY="$key"
 if [ -n "${HERMES_TELEGRAM_TOKEN_FILE:-}" ]; then
@@ -140,8 +143,23 @@ PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 # HERMES_OPENWRT_FACTOR, HERMES_OPENWRT_READ_UBUS, HERMES_OPENWRT_APPROVALS and
 # HERMES_OPENWRT_APPROVER_ID stay in the environment for it too; none is a secret.
 export HERMES_OPENWRT_UNLOCK_URL="$mcp_effective"
-[ -z "${owner:-}" ] || export OPENWRT_MCP_OWNER_TOKEN="$owner"
-unset key token owner value HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_MCP_OWNER_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_PACKAGES HERMES_OPENWRT_NETWORK providers_ready entry p_name p_label p_url p_key_file p_model
+# Questions from netryx, the router's console (hermes.api): the init turns them on in the owner
+# profile only and hands over the key file's path; the key is read here, as root, and exported for
+# the gateway's own exec alone, after both helpers, as HERMES_OPENWRT_API_KEY, which the gateway's
+# sitecustomize takes out of the environment for the unlock plugin before upstream runs. A key that
+# is missing or short turns the questions off for this run, with one line; the chat still answers.
+api_key=""
+if [ "$profile" = owner ] && [ "${HERMES_OPENWRT_API:-off}" = on ]; then
+	if api_key=$(read_required "${HERMES_API_KEY_FILE:-}" "API key file" 2>/dev/null) && [ "${#api_key}" -ge 32 ]; then
+		export HERMES_OPENWRT_API_KEY="$api_key"
+	else
+		echo "hermes-gateway: the console's API key file ${HERMES_API_KEY_FILE:-} is missing, empty or short; its questions are off until the next start" >&2
+		export HERMES_OPENWRT_API=off
+	fi
+else
+	export HERMES_OPENWRT_API=off
+fi
+unset key token owner value api_key HERMES_API_KEY_FILE HERMES_TELEGRAM_TOKEN_FILE HERMES_MCP_TOKEN_FILE HERMES_MCP_OWNER_TOKEN_FILE HERMES_OPENWRT_TOOLSETS HERMES_OPENWRT_MCP_URL HERMES_OPENWRT_PROFILE HERMES_OPENWRT_MAX_TURNS HERMES_OPENWRT_PROVIDERS HERMES_OPENWRT_PACKAGES HERMES_OPENWRT_NETWORK providers_ready entry p_name p_label p_url p_key_file p_model
 # The root profile asks for root, so the launcher must not second-guess it from who owns
 # the data directory (see /usr/bin/hermes).
 [ "$run_user" != root ] || export HERMES_OPENWRT_AS_ROOT=1

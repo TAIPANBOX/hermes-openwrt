@@ -17,7 +17,14 @@ def main() -> int:
                  "CUSTOM_BASE_URL",
                  "TELEGRAM_BOT_TOKEN", "OPENWRT_MCP_TOKEN",
                  "TELEGRAM_ALLOWED_USERS", "TELEGRAM_ALLOW_ALL_USERS", "TELEGRAM_HOME_CHANNEL",
-                 "HERMES_DISABLE_LAZY_INSTALLS")
+                 "HERMES_DISABLE_LAZY_INSTALLS",
+                 # Upstream's API server starts on API_SERVER_KEY alone; the console's questions are
+                 # the init's to turn on (hermes.api), and the wrapper sets these only after this
+                 # check, so a .env naming any of them refuses the start.
+                 "API_SERVER_KEY", "API_SERVER_HOST", "API_SERVER_PORT", "API_SERVER_ENABLED",
+                 "API_SERVER_CORS_ORIGINS", "API_SERVER_MODEL_NAME",
+                 "HERMES_OPENWRT_API", "HERMES_OPENWRT_API_PORT", "HERMES_OPENWRT_API_HOURLY",
+                 "HERMES_OPENWRT_API_BUDGET")
     # The further providers' keys, as the exec wrapper exported them from their UCI key
     # files: an upstream .env must not replace them either.
     protected += tuple(sorted(name for name in os.environ

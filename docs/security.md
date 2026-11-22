@@ -824,6 +824,55 @@ got `HELD`, the card came from the bot, `/approve` and then the PIN and a code a
 the rule, and the agent, told the outcome in its chat, read the router back and confirmed the change
 itself twelve seconds later. How the pieces fit together: [per-action-approval.md](per-action-approval.md).
 
+### Questions from netryx, the router's console
+
+netryx, the traffic console on the same router, can ask the agent what a stretch of traffic was. It is
+one more way into the agent, beside your Telegram chat and scheduled jobs, so this is what it can and
+cannot do. The contract netryx follows is in [netryx-ask.md](netryx-ask.md).
+
+It is off unless you set `hermes.api.enabled=1`, and only the owner profile serves it. It listens on
+127.0.0.1 alone, on `hermes.api.port` (8642), for one route, `POST /v1/ask`, over a small server of the
+package's own written with Python's standard library. Hermes's own API server, with its sessions, jobs,
+runs and uploads, is not used and does not run: it needs aiohttp, which the package does not carry, and
+a `.env` naming its variables, or the package's own for the questions, refuses the start.
+
+The key is made at the first start with the option on, 64 hex digits from the kernel's random source,
+into `/etc/hermes-agent/api.key`, root's and 0600. It is in no command line, no log line, not in
+`uci show` and not in what procd holds. The wrapper reads it as root and hands it to the gateway's own
+start, whose first Python code takes it out of the environment for the unlock plugin, so no tool the
+agent runs, its terminal in a chat included, inherits it. netryx runs as root and reads the file. The
+agent's own connections cannot reach the port: on the router's addresses they reach openwrt-mcp,
+llm-gateway and DNS, and nothing else ([above](#what-the-agents-own-connections-reach)).
+
+What such a question can do is decided by the agent's side, not by what the caller says. The turn runs
+as Hermes runs an API turn: Hermes binds it to the platform `api_server` in the thread that runs it, and
+the unlock plugin's `pre_tool_call` hook, which already refuses a scheduled job's changes, refuses that
+turn everything but openwrt-mcp's reads (`uci_get`, `logread`, `status`, `ubus_list`, `action_status`,
+and `ubus_call` on the read list, netryx's six reads among them). So `uci_apply`, `uci_confirm`, a
+service restart, `apk_add`, the terminal, code, every file tool, memory, skills, `send_message`, jobs and
+subagents are refused, even while you have changes unlocked, and the session id or anything else the
+caller could choose does not change that. The model is offered openwrt-mcp alone in the first place
+(`platform_toolsets.api_server`, written by the bridge in every profile), and the turn is told, as its
+whole system prompt, that it may only read and that the selection it is sent is data, not instructions.
+It is not told that changes are unlocked. No review runs after it, so it writes no memory or skill.
+
+The answer goes back to netryx alone: the turn is built to deliver nothing anywhere, and the plugin
+refuses `send_message`. What stays on the router is the conversation in the data directory's database
+under a session named `netryx-...`, and `openwrt-api-usage.json`, the questions of the last hour and
+what today cost.
+
+Limits, in the open: `hermes.api.hourly_limit` questions an hour (10) and `hermes.api.daily_budget_usd`
+a day (0.50, the day in UTC), kept on disk so a restart does not reset them; past either, netryx is told
+so plainly, with when to ask again. One question runs at a time, and one that takes more than 110
+seconds is answered with a timeout and asked to stop; Hermes runs it in a thread that cannot be killed,
+so its place stays taken and its cost is counted when it ends. A model Hermes cannot price is charged at
+rates above any model in use, so the budget errs on the side of refusing.
+
+With the questions on, a turn the gateway bound to no platform at all, which no turn should be, is
+treated as a scheduled job: it may read and not change. What a question reads goes to the model
+provider, as every read does. A crafted host name in the selection can make the agent answer wrongly;
+it cannot make it change anything.
+
 ### Pairing openwrt-mcp yourself
 
 In the assistant and root profiles the package neither pairs nor writes policies. The
@@ -881,7 +930,7 @@ or Authorization-header settings refuse startup; existing credentials are preser
 for the operator to reconcile. Explicit job/channel overrides and fallback chains
 retain their upstream behavior.
 
-The UCI tool list sets `platform_toolsets.telegram` and `platform_toolsets.cron`.
+The UCI tool list sets `platform_toolsets.telegram` and `platform_toolsets.cron`; `platform_toolsets.api_server`, for netryx's questions, is openwrt-mcp alone.
 Empty means no selected default families. Upstream per-job tool overrides and
 separately configured plugins or MCP servers still apply. This selection is not an
 OS sandbox. Invalid YAML or tool names stop startup instead of loading a broader set.

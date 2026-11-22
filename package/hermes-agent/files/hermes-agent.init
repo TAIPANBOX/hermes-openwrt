@@ -120,6 +120,28 @@ read_secret() {
 	[ -n "$1" ] && [ -r "$1" ] && head -n1 "$1" | tr -d ' \t\r\n'
 }
 
+# The console's key (hermes.api.key_file): made once, 64 hex digits from the kernel's random source,
+# written by a program into a file only root reads and never through a command line; an owner's own
+# key is kept if it is long enough. A symbolic link there is refused, since the file is root's.
+#   api_key_ready <file>
+API_ROUTE=/v1/ask
+api_key_ready() {
+	local file=$1 key
+	if [ -L "$file" ]; then
+		echo "$NAME: hermes.api.key_file $file is a symbolic link; it must be a file of root's" >&2; return 1
+	fi
+	key=$(read_secret "$file")
+	if [ -z "$key" ]; then
+		mkdir -p "$(dirname "$file")" && rm -f "$file.new" && ( umask 077; /usr/bin/python3 -I -c 'import secrets; print(secrets.token_hex(32))' > "$file.new" ) \
+			&& mv -f "$file.new" "$file" || { rm -f "$file.new"; echo "$NAME: could not write the console's key to $file" >&2; return 1; }
+		echo "$NAME: wrote a new key for the console's questions to $file (root only); netryx reads it there" >&2
+		key=$(read_secret "$file")
+	fi
+	[ "${#key}" -ge 32 ] || { echo "$NAME: the key in $file is shorter than 32 characters; remove the file and a new one is made" >&2; return 1; }
+	chown root:root "$file" 2>/dev/null
+	chmod 600 "$file"
+}
+
 # The version the openwrt-mcp answering at <listen> gives for itself on /health, or nothing.
 mcp_live_version() {
 	wget -q -T 3 -O - "http://$1/health" 2>/dev/null | sed -n '1s/^openwrt-mcp \([^ ]*\) ok$/\1/p'
@@ -533,6 +555,7 @@ start_service() {
 	local mcp_url mcp_token_file key profile profile_set run_user max_turns
 	local sec_factor sec_window sec_max sec_lockout sec_packages sec_approver approvals pkg_grant v
 	local agent_network
+	local api_on api_port api_key_file api_hourly api_budget
 	local toolsets providers providers_bad
 	local tg_on tg_token_file tg_token tg_allow_all tg_home tg_allow
 	# tg_allow and toolsets are declared here and filled by the append_* helpers
@@ -630,6 +653,30 @@ start_service() {
 		limited|open) ;;
 		*) echo "$NAME: hermes.security.agent_network must be limited or open, not '$agent_network'" >&2; return 1 ;;
 	esac
+
+	# Questions from netryx, the router's own console (hermes.api): off unless set, and only in the
+	# owner profile, whose unlock plugin is what keeps such a question to reads. A bad value refuses
+	# the start like any other here; the key is made the first time and never shown.
+	config_get_bool api_on  api enabled 0
+	config_get api_port     api port '8642'
+	config_get api_key_file api key_file "$CONF/api.key"
+	config_get api_hourly   api hourly_limit '10'
+	config_get api_budget   api daily_budget_usd '0.50'
+	if [ "$api_on" -eq 1 ] && [ "$profile" != owner ]; then
+		echo "$NAME: hermes.api.enabled is on, but the console's questions are answered only in the owner profile; they stay off in '$profile'" >&2
+		api_on=0
+	fi
+	if [ "$api_on" -eq 1 ]; then
+		case "$api_port" in ''|*[!0-9]*) api_port=0 ;; esac
+		[ "$api_port" -ge 1024 ] && [ "$api_port" -le 65535 ] || {
+			echo "$NAME: hermes.api.port must be a port from 1024 to 65535, not '$(uci -q get hermes.api.port)'" >&2; return 1; }
+		case "$api_hourly" in ''|*[!0-9]*|0) echo "$NAME: hermes.api.hourly_limit must be a whole number of at least 1, not '$api_hourly'" >&2; return 1 ;; esac
+		[ "$api_hourly" -le 1000 ] || { echo "$NAME: hermes.api.hourly_limit may be at most 1000, not '$api_hourly'" >&2; return 1; }
+		echo "$api_budget" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,2})?$' && [ "$(echo "$api_budget" | tr -d '0.')" != "" ] || {
+			echo "$NAME: hermes.api.daily_budget_usd must be an amount in dollars above 0 such as 0.50, not '$api_budget'" >&2; return 1; }
+		api_key_ready "$api_key_file" || return 1
+		echo "$NAME: the console's questions are on: read-only, at http://127.0.0.1:$api_port$API_ROUTE with the key in $api_key_file, $api_hourly an hour, $api_budget USD a day" >&2
+	fi
 
 	# Refuse rather than flap. Each branch names the one thing to fix, because the
 	# person reading this in logread has no other source of truth.
@@ -885,6 +932,14 @@ start_service() {
 		HERMES_OPENWRT_READ_UBUS="$(printf '%s %s' "$MCP_READ_UBUS" "$MCP_CRON_READ_UBUS" | tr ' ' ',')" \
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}"
+	# The console's questions: on or off, and for on the port, the limits and the key file's PATH;
+	# the wrapper reads the key at exec, like every other.
+	if [ "$api_on" -eq 1 ]; then
+		procd_append_param env HERMES_OPENWRT_API=on HERMES_OPENWRT_API_PORT="$api_port" \
+			HERMES_OPENWRT_API_HOURLY="$api_hourly" HERMES_OPENWRT_API_BUDGET="$api_budget" HERMES_API_KEY_FILE="$api_key_file"
+	else
+		procd_append_param env HERMES_OPENWRT_API=off
+	fi
 
 	# HERMES_DISABLE_LAZY_INSTALLS is not optional here. Left unset, Hermes pip-installs
 	# missing pieces at runtime, and a router has no compiler, often no free space, and
