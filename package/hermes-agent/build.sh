@@ -160,6 +160,9 @@ cp "$SRC/files/hermes-net.hotplug" "$OUT/etc/hotplug.d/dhcp/60-hermes-net" && ch
 # Which profile is which account; sourced by the init and the wrapper, so it is said once.
 cp "$SRC/files/hermes-profile" "$OUT/usr/lib/hermes-agent/hermes-profile" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-profile"
 cp "$SRC/files/hermes-usb-check" "$OUT/usr/lib/hermes-agent/hermes-usb-check" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-usb-check"
+# What the launcher runs in front of upstream's main.py: a thread stack the agent's tool turns fit in,
+# since r26 (see the file). Not executable: python3 runs it.
+cp "$SRC/files/hermes-start.py" "$OUT/usr/lib/hermes-agent/hermes-start" && chmod 0644 "$OUT/usr/lib/hermes-agent/hermes-start"
 # The gateway's own sitecustomize, which makes it non-dumpable so its keys stay root's (see the file).
 # Its own directory, put on PYTHONPATH by hermes-gateway for the gateway's exec only.
 mkdir -p "$OUT/usr/lib/hermes-agent/gateway-boot"
@@ -224,13 +227,17 @@ if [ "$(id -u)" = 0 ] && [ -z "${HERMES_OPENWRT_AS_ROOT:-}" ]; then
 	dir=${HERMES_HOME:-${HOME:-/root}/.hermes}
 	if [ -d "$dir" ] && [ "$(ls -ldn "$dir" | awk '{print $3}')" = "$(id -u hermes 2>/dev/null)" ]; then
 		PYTHONPATH="$SITE${PYTHONPATH:+:$PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 \
-		exec /usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"
+		exec /usr/bin/python3 -I -B /usr/libexec/hermes-drop hermes /usr/bin/python3 /usr/lib/hermes-agent/hermes-start "$SITE/hermes_cli/main.py" "$@"
 	fi
 fi
 # Bytecode is shipped with the package, so writing more of it at runtime can only put
 # unowned files inside the package directory and leave litter behind on removal.
+#
+# Both execs run upstream's main.py through hermes-start, which gives every thread the agent starts
+# a stack its tool turns fit in before any of upstream's code runs: musl's default of 128 KiB is not
+# enough, and a turn with a tool died with SIGSEGV on it (r25). See the file itself.
 PYTHONPATH="$SITE${PYTHONPATH:+:$PYTHONPATH}" PYTHONDONTWRITEBYTECODE=1 \
-exec /usr/bin/python3 "$SITE/hermes_cli/main.py" "$@"
+exec /usr/bin/python3 /usr/lib/hermes-agent/hermes-start "$SITE/hermes_cli/main.py" "$@"
 LAUNCHER
 chmod 0755 "$OUT/usr/bin/hermes"
 

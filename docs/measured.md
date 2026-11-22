@@ -45,6 +45,48 @@ first on the service's PATH. With it the same job ran as `hermes`, pinged 1.1.1.
 average) and the gateway (0.38 ms) with no loss, and answered in 9 s: two model calls of
 `openai/gpt-4o-mini` on OpenRouter, five commands.
 
+## Thread stacks
+
+On 2026-11-22 a Beryl AX with OpenWrt 25.12.6 and 0.21.5-r25 could not finish a single turn that
+needed a tool. Asked "Run uptime and tell me the load average." through an Anthropic provider, the
+agent died with SIGSEGV (exit 139) as the first answer came back, in a one-shot chat and in a
+scheduled job, where it took the whole gateway down until procd restarted it. Nothing said why:
+no Python traceback, no kernel line, no core. A turn with no tool answered.
+
+The cause is musl's default thread stack. musl gives a thread 128 KiB unless the program asks for
+more, and the router's CPython 3.13 does not ask; glibc gives a thread the size of `ulimit -s`, 8 MiB,
+and that is what upstream Hermes is built and tested with. Upstream runs each model call and each
+tool in a thread of its own, and the tool turn on Anthropic's wire needs more than 128 KiB there.
+`faulthandler` stays silent because its emergency stack belongs to the main thread.
+
+From 0.21.5-r26 the launcher runs upstream's entry point through `/usr/lib/hermes-agent/hermes-start`,
+which sets a 4 MiB stack for every thread before any of upstream's code runs, and then runs
+`hermes_cli/main.py` exactly as before, so its command line is unchanged. The CLI, the gateway and
+every scheduled job start through that launcher.
+
+Measured with OpenWrt 25.12.6's own CPython 3.13.18 (musl) on x86_64, and on aarch64_cortex-a53, the
+Beryl AX's architecture, under qemu-user, with r25's own payload and a stand-in for Anthropic's Messages
+API on loopback, so no model was paid for. Both architectures gave the same column for the turn:
+
+| Thread stack | Tool turn | Data nested 200000 deep, in a thread (x86_64) |
+|---|---|---|
+| 128 KiB (musl's default, r25) | SIGSEGV | SIGSEGV |
+| 256 KiB | SIGSEGV | SIGSEGV |
+| 320 KiB | answered | SIGSEGV |
+| 1 MiB | answered | SIGSEGV for `json.loads`, `json.dumps` and `repr`; RecursionError for `pickle` |
+| 1.66 MiB | answered | RecursionError for all four |
+| **4 MiB (r26)** | answered | RecursionError for all four |
+
+The second column is why the size is not the 320 KiB the turn alone needs. A page the agent fetches,
+or a tool's output, can hold JSON nested far deeper than anything sensible; CPython's own recursion
+guard then refuses that one call with RecursionError, but only if the thread has the room the guard
+was sized for on glibc. Below 1.66 MiB on x86_64 and 1.75 MiB on aarch64 (`json.loads`, `json.dumps`,
+`repr` and `pickle` of a list 200000 deep) the process died instead. Such input arrives in a thread
+already as deep as the turn, so on aarch64 the two together come to about 2.1 MiB, and 4 MiB is the
+smallest power of two above that. A stack is reserved address space, not memory: the peak
+resident size of the tool turn was 145.7, 146.3 and 148.7 MB at 1, 4 and 8 MiB, a run-to-run
+difference, while the virtual size grew by the reservation of its seven or eight threads.
+
 ## Re-run on the published release, 2026-10-04
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](rerun.svg)
