@@ -80,6 +80,15 @@
 #   @claude 2026-10-09   How (0.21.5-r13): the start writes a package policy only under every
 #                        condition and tells the gateway what it wrote; the gateway offers apk_add
 #                        only then. The three scenarios that say "package" are that.
+#   @measured 2026-11-22 on a Beryl AX (OpenWrt 25.12.6, r25), reported by the session that ran it:
+#                        every turn that needed a tool died with SIGSEGV (rc 139) before its answer,
+#                        in a one-shot chat and in a scheduled job, which took the gateway down;
+#                        the same turn finished with the thread stack raised to 8 MiB first.
+#   @decided 2026-11-22  The package fixes it itself (paraphrased: fix it in the package, in a
+#                        session of its own).
+#   @claude 2026-11-22   How (0.21.5-r26): the launcher runs upstream's main.py through
+#                        hermes-start, which gives every thread a 4 MiB stack before upstream's
+#                        code runs. The two scenarios under "Thread stacks" are that.
 #
 # Each scenario is bound to a test in scripts/test-runtime.py, which gate-runtime.sh runs
 # against the installed package; scripts/gate-scenarios-bound.sh asserts the binding both
@@ -822,3 +831,21 @@ Feature: What is set on the router is what the gateway runs with
     Then it says what stays closed, what a refused connection looks like and that ping still answers, for a chat and for a scheduled job
     And with the limits off it says nothing of them, and a value the start never passes is refused
     # -> check_owner_note_says_the_network_is_limited
+
+  # ---- Thread stacks ----
+  # musl gives a thread 128 KiB of stack unless the program asks for more; glibc, which upstream
+  # is tested on, gives 8 MiB. Upstream runs each model call and each tool in a thread.
+
+  Scenario: a turn that needs a tool finishes, in a chat and in a scheduled job
+    Given a provider on Anthropic's wire and the terminal tool selected
+    When the owner asks "Run uptime and tell me the load average." in a one-shot chat, and as a scheduled job run now
+    Then each runs the tool, hands its output back to the model and ends with the answer
+    And neither process dies on the way
+    # -> check_tool_turn_completes_in_a_chat_and_in_a_scheduled_job
+
+  Scenario: input nested deep from outside fails one call, not the agent
+    Given a thread the agent starts, whoever started the agent: root handing over to hermes, or root
+    When it parses or prints data nested 200000 deep, as a page or a tool's output can be
+    Then CPython refuses that one call with RecursionError and the agent carries on
+    And upstream's entry point still runs as the script it is, with its path in the command line that pgrep looks for
+    # -> check_agent_threads_have_room_for_deep_input

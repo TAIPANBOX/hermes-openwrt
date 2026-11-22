@@ -2184,6 +2184,175 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
         # No directory named and none at ~/.hermes: nothing says hermes, so it stays root.
         self.assertEqual(run(None, HOME=str(rootdir)).stdout.split()[0], "0")
 
+    # ---- Thread stacks (r26) ----
+    #
+    # musl gives a thread 128 KiB of stack unless the program asks for more, and CPython 3.13 does
+    # not ask; glibc gives `ulimit -s`, 8 MiB, which is what upstream is tested with. Upstream runs
+    # each model call and each tool in a thread, and on a Beryl AX (OpenWrt 25.12.6, r25) every turn
+    # with a tool died with SIGSEGV, in a chat and in a scheduled job, printing nothing.
+
+    STACK_PROBE = (
+        "import json, os, sys, threading\n"
+        "seen = {}\n"
+        "def nested():\n"
+        "    x = []\n"
+        "    for _ in range(200000):\n"
+        "        x = [x]\n"
+        "    return x\n"
+        "def work():\n"
+        "    for name, run in (('json', lambda: json.loads('[' * 200000 + ']' * 200000)),\n"
+        "                      ('repr', lambda: repr(nested()))):\n"
+        "        try:\n"
+        "            run()\n"
+        "            seen[name] = 'no error'\n"
+        "        except RecursionError:\n"
+        "            seen[name] = 'RecursionError'\n"
+        "t = threading.Thread(target=work)\n"
+        "t.start()\n"
+        "t.join()\n"
+        "cmdline = [c.decode() for c in open('/proc/self/cmdline', 'rb').read().split(b'\\0') if c]\n"
+        "print(json.dumps({'seen': seen, 'name': __name__, 'argv': sys.argv, 'path0': sys.path[0],\n"
+        "                  'cmdline': cmdline, 'uid': os.getuid()}))\n"
+    )
+
+    def test_agent_threads_have_room_for_deep_input(self):
+        # A thread the agent starts gets a stack in which CPython's own recursion guard fires before
+        # the stack ends, as it does under glibc: nesting from outside (a page, a tool's output, a
+        # model's JSON) raises RecursionError in that one call instead of killing the gateway. On
+        # musl's 128 KiB, and at 1 MiB too, both of these end in SIGSEGV. And upstream's main.py
+        # still runs as `python3 main.py` would run it, with its path in the command line that the
+        # gates, docs/agent-install.md and an owner's pgrep look for. Both launcher branches: root
+        # handing over to hermes, and root staying root.
+        main = Path("/usr/lib/hermes-agent/site-packages/hermes_cli/main.py")
+        original = main.read_bytes()
+        self.addCleanup(main.write_bytes, original)
+        main.write_text(self.STACK_PROBE)
+        hermes = pwd.getpwnam("hermes")
+        for label, extra, uid in (("handed to hermes", {}, hermes.pw_uid),
+                                  ("kept as root", {"HERMES_OPENWRT_AS_ROOT": "1"}, 0)):
+            with self.subTest(label):
+                result = subprocess.run(["/usr/bin/hermes", "gateway", "run", "--external-supervisor"],
+                                        env=dict(self.env, **extra), check=False, capture_output=True,
+                                        text=True, cwd="/", timeout=120)
+                self.assertEqual(result.returncode, 0, "rc %d: %s" % (result.returncode, result.stderr[-600:]))
+                seen = json.loads(result.stdout.strip().splitlines()[-1])
+                self.assertEqual(seen["seen"], {"json": "RecursionError", "repr": "RecursionError"})
+                self.assertEqual(seen["uid"], uid)
+                self.assertEqual(seen["name"], "__main__")
+                self.assertEqual(seen["argv"], [str(main), "gateway", "run", "--external-supervisor"])
+                self.assertEqual(seen["path0"], str(main.parent))
+                self.assertIn(str(main) + " gateway run", " ".join(seen["cmdline"]))
+
+    def fake_anthropic(self):
+        # Anthropic's Messages API, streamed as the SDK reads it: the first call that offers tools is
+        # answered with a tool_use of `terminal` running `uptime`, the next with text quoting what the
+        # tool returned. Records, per call, whether tools were offered and whether a tool_result came.
+        received = []
+
+        class Messages(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if not self.path.endswith("/v1/messages"):
+                    self.send_error(404)
+                    return
+                result = None
+                for message in request.get("messages", []):
+                    for block in message.get("content") if isinstance(message.get("content"), list) else []:
+                        if block.get("type") == "tool_result":
+                            content = block.get("content")
+                            if isinstance(content, list):
+                                content = " ".join(x.get("text", "") for x in content if isinstance(x, dict))
+                            result = str(content)
+                received.append({"tools": bool(request.get("tools")), "tool_result": result is not None,
+                                 "key": self.headers.get("x-api-key")})
+                if result is None and request.get("tools"):
+                    block, stop = {"type": "tool_use", "id": "toolu_stack", "name": "terminal",
+                                   "input": {"command": "uptime"}}, "tool_use"
+                else:
+                    block, stop = {"type": "text", "text": "STACK_PROOF_OK " + (result or "")[:300]}, "end_turn"
+                events = [("message_start", {"type": "message_start", "message": {
+                    "id": "msg_stack", "type": "message", "role": "assistant", "model": request.get("model"),
+                    "content": [], "stop_reason": None, "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 1}}})]
+                if block["type"] == "tool_use":
+                    events += [("content_block_start", {"type": "content_block_start", "index": 0, "content_block":
+                                {"type": "tool_use", "id": block["id"], "name": block["name"], "input": {}}}),
+                               ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta":
+                                {"type": "input_json_delta", "partial_json": json.dumps(block["input"])}})]
+                else:
+                    events += [("content_block_start", {"type": "content_block_start", "index": 0,
+                                "content_block": {"type": "text", "text": ""}}),
+                               ("content_block_delta", {"type": "content_block_delta", "index": 0,
+                                "delta": {"type": "text_delta", "text": block["text"]}})]
+                events += [("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                           ("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop,
+                            "stop_sequence": None}, "usage": {"output_tokens": 5}}),
+                           ("message_stop", {"type": "message_stop"})]
+                data = "".join("event: %s\ndata: %s\n\n" % (name, json.dumps(body)) for name, body in events).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+        server = HTTPServer(("127.0.0.1", 0), Messages)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        # A path ending in /anthropic is what upstream reads as Anthropic's own wire, as it reads
+        # api.anthropic.com (hermes_cli/runtime_provider.py _detect_api_mode_for_url).
+        return "http://127.0.0.1:%d/anthropic" % server.server_port, received
+
+    def test_tool_turn_completes_in_a_chat_and_in_a_scheduled_job(self):
+        # The turn the Beryl AX could not finish on r25: a provider section on Anthropic's wire, the
+        # terminal tool, "Run uptime and tell me the load average.", through the launcher, once as a
+        # one-shot chat and once as a scheduled job run now. Each makes the tool call, gets the tool's
+        # output back to the model and ends with its answer.
+        url, received = self.fake_anthropic()
+        prompt = "Run uptime and tell me the load average."
+        raw = "claude|Anthropic|%s|/etc/hermes-agent/claude.key|stack-model" % url
+        # The bridge runs as the agent's user, as the wrapper runs it, so what it creates is the agent's.
+        configured = subprocess.run(DROP + ["hermes", "python3", str(FILES / "set-toolsets.py"), str(self.home),
+                                     "terminal", "", "http://127.0.0.1:9/v1", "runtime-model"],
+                                    env=dict(self.env, HERMES_OPENWRT_PROVIDERS=raw),
+                                    check=False, capture_output=True, text=True)
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        env = dict(self.env, HERMES_PROVIDER_CLAUDE_KEY="claude-key-canary", OPENAI_API_KEY="main-key-canary",
+                   OPENAI_BASE_URL="http://127.0.0.1:9/v1", HERMES_MODEL="runtime-model",
+                   NO_PROXY="127.0.0.1,localhost")
+
+        def hermes(*args):
+            return subprocess.run(["/usr/bin/hermes", *args], env=env, check=False, capture_output=True,
+                                  text=True, cwd="/", timeout=240)
+
+        chat = hermes("chat", "-Q", "-q", prompt, "--provider", "claude", "-m", "stack-model")
+        self.assertEqual(chat.returncode, 0, "rc %d: %s" % (chat.returncode, chat.stderr[-600:]))
+        self.assertIn("STACK_PROOF_OK", chat.stdout)
+        self.assertIn("load average", chat.stdout)
+        self.assertTrue(any(call["tool_result"] for call in received), received)
+        self.assertTrue(all(call["key"] == "claude-key-canary" for call in received), received)
+
+        del received[:]
+        created = hermes("cron", "create", "1h", prompt, "--name", "stack", "--repeat", "1",
+                         "--model", "stack-model", "--provider", "claude", "--deliver", "local")
+        self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+        jobs = json.loads((self.home / "cron" / "jobs.json").read_text())
+        jobs = jobs.get("jobs", jobs) if isinstance(jobs, dict) else jobs
+        job_id = next(job["id"] for job in jobs if job.get("name") == "stack")
+        ran = hermes("cron", "run", job_id)
+        self.assertEqual(ran.returncode, 0, "rc %d: %s" % (ran.returncode, ran.stderr[-600:]))
+        jobs = json.loads((self.home / "cron" / "jobs.json").read_text())
+        jobs = jobs.get("jobs", jobs) if isinstance(jobs, dict) else jobs
+        statuses = [job.get("last_status") for job in jobs if job["id"] == job_id]
+        # A job that has run its one repeat may be removed; if it is still listed it says ok.
+        self.assertIn(statuses, ([], ["ok"]), statuses)
+        self.assertTrue(any(call["tool_result"] for call in received), received)
+        outputs = list((self.home / "cron" / "output" / job_id).glob("*.md"))
+        self.assertTrue(outputs and "STACK_PROOF_OK" in outputs[0].read_text(), outputs)
+
     def test_owner_policies_are_ordered_idempotent_and_leave_other_sections_alone(self):
         config = Path("/etc/config/openwrt-mcp")
         original = config.read_bytes() if config.exists() else None

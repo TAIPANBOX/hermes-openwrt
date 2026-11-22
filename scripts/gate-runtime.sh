@@ -70,6 +70,8 @@ cp /usr/libexec/hermes-runtime-check /tmp/product/runtime-check.py
 # teeth mutate those, but they are kept here with the rest so the mutation harness finds them.
 cp /usr/libexec/hermes-drop /tmp/product/hermes-drop
 cp /usr/bin/hermes /tmp/product/hermes-launcher
+# Only from r26 on; without it the thread-stack tests fail on their own, not the whole gate.
+[ -e /usr/lib/hermes-agent/hermes-start ] && cp /usr/lib/hermes-agent/hermes-start /tmp/product/hermes-start || true
 cp /usr/lib/hermes-agent/hermes-profile /tmp/product/hermes-profile
 cp /usr/lib/hermes-agent/site-packages/openwrt_unlock.py /tmp/product/openwrt_unlock.py
 cp /usr/lib/hermes-agent/gateway-boot/sitecustomize.py /tmp/product/gateway-boot-sitecustomize.py
