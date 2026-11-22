@@ -366,14 +366,20 @@ def _main_entry(entry) -> bool:
 
 
 def _main_api_mode(endpoint: str) -> str:
-    """The wire protocol the main model's endpoint takes (0.21.5-r18). OpenAI's own API,
-    api.openai.com and its data-residency hosts, refuses function tools on /v1/chat/completions
-    for its current models and takes them on the Responses API, which upstream uses for that
-    host whatever a config says; every other endpoint is OpenAI-compatible chat completions.
-    Upstream's own host test decides, by hostname and never by substring, so a lookalike host
-    stays on chat completions and the preflight (runtime-check.py) agrees with this."""
-    from hermes_cli.providers import is_official_openai_host
-    return "codex_responses" if is_official_openai_host(endpoint) else "chat_completions"
+    """The wire protocol the main model's endpoint takes. OpenAI's own API, api.openai.com and
+    its data-residency hosts, refuses function tools on /v1/chat/completions for its current
+    models and takes them on the Responses API (0.21.5-r18); Anthropic's own API,
+    api.anthropic.com, is spoken to in its native Messages protocol (0.21.5-r27), which is what
+    upstream picks for that host whatever a config says and what Anthropic bills a key against;
+    every other endpoint is OpenAI-compatible chat completions. Upstream's own host tests decide,
+    by hostname and never by substring, so a lookalike host stays on chat completions and the
+    preflight (runtime-check.py) agrees with this."""
+    from hermes_cli.providers import host_mandated_api_mode, is_official_openai_host
+    if is_official_openai_host(endpoint):
+        return "codex_responses"
+    if host_mandated_api_mode(endpoint) == "anthropic_messages":
+        return "anthropic_messages"
+    return "chat_completions"
 
 
 def _key_env(name: str) -> str:

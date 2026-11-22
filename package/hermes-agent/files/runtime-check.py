@@ -52,10 +52,16 @@ def main() -> int:
         endpoint = expected["OPENAI_BASE_URL"] or ""
         key = expected["OPENAI_API_KEY"] or ""
         # The transport the bridge chose for that endpoint (set-toolsets.py _main_api_mode):
-        # the Responses API on OpenAI's own hosts, by upstream's own host test, chat
-        # completions everywhere else. Any other transport is one UCI never chose.
-        from hermes_cli.providers import is_official_openai_host
-        mode = "codex_responses" if is_official_openai_host(endpoint) else "chat_completions"
+        # the Responses API on OpenAI's own hosts, the native Messages protocol on Anthropic's,
+        # by upstream's own host tests, chat completions everywhere else. Any other transport
+        # is one UCI never chose.
+        from hermes_cli.providers import host_mandated_api_mode, is_official_openai_host
+        if is_official_openai_host(endpoint):
+            mode = "codex_responses"
+        elif host_mandated_api_mode(endpoint) == "anthropic_messages":
+            mode = "anthropic_messages"
+        else:
+            mode = "chat_completions"
         # The main model is the named `uci` entry, and upstream's auxiliary clients (the
         # session title, for one) still resolve bare `custom` with the same key, so both
         # routes must land on the UCI endpoint: an override that moves only `custom`

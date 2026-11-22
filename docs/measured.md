@@ -99,6 +99,39 @@ it for the run (then put back, checksummed equal):
 The real turns used `claude-haiku-5-5` through an Anthropic provider section: six calls, 1 456 tokens out.
 The processor stayed between 57.3 and 58.1 C.
 
+## Anthropic as the main provider
+
+On 2026-11-22 a Beryl AX with 0.21.5-r26 could not start with `hermes.main.base_url` at
+`https://api.anthropic.com/v1`, `hermes.main.model` `claude-haiku-5-5` and a key file with an
+Anthropic key: the gateway's start was refused, procd retried six times in six seconds and
+stopped, and the log said only `startup refused (upstream provider, endpoint, model or credential
+conflicts with UCI)`. The same address and key as a further provider section (`hermes.claude`)
+had always worked.
+
+The cause is two places that disagree about the protocol. The bridge wrote `api_mode:
+chat_completions` for every endpoint that is not OpenAI's, and the preflight required that. Upstream
+speaks Anthropic's native Messages protocol to `api.anthropic.com` whatever a config says
+(`hermes_cli/providers.py` `host_mandated_api_mode`, by exact host name), so the resolver answered
+`anthropic_messages` for the main model and the preflight saw a transport UCI never chose. A provider
+section names no mode and so never met the preflight's rule. From r27 the bridge writes
+`anthropic_messages` for that host, found by upstream's own host test, and the preflight requires the
+same; a look-alike host name keeps chat completions, and on Anthropic's own host a route left on chat
+completions is still refused. The main key and a provider section's key stay apart.
+
+Measured on the Beryl AX (OpenWrt 25.12.6, the owner profile, 0.21.5-r26 from the feed), real
+upstream payload, the real init and wrapper:
+
+| 2026-11-22, 10:35 to 10:45 London | r26 as published | r26 with this change's two helpers |
+|---|---|---|
+| `start` at Anthropic's address, `claude-haiku-5-5` | refused six times, procd gave up | gateway up as `hermes`, 178 MB, no refusal |
+| `api_mode` in the agent's `config.yaml` | `chat_completions` | `anthropic_messages` |
+| a scheduled job: "Run uptime with the terminal tool and tell me the load average in one sentence." | no gateway | answered: 2 model calls, the terminal and `uptime` run, then a read through openwrt-mcp, 16 858 tokens in (15 881 from cache) and 230 out |
+
+The gateway stayed up through the job and the processor read 56.7 to 57.2 C. The model was Haiku 5.5 on the monthly API credit of the Max plan, a fraction of a cent for the job. The runtime gate's two new tests
+(`test_anthropic_api_key_as_the_main_model_starts_on_the_messages_api` and
+`test_anthropic_main_model_keeps_its_key_from_a_provider_section`) failed against the r26 package in
+CI run 45013081647 and pass with the change.
+
 ## Re-run on the published release, 2026-10-04
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](rerun.svg)
@@ -219,9 +252,14 @@ without tool support does not, and a 70B one can still fail on the output limit 
 provider sets. Pick for function calling, not for size.
 
 One provider note: OpenRouter and any OpenAI-compatible endpoint work as the main
-provider, Anthropic's own included: its OpenAI-compatible endpoint takes an Anthropic key
-(`https://api.anthropic.com/v1`, measured 2026-09-25). As a further provider, below,
-Anthropic runs on upstream's native transport, which the package now carries.
+provider. Anthropic's own API (`https://api.anthropic.com/v1`) does too, from 0.21.5-r27,
+and in its native Messages protocol, not the OpenAI-compatible one; "Anthropic as the main
+provider" below has the measurements. As a further provider, below, Anthropic has always run
+on upstream's native transport, which the package carries. An earlier version of this note said
+the OpenAI-compatible endpoint took an Anthropic key as the main provider (2026-09-25). That line
+was not re-run on 0.21.5 and is withdrawn: the bridge and the preflight have required chat
+completions for every endpoint that is not OpenAI's since 2026-09-24, upstream 0.21.5 answers
+Messages for this host, and r26, the release measured below, refused the start.
 
 ## Two defects the hardware found
 

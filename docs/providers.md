@@ -26,6 +26,16 @@ the same address as the main model keeps its own key, so a second account on the
 model's own service works as a further provider. In `/model` the main model is listed as
 `Main (<host>)`; `uci` is its entry, so no section can take that name.
 
+Anthropic can also be the main model, with no section: `hermes.main.base_url` at
+`https://api.anthropic.com/v1`, `hermes.main.model` a Claude model such as `claude-haiku-5-5`,
+and `hermes.main.key_file` holding the Anthropic key. From 0.21.5-r27 the agent then speaks
+Anthropic's own Messages protocol to that address, the one upstream picks for that host, and the
+section above can name the same address with a second key beside it. Releases before r27 refused
+every start with Anthropic as the main endpoint ("startup refused (upstream provider, endpoint,
+model or credential conflicts with UCI)"), because the bridge wrote the OpenAI-compatible protocol
+and upstream will not use it there; only the address api.anthropic.com itself gets the Messages
+protocol, a look-alike name or another gateway keeps chat completions.
+
 A ChatGPT subscription needs no section. Allow device code sign-in once in ChatGPT's
 security settings, then:
 

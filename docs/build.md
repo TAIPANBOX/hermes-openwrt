@@ -134,6 +134,7 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] The owner approves in the router's own chat: openwrt-mcp's root helper sends the card and reads the tap and the factor through a bot of the router's own, and the agent's gateway and openwrt-mcp's listener leave the approval path; the Security page sets the bot up (openwrt-mcp 0.5.0.10, 0.21.5-r24, LuCI 0.21.5-r7)
 - [x] Binding the owner's chat or removing the router's bot restarts the agent with the page closed, the bot takes the PIN and the code as the owner types them, and the agent sends the owner to the card (openwrt-mcp 0.5.0.11, 0.21.5-r25, LuCI 0.21.5-r8)
 - [x] A turn that needs a tool finishes on musl, in a chat and in a scheduled job: every thread the agent starts gets a 4 MiB stack, where musl gave 128 KiB and every such turn died with SIGSEGV (0.21.5-r26)
+- [x] Anthropic's own API starts as the main provider and answers a turn that needs a tool: the bridge and the preflight agree on its native Messages protocol, where r25 and r26 refused the start (0.21.5-r27)
 
 ## Prior art, and what is not ours
 

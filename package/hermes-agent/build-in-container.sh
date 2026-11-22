@@ -223,7 +223,10 @@ esac
 # front of upstream's main.py). On musl's default of 128 KiB every turn that needed a tool died with
 # SIGSEGV, in a chat and in a scheduled job, on a Beryl AX with OpenWrt 25.12.6 (2026-11-22).
 # CLAUDE.md, invariant 33.
-PKGREL=${PKGREL:-26}
+# 0.21.5-r27: Anthropic's own API (https://api.anthropic.com/v1) works as the main provider: the bridge
+# writes Anthropic's native Messages protocol for that host, as upstream picks it, and the preflight
+# requires it. r25 and r26 refused every such start (2026-11-22). CLAUDE.md, invariant 34.
+PKGREL=${PKGREL:-27}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.
