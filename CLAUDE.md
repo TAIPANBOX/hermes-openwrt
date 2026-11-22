@@ -1385,8 +1385,9 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     grant nothing. (gate: `scripts/gate-runtime.sh`
     `check_scheduled_job_may_read_netryx_but_still_cannot_change_anything` and
     `check_service_state_and_package_settings_are_reads`, bound to `features/runtime.feature`; teeth:
-    `scripts/teeth-runtime.py`, four mutants.) Red first, the test committed alone (d368615): see the
-    run named in the pull request. `@measured` 2026-11-22 on a Beryl AX (25.12.6, owner profile, r26 from
+    `scripts/teeth-runtime.py`, four mutants.) Red first, the test committed alone (6dfa900) and run
+    against r27's main: `@measured` `gh run view 45017019592 --log-failed` 2026-11-22, 102 ran with 1 failure,
+    the new test. `@measured` 2026-11-22 on a Beryl AX (25.12.6, owner profile, r26 from
     the feed with the Anthropic change's two helpers), a stand-in rpcd plugin answering the six names and the
     `netryx_reads` policy for `hermes-main`: see docs/measured.md, "A scheduled job reads netryx".
 
