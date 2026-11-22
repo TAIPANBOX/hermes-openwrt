@@ -132,6 +132,33 @@ The gateway stayed up through the job and the processor read 56.7 to 57.2 C. The
 `test_anthropic_main_model_keeps_its_key_from_a_provider_section`) failed against the r26 package in
 CI run 45013081647 and pass with the change.
 
+## A scheduled job reads netryx
+
+netryx, the router's console and light IPS, answers over ubus with an object of six methods that only
+read (`status`, `devices`, `rules`, `alerts`, `apps`, `usage`). The owner grants the agent's client those
+calls with a policy of their own in openwrt-mcp, and in a chat they worked. A scheduled job did not: on a
+Flint 2 with r26 five one-off jobs were each refused by the package itself, "a scheduled job cannot change
+the router (ubus_call netryx.devices)", with no line in openwrt-mcp's audit, because the init listed no
+netryx method as a read. From r27 the init hands the gateway those six names, by name and never as
+`netryx.*`, in the list the unlock plugin uses to tell a read from a change. It writes nothing into
+openwrt-mcp's read policy, so the owner's own `netryx_reads` policy still decides whether a call is
+answered, for a job as for a chat.
+
+Measured on the Beryl AX (OpenWrt 25.12.6, owner profile, 0.21.5-r26 from the feed with the Anthropic
+change's two helpers so that it starts, `claude-haiku-5-5`), netryx itself not installed: a stand-in
+rpcd plugin registered the object `netryx` with the six names and answered a fixed device, and the owner's
+policy `netryx_reads` (`ubus_call`, `netryx.*`, client `hermes-main`) was in `/etc/config/openwrt-mcp`.
+
+| 2026-11-22, 10:59 to 11:04 London, one-off scheduled jobs | r26's init | with the new init |
+|---|---|---|
+| `ubus_call netryx.devices` | refused by the package, nothing in openwrt-mcp's audit | answered, the device named; audit: `hermes-main` `ubus_call` `netryx.devices` OK, 13 ms |
+| `ubus_call netryx.serve` (not one of the six) | not run | refused by the package, as before |
+| `uci_apply` of `system.@system[0].description` | not run | refused by the package, as before; nothing written |
+
+The jobs were Haiku 5.5 on the Max plan's API credit, a few model calls each. The runtime gate's new test
+(`test_scheduled_job_may_read_netryx_but_still_cannot_change_anything`) reads the list as procd is
+handed it and asks the unlock plugin about the six reads, twelve other calls and every change tool.
+
 ## Re-run on the published release, 2026-10-04
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](rerun.svg)

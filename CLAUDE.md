@@ -1370,6 +1370,26 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     16 858 tokens in, 230 out), the gateway running on. The router was then put back as found: package, feed
     line, key, data and configuration removed. Not run on a router: the built r27 package itself.
 
+35. `@decided 2026-11-22` (the owner's, paraphrased): a scheduled job of the agent may read netryx's state
+    through openwrt-mcp, as the agent's chat already could. `@claude` 2026-11-22, how (0.21.5-r27): the
+    init has a second list, `MCP_CRON_READ_UBUS`, the six methods of netryx's ubus object by name
+    (`netryx.status`, `devices`, `rules`, `alerts`, `apps`, `usage`), never `netryx.*`. It goes into the
+    gateway's `HERMES_OPENWRT_READ_UBUS` beside `MCP_READ_UBUS`, which is where the unlock plugin tells a
+    read from a change when it refuses a scheduled job (invariant 18), and nowhere else: openwrt-mcp's
+    `hermes_main_read_ubus` policy is written from `MCP_READ_UBUS` alone, so the package grants the agent's
+    client no netryx call. The owner's own policy (`netryx_reads` in `/etc/config/openwrt-mcp`, which
+    netryx's documentation gives, expiry included) still decides whether a call is answered, for a job as
+    for a chat; without it openwrt-mcp refuses a job's call as it refuses a chat's. A method netryx adds
+    later is refused to a job until it is listed, and every change tool, `exec` and any other object's
+    change stays refused to a job, an open unlock window included. On a router with no netryx the names
+    grant nothing. (gate: `scripts/gate-runtime.sh`
+    `check_scheduled_job_may_read_netryx_but_still_cannot_change_anything` and
+    `check_service_state_and_package_settings_are_reads`, bound to `features/runtime.feature`; teeth:
+    `scripts/teeth-runtime.py`, four mutants.) Red first, the test committed alone (d368615): see the
+    run named in the pull request. `@measured` 2026-11-22 on a Beryl AX (25.12.6, owner profile, r26 from
+    the feed with the Anthropic change's two helpers), a stand-in rpcd plugin answering the six names and the
+    `netryx_reads` policy for `hermes-main`: see docs/measured.md, "A scheduled job reads netryx".
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

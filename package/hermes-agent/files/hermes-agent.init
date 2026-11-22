@@ -39,7 +39,8 @@ MCP_URL_DEFAULT=http://127.0.0.1:8730/mcp
 # installed system does not have grants nothing. network.wireless is left out, because its
 # status carries the radio configuration, keys included. The same list goes to the gateway
 # (HERMES_OPENWRT_READ_UBUS), where the unlock plugin uses it to tell a read from a change when
-# it refuses a scheduled job's changes: one list, so the two cannot disagree.
+# it refuses a scheduled job's changes: one list, so the two cannot disagree, with the one addition
+# MCP_CRON_READ_UBUS names below.
 # rc.list (0.21.5-r14) is how the agent learns whether a service it started is running: rpcd's rc
 # object answers, per init script, its start and stop priority, whether it is enabled and, for a
 # procd script, whether it is running (rpcd rc.c, rc_list_add_table), and nothing else. Never
@@ -47,6 +48,14 @@ MCP_URL_DEFAULT=http://127.0.0.1:8730/mcp
 # and environment, where other packages keep their secrets, and a read goes to the model provider
 # (invariant 11 keeps it out of the LuCI read permission for the same reason).
 MCP_READ_UBUS='system.board system.info network.interface.dump network.interface.*.status network.device.status iwinfo.devices iwinfo.info iwinfo.assoclist dhcp.ipv6leases luci-rpc.getDHCPLeases luci-rpc.getHostHints luci-rpc.getNetworkDevices rc.list'
+# What a scheduled job may also call, beyond MCP_READ_UBUS (0.21.5-r27): the six reads of netryx's ubus
+# object (the router's console and light IPS), one name per method and never `netryx.*`, so a method
+# netryx adds later is refused to a job until it is listed here. Only the gateway's list
+# (HERMES_OPENWRT_READ_UBUS, below) has it, and openwrt-mcp's read policy above does not: whether the
+# agent's client may make the call at all is the owner's own policy in /etc/config/openwrt-mcp
+# (`netryx_reads`), which this init never writes. A job that makes the call without that policy is
+# refused by openwrt-mcp, as a chat is. On a router with no netryx the names grant nothing.
+MCP_CRON_READ_UBUS='netryx.status netryx.devices netryx.rules netryx.alerts netryx.apps netryx.usage'
 # What uci_get may read from a daemon that does not say it redacts: not wireless, whose keys
 # would go to the model provider, and not the whole of network either, since a router running
 # WireGuard keeps its private key in a network section. The default interfaces and the globals
@@ -873,7 +882,7 @@ start_service() {
 		HERMES_OPENWRT_APPROVALS="$approvals" \
 		HERMES_OPENWRT_APPROVER_ID="$sec_approver" \
 		HERMES_OPENWRT_NETWORK="$agent_network" \
-		HERMES_OPENWRT_READ_UBUS="$(printf '%s' "$MCP_READ_UBUS" | tr ' ' ',')" \
+		HERMES_OPENWRT_READ_UBUS="$(printf '%s %s' "$MCP_READ_UBUS" "$MCP_CRON_READ_UBUS" | tr ' ' ',')" \
 		HERMES_OPENWRT_MAX_TURNS="$max_turns" \
 		HERMES_OPENWRT_PROVIDERS="${providers#;}"
 
