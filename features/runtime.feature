@@ -890,3 +890,71 @@ Feature: What is set on the router is what the gateway runs with
     Then CPython refuses that one call with RecursionError and the agent carries on
     And upstream's entry point still runs as the script it is, with its path in the command line that pgrep looks for
     # -> check_agent_threads_have_room_for_deep_input
+
+  # ---- Questions from netryx, the router's console ----
+  # netryx, the console on the same router, shows a stretch of traffic and has a button that asks the
+  # router's own agent what it was. The question comes over the router's loopback with a key only root
+  # reads; the agent answers it in plain language and may only read the router while it does.
+
+  Scenario: a question from the console reads the router and can do nothing else
+    Given a turn the gateway bound to the console, even with a session id that looks like the owner's chat
+    When the agent asks for openwrt-mcp's reads, a change of any kind, the terminal, a file, memory, a skill, a message, a job or a subagent
+    Then the reads go through and every other call is refused, saying the console can only read the router
+    And the owner's chat is not touched by any of it, and the console's turn is not told that changes are unlocked
+    And with the questions on, a turn bound to no platform may read and not change; with them off it is the owner's shell as before
+    And a check that fails refuses every tool while the questions are on
+    # -> check_console_question_reads_and_never_changes_writes_or_sends
+
+  Scenario: the console's turn is upstream's own API turn, and its change meets the refusal there
+    Given upstream's API server adapter running one turn, its agent asking for a change
+    When the turn runs in upstream's worker thread
+    Then it is bound to the platform api_server, starts with no history and the console's own note, and the change is refused
+    And the agent is built so that no background review writes memories or skills afterwards
+    # -> check_console_turn_is_upstreams_api_turn_and_its_change_is_refused
+
+  Scenario: one route, with the key, within the hour's count and the day's budget
+    Given the console's questions on, on a port of the router's loopback, with the key
+    When the console asks, and when anything else asks for anything else
+    Then only a POST to /v1/ask with the key and a question reaches the agent, and the answer comes back with its cost and what is left
+    And nothing the caller sends chooses the model, the session or the history
+    And past the hour's count or the day's budget the console is told so, with when to ask again, and a restart does not reset either
+    And one question runs at a time, a turn too slow is cut off at the time limit and still counted, and a turn upstream cannot price is charged at rates above any model in use
+    # -> check_console_route_answers_once_with_the_key_and_within_its_limits
+
+  Scenario: no route without the owner profile's start and its key
+    Given the questions off, or on with no key, or with a key too short
+    When the gateway's plugin loads
+    Then nothing listens, and the key, if any, is gone from the environment
+    # -> check_console_questions_stay_off_unless_the_owner_profile_turns_them_on
+
+  Scenario: the console's key is made once, for root alone, and never handed to procd
+    Given hermes.api.enabled set in the owner profile, and nothing in the key file
+    When the service starts, and starts again
+    Then a random key of 64 hex digits is in a file of root's, 0600, the same after the second start, and in neither procd's data, the start's lines nor uci show
+    And off by default, off in another profile with one line saying why, and a bad port, count or budget, a key file that is a link or a key too short refuse the start
+    # -> check_console_key_is_made_once_root_only_and_never_in_procd
+
+  Scenario: the key goes to the gateway alone
+    Given the questions on and the key file's path in procd's environment
+    When the wrapper starts the gateway
+    Then the gateway is handed the key and its helpers are not, upstream's own API server variables never reach it, and another profile or a missing key leaves the questions off
+    And the gateway's sitecustomize takes the key out of the environment before upstream runs, so nothing the gateway starts inherits it
+    # -> check_wrapper_hands_the_console_key_to_the_gateway_alone
+
+  Scenario: the console's turn is shown openwrt-mcp and nothing else
+    Given a UCI selection with the terminal, files, memory, skills, the web, jobs, subagents and messages, and an operator's own MCP server
+    When the bridge writes the configuration
+    Then the console's platform gets the package's openwrt-mcp connection alone, or no MCP server without it, while the chat keeps what UCI selected
+    # -> check_console_turn_is_shown_openwrt_mcp_alone
+
+  Scenario: a .env cannot turn the console's questions on or move them
+    Given a .env in the data directory naming upstream's API server variables or the package's own for the questions
+    When the gateway's preflight runs
+    Then the start is refused, naming no value
+    # -> check_dotenv_cannot_turn_the_console_on_or_move_it
+
+  Scenario: the agent's terminal in a chat never holds a key for an API server
+    Given the gateway's environment
+    When upstream builds the environment of a command the agent runs
+    Then API_SERVER_KEY is not in it
+    # -> check_agent_terminal_is_not_handed_the_console_key

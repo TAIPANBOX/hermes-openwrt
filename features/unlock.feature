@@ -271,6 +271,15 @@ Feature: The agent changes the router only when its owner unlocks it
     Then the change is refused even if an unlock is open at that moment
     # -> check_scheduled_job_cannot_change
 
+  Scenario: A question from the router's console cannot change the router
+    Given the owner has changes unlocked and the console's questions are on
+    When the owner asks for a change in the chat, and the console asks a question whose turn tries the same change
+    Then the chat's change is applied, and the console's is refused while its read comes back
+    And the console's turn is offered none of the terminal, file, memory, skill, message or job tools
+    And its answer comes back to the console with its cost and nothing goes to Telegram
+    And a question with a wrong key reaches nothing
+    # -> check_console_question_reads_and_cannot_change
+
   Scenario: A change that is not confirmed undoes itself, even across a reboot
     Given an unlock is open and the agent applies a configuration change
     When the agent does not confirm it in time (the change cut the router off, or the agent never

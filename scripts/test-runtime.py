@@ -14,6 +14,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -736,6 +737,33 @@ procd_close_service
         result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout), result.stdout
+
+    def _service_instance_json_raw(self):
+        """The same start as _service_instance_json, for a test that expects some starts to be refused:
+        (started, procd's JSON or None, what procd was handed, the start's own lines)."""
+        script = f'''
+mkdir -p /etc/hermes-agent /srv/hermes /var/lock /var/run /var/state
+printf '%s' 'provider-canary-runtime' > /etc/hermes-agent/provider.key
+printf '%s' 'mcp-canary-runtime' > /etc/hermes-agent/router-mcp.token
+uci set hermes.main.enabled=1
+uci set hermes.main.mem_max_mb=0
+uci set hermes.main.data_dir={shlex.quote(str(self.home))}
+uci set hermes.main.router_mcp_url=http://127.0.0.1:8730/mcp
+uci set hermes.telegram.enabled=0
+uci commit hermes
+. /lib/functions.sh
+. /lib/functions/procd.sh
+initscript=/etc/init.d/hermes-agent
+. {shlex.quote(str(FILES / "hermes-agent.init"))}
+_procd_ubus_call() {{ json_dump; }}
+procd_open_service hermes-agent /etc/init.d/hermes-agent
+start_service || exit 1
+procd_close_service
+'''
+        result = subprocess.run(["sh", "-c", script], text=True, check=False, capture_output=True)
+        if result.returncode != 0:
+            return False, None, result.stdout, result.stderr
+        return True, json.loads(result.stdout), result.stdout, result.stderr
 
     def test_all_secrets_absent_from_procd(self):
         _parsed, raw = self._service_instance_json()
@@ -2597,6 +2625,475 @@ print(json.dumps({
         self.assertEqual({t: bool(answer["tools"][t]) for t in answer["tools"]},
                          {"uci_apply": True, "uci_confirm": True, "exec": True, "apk_add": True,
                           "ubus_list": False, "uci_get": False})
+
+    # ---- Questions from netryx, the router's console (hermes.api) ----
+    # netryx shows the owner a stretch of traffic and asks the agent on the same router what it was. The
+    # question comes over the router's loopback, with a key only root reads, and the turn it starts may
+    # read the router and nothing else: no change even inside an open unlock window, no terminal, no
+    # files, no memory or skills, no messages, no jobs; and the answer goes back to the caller alone.
+
+    CONSOLE_CALLS = {
+        "uci_apply": ("mcp__openwrt__uci_apply", {"changes": [{"op": "set", "config": "dropbear"}]}),
+        "uci_confirm": ("mcp__openwrt__uci_confirm", {}),
+        "rc_init": ("mcp__openwrt__ubus_call", {"object": "rc", "method": "init"}),
+        "reboot": ("mcp__openwrt__ubus_call", {"object": "system", "method": "reboot"}),
+        "apk_add": ("mcp__openwrt__apk_add", {"packages": ["tcpdump"]}),
+        "exec": ("mcp__openwrt__exec", {"command": "dropbear -p 2222"}),
+        "netryx_read": ("mcp__openwrt__ubus_call", {"object": "netryx", "method": "devices"}),
+        "uci_get": ("mcp__openwrt__uci_get", {"config": "dhcp"}),
+        "logread": ("mcp__openwrt__logread", {}),
+        "terminal": ("terminal", {"command": "id"}),
+        "process": ("process", {"action": "list"}),
+        "execute_code": ("execute_code", {"code": "print(1)"}),
+        "read_file": ("read_file", {"path": "/srv/hermes/state.db"}),
+        "write_file": ("write_file", {"path": "/tmp/x", "content": "x"}),
+        "patch": ("patch", {"path": "/tmp/x"}),
+        "search_files": ("search_files", {"pattern": "key"}),
+        "memory": ("memory", {"action": "add", "content": "x"}),
+        "skill_manage": ("skill_manage", {"action": "create"}),
+        "send_message": ("send_message", {"target": "telegram", "message": "x"}),
+        "cronjob": ("cronjob", {"action": "create"}),
+        "delegate_task": ("delegate_task", {"goal": "x"}),
+        "web_search": ("web_search", {"query": "x"}),
+    }
+    CONSOLE_READS = ("netryx_read", "uci_get", "logread")
+
+    def _console_probe(self, body):
+        parsed, _raw = self._service_instance_json()
+        handed = parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_READ_UBUS"]
+        env = dict(self.env, HERMES_OPENWRT_READ_UBUS=handed, CALLS=json.dumps(self.CONSOLE_CALLS))
+        env.pop("HERMES_OPENWRT_API", None)
+        result = subprocess.run(["python3", "-c", textwrap.dedent(body)], env=env, check=False,
+                                capture_output=True, text=True, timeout=240)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        return json.loads(result.stdout.strip().splitlines()[-1])
+
+    def test_console_question_reads_and_never_changes_writes_or_sends(self):
+        answer = self._console_probe(r"""
+            import contextvars, json, os, time, openwrt_unlock as u
+            from gateway.session_context import set_session_vars, clear_session_vars
+            calls = json.loads(os.environ["CALLS"])
+            def verdicts(**ctx):
+                out = {}
+                for key, (tool, args) in calls.items():
+                    r = u.pre_tool_call(tool_name=tool, args=args, **ctx)
+                    out[key] = None if r is None else (r.get("action"), r.get("message", ""))
+                return out
+            def bound(platform, sid, **ctx):
+                tokens = set_session_vars(platform=platform, chat_id=sid, session_key=sid, session_id=sid,
+                                          cron_session="")
+                try:
+                    return verdicts(session_id=sid, task_id=sid, **ctx)
+                finally:
+                    clear_session_vars(tokens)
+            out = {}
+            # A question from the console, as upstream's API server binds every turn it runs, with a
+            # session id and a task id that look like the owner's chat, which a caller could choose.
+            out["console"] = bound("api_server", "20261122_120000_telegram_4242")
+            out["chat"] = bound("telegram", "20261122_120000_abc")
+            # The window is open: the owner was told, a question from the console is not.
+            u._window_end = time.time() + 600
+            tokens = set_session_vars(platform="api_server", session_id="netryx-1", cron_session="")
+            out["note_console"] = u.pre_llm_call(session_id="netryx-1")
+            clear_session_vars(tokens)
+            tokens = set_session_vars(platform="telegram", session_id="chat-1", cron_session="")
+            out["note_chat"] = bool(u.pre_llm_call(session_id="chat-1"))
+            clear_session_vars(tokens)
+            # A turn the gateway bound to no platform: with the console's questions on, it may read
+            # and not change, like a scheduled job; with them off it is the owner's shell, as before.
+            os.environ["HERMES_OPENWRT_API"] = "on"
+            out["unbound_on"] = contextvars.Context().run(verdicts, session_id="", task_id="")
+            os.environ["HERMES_OPENWRT_API"] = "off"
+            out["unbound_off"] = contextvars.Context().run(verdicts, session_id="", task_id="")
+            # A hook that fails is a refusal: of every tool while the questions are on.
+            real = u._turn_source
+            u._turn_source = lambda ctx: 1 / 0
+            os.environ["HERMES_OPENWRT_API"] = "on"
+            out["broken_on"] = {k: bool(u.pre_tool_call(tool_name=t, args=a)) for k, (t, a) in calls.items()}
+            os.environ["HERMES_OPENWRT_API"] = "off"
+            out["broken_off"] = {k: bool(u.pre_tool_call(tool_name=t, args=a)) for k, (t, a) in calls.items()}
+            u._turn_source = real
+            print(json.dumps(out))
+        """)
+        reads = set(self.CONSOLE_READS)
+        for key, verdict in answer["console"].items():
+            if key in reads:
+                self.assertIsNone(verdict, key)
+            else:
+                self.assertIsNotNone(verdict, "a question from the console may call " + key)
+                self.assertEqual(verdict[0], "block", key)
+                self.assertIn("console can only read the router", verdict[1], key)
+        # The owner's chat is not touched by any of it: openwrt-mcp and the window decide there.
+        self.assertEqual(answer["chat"], {k: None for k in self.CONSOLE_CALLS})
+        self.assertIsNone(answer["note_console"])
+        self.assertTrue(answer["note_chat"])
+        changes = {"uci_apply", "uci_confirm", "rc_init", "reboot", "apk_add", "exec"}
+        for key, verdict in answer["unbound_on"].items():
+            if key in changes:
+                self.assertTrue(verdict and "did not come from the owner's chat" in verdict[1], (key, verdict))
+            else:
+                self.assertIsNone(verdict, key)
+        self.assertEqual(answer["unbound_off"], {k: None for k in self.CONSOLE_CALLS})
+        self.assertTrue(all(answer["broken_on"].values()), answer["broken_on"])
+        self.assertEqual({k for k, v in answer["broken_off"].items() if v},
+                         {k for k, (t, _a) in self.CONSOLE_CALLS.items() if t.startswith("mcp__openwrt__")})
+
+    def test_console_turn_is_upstreams_api_turn_and_its_change_is_refused(self):
+        # Upstream's own path, not a stand-in for it: APIServerAdapter._run_agent binds the turn in the
+        # worker thread that runs it, and a change the agent then asks for meets the hook there. Only
+        # the agent is replaced, by one that asks for that change instead of calling a model.
+        answer = self._console_probe(r"""
+            import asyncio, json, openwrt_unlock as u
+            from gateway.platforms.api_server import APIServerAdapter
+            from gateway.session_context import get_session_env
+            seen = {}
+            class Agent:
+                session_cost_status, session_estimated_cost_usd = "estimated", 0.002
+                skip_background_review = False
+                def run_conversation(self, user_message, conversation_history, task_id, **kw):
+                    seen["platform"] = get_session_env("HERMES_SESSION_PLATFORM", "")
+                    seen["history"] = conversation_history
+                    seen["change"] = u.pre_tool_call(tool_name="mcp__openwrt__uci_apply", args={}, session_id=task_id, task_id=task_id)
+                    seen["read"] = u.pre_tool_call(tool_name="mcp__openwrt__uci_get", args={"config": "dhcp"}, session_id=task_id, task_id=task_id)
+                    seen["terminal"] = u.pre_tool_call(tool_name="terminal", args={"command": "id"}, session_id=task_id, task_id=task_id)
+                    return {"final_response": "read only: " + user_message}
+            made = []
+            def create(self, *a, **kw):
+                made.append(kw.get("ephemeral_system_prompt"))
+                return Agent()
+            APIServerAdapter._create_agent = create
+            adapter = u._console_adapter()
+            ref = [None]
+            result, usage = asyncio.run(adapter._run_agent(user_message="who is on my network?", conversation_history=[],
+                                                           ephemeral_system_prompt=u.API_NOTE, session_id="netryx-x", agent_ref=ref))
+            seen["skip_review"] = ref[0].skip_background_review
+            seen["answer"] = result["final_response"]
+            seen["subclass"] = isinstance(adapter, APIServerAdapter)
+            seen["note"] = made == [u.API_NOTE]
+            print(json.dumps(seen))
+        """)
+        self.assertEqual(answer["platform"], "api_server")
+        self.assertEqual(answer["history"], [])
+        self.assertTrue(answer["change"] and "console can only read" in answer["change"]["message"], answer["change"])
+        self.assertIsNone(answer["read"])
+        self.assertTrue(answer["terminal"], answer)
+        self.assertTrue(answer["skip_review"], "a question from the console may start a review that writes memories")
+        self.assertEqual(answer["answer"], "read only: who is on my network?")
+        self.assertTrue(answer["subclass"] and answer["note"], answer)
+
+    def test_console_route_answers_once_with_the_key_and_within_its_limits(self):
+        answer = self._console_probe(r"""
+            import asyncio, json, os, socket, stat, time, urllib.request, urllib.error, openwrt_unlock as u
+            key = "k" * 64
+            port = 18642
+            os.environ.update(HERMES_OPENWRT_API="on", HERMES_OPENWRT_API_PORT=str(port), HERMES_OPENWRT_API_KEY=key,
+                              HERMES_OPENWRT_API_HOURLY="4", HERMES_OPENWRT_API_BUDGET="0.25")
+            calls = []
+            class Agent:
+                def __init__(self, cost, status="estimated", tokens=(0, 0)):
+                    self.session_cost_status, self.session_estimated_cost_usd = status, cost
+                    self.session_prompt_tokens, self.session_completion_tokens = tokens
+            class Fake:
+                cost, status, tokens, delay = 0.1, "estimated", (0, 0), 0
+                async def _run_agent(self, **kw):
+                    calls.append(kw)
+                    kw["agent_ref"][0] = Agent(Fake.cost, Fake.status, Fake.tokens)
+                    await asyncio.sleep(Fake.delay)
+                    return {"final_response": "answer to: " + kw["user_message"]}, {}
+            u._api_adapter = Fake()
+            out = {"started": u.start_console_server(), "env_key_left": "HERMES_OPENWRT_API_KEY" in os.environ}
+            def req(method, path, body=None, auth=key, raw=None):
+                data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
+                r = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), data=data, method=method)
+                if auth is not None:
+                    r.add_header("Authorization", "Bearer " + auth)
+                try:
+                    with urllib.request.urlopen(r, timeout=20) as resp:
+                        return resp.status, json.loads(resp.read()), dict(resp.headers)
+                except urllib.error.HTTPError as e:
+                    return e.code, json.loads(e.read() or b"{}"), dict(e.headers)
+            q = {"question": "What made this spike?", "context": "14:02-14:05 192.168.1.23 -> 203.0.113.9:443 1.2 GB"}
+            # Upstream's routes are not here, nor any other path, nor another method, nor no key or a wrong one.
+            out["others"] = {p: req(m, p, {})[0] for m, p in (("POST", "/v1/chat/completions"), ("GET", "/v1/models"),
+                             ("GET", "/api/sessions"), ("POST", "/api/jobs"), ("POST", "/v1/runs"), ("GET", "/health"),
+                             ("POST", "/p/default/v1/ask"), ("POST", "/v1/ask/"), ("GET", "/v1/ask"))}
+            out["no_key"] = req("POST", "/v1/ask", q, auth=None)[0]
+            out["wrong_key"] = req("POST", "/v1/ask", q, auth="k" * 63 + "x")[0]
+            out["bad"] = {"not_json": req("POST", "/v1/ask", raw=b"what")[0],
+                          "model": req("POST", "/v1/ask", dict(q, model="claude-opus-5-5"))[0],
+                          "empty": req("POST", "/v1/ask", {"question": "  "})[0],
+                          "long": req("POST", "/v1/ask", {"question": "x" * 2001})[0],
+                          "huge": req("POST", "/v1/ask", raw=b"{" + b" " * 20000 + b"}")[0]}
+            out["calls_before"] = len(calls)
+            status, body, _h = req("POST", "/v1/ask", q)
+            out["first"] = [status, body]
+            c = calls[0]
+            out["turn"] = {"note": c["ephemeral_system_prompt"] == u.API_NOTE, "history": c["conversation_history"],
+                           "session": c["session_id"].startswith("netryx-"), "message": c["user_message"],
+                           "keys": sorted(c)}
+            path = u._usage_path()
+            out["usage_mode"] = oct(stat.S_IMODE(os.stat(path).st_mode))
+            out["spent"] = json.load(open(path))["spent_usd"]
+            # The budget: 0.1 a question against 0.25 a day. The third starts with 0.2 spent; the fourth is refused.
+            out["second"] = req("POST", "/v1/ask", q)[0]
+            out["third"] = req("POST", "/v1/ask", q)[0]
+            status, body, headers = req("POST", "/v1/ask", q)
+            out["fourth"] = [status, body["error"]["code"], "Retry-After" in headers, len(calls)]
+            # It holds through a restart of the gateway: the record is on disk.
+            u._api_busy = False
+            out["after_restart"] = u._reserve(time.time())[1][1]["error"]["code"]
+            # The hour: four questions an hour, whatever the budget.
+            json.dump({"day": u._today(time.time()), "spent_usd": 0.0, "asks": [time.time() - 10] * 4}, open(path, "w"))
+            status, body, headers = req("POST", "/v1/ask", q)
+            out["hourly"] = [status, body["error"]["code"], int(headers.get("Retry-After", 0)), len(calls)]
+            # An hour later the oldest have gone.
+            json.dump({"day": u._today(time.time()), "spent_usd": 0.0, "asks": [time.time() - 3700] * 4}, open(path, "w"))
+            out["hour_later"] = req("POST", "/v1/ask", q)[0]
+            # A day later the budget is new.
+            json.dump({"day": "2000-01-01", "spent_usd": 99.0, "asks": []}, open(path, "w"))
+            out["day_later"] = req("POST", "/v1/ask", q)[0]
+            # A turn upstream cannot price is charged at the fallback rates.
+            os.unlink(path)
+            Fake.status, Fake.tokens = "unknown", (1000, 1000)
+            out["unpriced"] = req("POST", "/v1/ask", q)[1]["cost_usd"]
+            Fake.status, Fake.tokens = "estimated", (0, 0)
+            # One question at a time.
+            u._api_busy = True
+            out["busy"] = req("POST", "/v1/ask", q)[0]
+            u._api_busy = False
+            # A record that cannot be read refuses, and is left for the owner.
+            open(path, "w").write("{not json")
+            out["unreadable"] = req("POST", "/v1/ask", q)[1]["error"]["code"]
+            os.unlink(path)
+            # A turn that takes too long: refused at the time limit, its cost counted when it ends.
+            u.API_TIMEOUT, Fake.delay = 0.5, 2.0
+            out["slow"] = req("POST", "/v1/ask", q)[0]
+            out["busy_while_slow"] = u._api_busy
+            time.sleep(2.5)
+            out["after_slow"] = [u._api_busy, json.load(open(path))["spent_usd"]]
+            # Listening on loopback only.
+            s = socket.socket()
+            s.settimeout(2)
+            out["loopback_only"] = u._api_server is not None and out["started"][0] == "127.0.0.1"
+            print(json.dumps(out))
+        """)
+        self.assertEqual(answer["started"], ["127.0.0.1", 18642])
+        self.assertFalse(answer["env_key_left"], "the key stayed in the gateway's environment")
+        expected = {path: 404 for path in answer["others"]}
+        expected["/v1/ask"] = 405
+        self.assertEqual(answer["others"], expected)
+        self.assertEqual(answer["no_key"], 401)
+        self.assertEqual(answer["wrong_key"], 401)
+        self.assertEqual(answer["bad"], {"not_json": 400, "model": 400, "empty": 400, "long": 400, "huge": 413})
+        self.assertEqual(answer["calls_before"], 0, "a refused request reached the agent")
+        status, body = answer["first"]
+        self.assertEqual(status, 200)
+        self.assertEqual(body["answer"].split("\n")[0], "answer to: What made this spike?")
+        self.assertEqual(body["cost_usd"], 0.1)
+        self.assertEqual(body["asks_left_this_hour"], 3)
+        self.assertEqual(body["budget_left_usd"], 0.15)
+        turn = answer["turn"]
+        self.assertTrue(turn["note"] and turn["session"], turn)
+        self.assertEqual(turn["history"], [])
+        self.assertIn("<console_selection>\n14:02-14:05", turn["message"])
+        # Nothing the caller says chooses the model, the session or the history.
+        self.assertEqual(turn["keys"], ["agent_ref", "conversation_history", "ephemeral_system_prompt", "session_id", "user_message"])
+        self.assertEqual(answer["usage_mode"], "0o600")
+        self.assertEqual(answer["spent"], 0.1)
+        self.assertEqual((answer["second"], answer["third"]), (200, 200))
+        self.assertEqual(answer["fourth"], [429, "daily_budget", True, 3])
+        self.assertEqual(answer["after_restart"], "daily_budget")
+        self.assertEqual(answer["hourly"][:2], [429, "hourly_limit"])
+        self.assertTrue(0 < answer["hourly"][2] <= 3600, answer["hourly"])
+        self.assertEqual(answer["hourly"][3], 3)
+        self.assertEqual((answer["hour_later"], answer["day_later"]), (200, 200))
+        self.assertAlmostEqual(answer["unpriced"], 1000 * 15e-6 + 1000 * 75e-6, places=6)
+        self.assertEqual(answer["busy"], 409)
+        self.assertEqual(answer["unreadable"], "usage_unreadable")
+        self.assertEqual(answer["slow"], 504)
+        self.assertTrue(answer["busy_while_slow"], "a second question could start while the slow one still runs")
+        self.assertEqual(answer["after_slow"], [False, 0.1])
+        self.assertTrue(answer["loopback_only"])
+
+    def test_console_questions_stay_off_unless_the_owner_profile_turns_them_on(self):
+        answer = self._console_probe(r"""
+            import json, os, openwrt_unlock as u
+            out = {}
+            for name, env in (("off", {"HERMES_OPENWRT_API": "off", "HERMES_OPENWRT_API_KEY": "k" * 64}),
+                              ("no_key", {"HERMES_OPENWRT_API": "on", "HERMES_OPENWRT_API_PORT": "18643"}),
+                              ("short_key", {"HERMES_OPENWRT_API": "on", "HERMES_OPENWRT_API_PORT": "18643", "HERMES_OPENWRT_API_KEY": "k" * 31})):
+                for k in ("HERMES_OPENWRT_API", "HERMES_OPENWRT_API_PORT", "HERMES_OPENWRT_API_KEY"):
+                    os.environ.pop(k, None)
+                os.environ.update(env)
+                out[name] = [u.start_console_server(), "HERMES_OPENWRT_API_KEY" in os.environ]
+            print(json.dumps(out))
+        """)
+        self.assertEqual(answer, {"off": [None, False], "no_key": [None, False], "short_key": [None, False]})
+
+    def _api_instance(self, extra):
+        script = f'''
+uci set hermes.api=api
+{extra}
+uci commit hermes
+'''
+        self.addCleanup(subprocess.run, ["sh", "-c", "uci -q delete hermes.api; uci set hermes.main.profile=owner; uci commit hermes; rm -f /etc/hermes-agent/api.key /tmp/api-link.key"])
+        subprocess.run(["sh", "-c", script], check=True)
+        return self._service_instance_json_raw()
+
+    def test_console_key_is_made_once_root_only_and_never_in_procd(self):
+        key_file = Path("/etc/hermes-agent/api.key")
+        key_file.unlink(missing_ok=True)
+        ok, parsed, raw, err = self._api_instance("uci set hermes.api.enabled=1")
+        self.assertTrue(ok, err)
+        key = key_file.read_text().strip()
+        self.assertRegex(key, r"^[0-9a-f]{64}$")
+        st = key_file.stat()
+        self.assertEqual((st.st_uid, st.st_gid, oct(st.st_mode & 0o777)), (0, 0, "0o600"))
+        self.assertNotIn(key, raw)
+        self.assertNotIn(key, err)
+        env = parsed["instances"]["instance1"]["env"]
+        self.assertEqual({k: env.get(k) for k in ("HERMES_OPENWRT_API", "HERMES_OPENWRT_API_PORT", "HERMES_OPENWRT_API_HOURLY",
+                                                   "HERMES_OPENWRT_API_BUDGET", "HERMES_API_KEY_FILE")},
+                         {"HERMES_OPENWRT_API": "on", "HERMES_OPENWRT_API_PORT": "8642", "HERMES_OPENWRT_API_HOURLY": "10",
+                          "HERMES_OPENWRT_API_BUDGET": "0.50", "HERMES_API_KEY_FILE": str(key_file)})
+        show = subprocess.run(["uci", "show", "hermes"], capture_output=True, text=True).stdout
+        self.assertNotIn(key, show)
+        # A second start keeps it.
+        ok, _parsed, _raw, err = self._api_instance("uci set hermes.api.enabled=1")
+        self.assertTrue(ok, err)
+        self.assertEqual(key_file.read_text().strip(), key)
+        # Off by default, and off in another profile, where nothing would keep a question to reads.
+        ok, parsed, _raw, err = self._api_instance("uci -q delete hermes.api.enabled")
+        self.assertTrue(ok, err)
+        self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_API"], "off")
+        ok, parsed, _raw, err = self._api_instance("uci set hermes.api.enabled=1; uci set hermes.main.profile=assistant")
+        self.assertTrue(ok, err)
+        self.assertEqual(parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_API"], "off")
+        self.assertEqual(err.count("answered only in the owner profile"), 1, err)
+        # Values the start refuses, naming the setting.
+        for setting, value in (("port", "80"), ("port", "8642x"), ("hourly_limit", "0"), ("hourly_limit", "5000"),
+                               ("daily_budget_usd", "0"), ("daily_budget_usd", "0.00"), ("daily_budget_usd", "abc"),
+                               ("daily_budget_usd", "1.234")):
+            with self.subTest(setting=setting, value=value):
+                ok, _p, _r, err = self._api_instance(f"uci set hermes.api.enabled=1; uci set hermes.api.{setting}={value}")
+                self.assertFalse(ok, (setting, value))
+                self.assertIn("hermes.api." + setting, err)
+        # A key file that is a symbolic link, or a key too short, refuses.
+        key_file.unlink()
+        Path("/tmp/api-link.key").write_text("x" * 64)
+        key_file.symlink_to("/tmp/api-link.key")
+        ok, _p, _r, err = self._api_instance("uci set hermes.api.enabled=1")
+        self.assertFalse(ok)
+        self.assertIn("symbolic link", err)
+        key_file.unlink()
+        key_file.write_text("short")
+        ok, _p, _r, err = self._api_instance("uci set hermes.api.enabled=1")
+        self.assertFalse(ok)
+        self.assertIn("shorter than 32", err)
+
+    def test_wrapper_hands_the_console_key_to_the_gateway_alone(self):
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        seen = {}
+        for name in ("hermes-set-toolsets", "hermes-runtime-check"):
+            helper = Path("/usr/libexec") / name
+            original = helper.read_bytes()
+            self.addCleanup(helper.write_bytes, original)
+            marker = self.home / f"{name}.env"
+            seen[name] = marker
+            helper.write_text(f"import os\nopen({str(marker)!r}, 'w').write(repr(sorted(os.environ)))\n")
+        cli = Path("/usr/bin/hermes")
+        original = cli.read_bytes()
+        self.addCleanup(cli.write_bytes, original)
+        cli.write_text("#!/bin/sh\nexec python3 -S -c 'import json,os; print(json.dumps(dict(os.environ)))'\n")
+        key, api = self.home / "key", self.home / "api.key"
+        key.write_text("provider-runtime-canary")
+        api.write_text("a" * 64)
+        env = dict(self.env, HERMES_OPENWRT_TOOLSETS="memory", HERMES_OPENWRT_MCP_URL="", HERMES_MEM_MAX_MB="0",
+                   OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model", HERMES_OPENWRT_API="on",
+                   HERMES_OPENWRT_API_PORT="8642", HERMES_API_KEY_FILE=str(api),
+                   API_SERVER_KEY="b" * 64, API_SERVER_HOST="0.0.0.0", HERMES_OPENWRT_API_KEY="c" * 64)
+        def gateway(**extra):
+            result = subprocess.run(["sh", str(FILES / "hermes-gateway"), str(key)], env=dict(env, **extra),
+                                    check=False, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return gateway_json(result.stdout), result.stderr
+        child, _err = gateway()
+        self.assertEqual(child.get("HERMES_OPENWRT_API_KEY"), "a" * 64)
+        self.assertEqual(child.get("HERMES_OPENWRT_API"), "on")
+        self.assertNotIn("HERMES_API_KEY_FILE", child)
+        # Upstream's own API server starts on these alone; whatever a caller set never reaches it.
+        for name in ("API_SERVER_KEY", "API_SERVER_HOST"):
+            self.assertNotIn(name, child)
+        for name, marker in seen.items():
+            self.assertNotIn("HERMES_OPENWRT_API_KEY", marker.read_text(), f"{name} was handed the console's key")
+        # Another profile is not handed it; a missing or short key turns the questions off, with one line.
+        child, err = gateway(HERMES_OPENWRT_PROFILE="assistant")
+        self.assertNotIn("HERMES_OPENWRT_API_KEY", child)
+        self.assertEqual(child.get("HERMES_OPENWRT_API"), "off")
+        api.write_text("short")
+        child, err = gateway()
+        self.assertNotIn("HERMES_OPENWRT_API_KEY", child)
+        self.assertEqual(child.get("HERMES_OPENWRT_API"), "off")
+        self.assertEqual(err.count("console's API key file"), 1, err)
+        # The gateway's sitecustomize takes it out of the environment before upstream runs, so no process
+        # the gateway starts inherits it, and gives it to the plugin once.
+        boot = subprocess.run(["python3", "-c", "import json, os, subprocess, sitecustomize as s; print(json.dumps({"
+                               "'env': 'HERMES_OPENWRT_API_KEY' in os.environ, 'child': subprocess.run(['sh', '-c', 'env'], "
+                               "capture_output=True, text=True).stdout.count('a' * 64), "
+                               "'first': s.take_api_key(), 'second': s.take_api_key()}))"],
+                              env=dict(self.env, PYTHONPATH="/usr/lib/hermes-agent/gateway-boot",
+                                       HERMES_OPENWRT_API_KEY="a" * 64),
+                              check=False, capture_output=True, text=True)
+        self.assertEqual(boot.returncode, 0, boot.stderr)
+        self.assertEqual(json.loads(boot.stdout.strip().splitlines()[-1]),
+                         {"env": False, "child": 0, "first": "a" * 64, "second": ""})
+
+    def test_console_turn_is_shown_openwrt_mcp_alone(self):
+        url = "http://127.0.0.1:8730/mcp"
+        for mcp in (url, None):
+            with self.subTest(mcp=mcp):
+                result = self.configure(tools="terminal,file,memory,skills,web,cronjob,delegation,messaging",
+                                        mcp=mcp or "", endpoint="http://127.0.0.1:9/v1", profile="owner")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                config = self.config()
+                config.setdefault("mcp_servers", {})["operator_extra"] = {"url": "http://127.0.0.1:9999/mcp"}
+                tools = _get_platform_tools(config, "api_server")
+                self.assertEqual(config["platform_toolsets"]["api_server"], ["openwrt"] if mcp else ["no_mcp"])
+                for name in ("terminal", "file", "memory", "skills", "web", "cronjob", "delegation", "messaging",
+                             "code_execution", "operator_extra"):
+                    self.assertNotIn(name, tools, (mcp, tools))
+                self.assertEqual("openwrt" in tools, bool(mcp), tools)
+                # The chat keeps what UCI selected.
+                self.assertIn("terminal", _get_platform_tools(config, "telegram"))
+
+    def test_dotenv_cannot_turn_the_console_on_or_move_it(self):
+        endpoint = "http://127.0.0.1:9/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        env = dict(self.env, OPENAI_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="provider-runtime-canary", HERMES_OPENWRT_API="off")
+        def preflight():
+            return subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,
+                                  capture_output=True, text=True)
+        self.assertEqual(preflight().returncode, 0, preflight().stderr)
+        for line in ("API_SERVER_KEY=" + "c" * 40, "API_SERVER_HOST=0.0.0.0", "API_SERVER_PORT=80",
+                     "HERMES_OPENWRT_API=on", "HERMES_OPENWRT_API_HOURLY=100000", "HERMES_OPENWRT_API_BUDGET=999"):
+            with self.subTest(line=line):
+                (self.home / ".env").write_text(line + "\n")
+                result = preflight()
+                self.assertNotEqual(result.returncode, 0, line)
+                self.assertNotIn("c" * 40, result.stdout + result.stderr)
+                (self.home / ".env").unlink()
+
+    def test_agent_terminal_is_not_handed_the_console_key(self):
+        # In a chat the agent has a terminal; the key never reaches it (it is not in the gateway's environment
+        # at all once the sitecustomize took it), and neither does upstream's own API_SERVER_KEY name.
+        probe = ("import json, os; from tools.environments.local import _sanitize_subprocess_env; "
+                 "print(json.dumps(sorted(_sanitize_subprocess_env(dict(os.environ)))))")
+        result = subprocess.run(["python3", "-c", probe], env=dict(self.env, API_SERVER_KEY="d" * 64),
+                                check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("API_SERVER_KEY", json.loads(result.stdout.strip().splitlines()[-1]))
 
     def test_service_state_and_package_settings_are_reads(self):
         # Measured 2026-10-09 on a Flint 2 with r13, the owner profile through Telegram: the agent
