@@ -3469,6 +3469,66 @@ start_service; echo "start=$?"
                                env=gateway_json(started.stdout), check=False, capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
 
+    # What upstream's agent/anthropic_credentials.py `_is_oauth_token` calls an OAuth token: any `sk-ant-` key
+    # that does not begin `sk-ant-api`. Anthropic's Console keys now begin `sk-ant-usr-`, so for api.anthropic.com
+    # the agent sent them as Claude Code (Authorization: Bearer, the claude-code and oauth betas, a claude-code
+    # user agent and a "You are Claude Code" system line), which Anthropic refuses an API key with "Your credit
+    # balance is too low". @measured 2026-11-22 with curl and a Console key of that shape, one token on
+    # claude-haiku-5-5: x-api-key answered, the Claude Code form was refused with that message.
+    API_KEY_PROBE = (
+        "import json, os\n"
+        "from agent.anthropic_credentials import _is_oauth_token, anthropic_route_is_oauth\n"
+        "import agent.anthropic_adapter as adapter\n"
+        "keys = {'console-usr': 'sk-ant-usr-' + 'x' * 40, 'console-api': 'sk-ant-api03-' + 'x' * 40,\n"
+        "        'console-admin': 'sk-ant-admin-' + 'x' * 40, 'oauth-token': 'sk-ant-oat01-' + 'x' * 40}\n"
+        "out = {'shape': {n: _is_oauth_token(k) for n, k in keys.items()},\n"
+        "       'adapter_sees_it': adapter._is_oauth_token is _is_oauth_token,\n"
+        "       'route': {n: anthropic_route_is_oauth('https://api.anthropic.com/v1', k, provider='custom')\n"
+        "                 for n, k in keys.items()}}\n"
+        "from gateway.run import _resolve_runtime_agent_kwargs_for_provider\n"
+        "from run_agent import AIAgent\n"
+        "kwargs = _resolve_runtime_agent_kwargs_for_provider('uci', target_model='claude-haiku-5-5')\n"
+        "for name in ('model', 'request_overrides', 'capabilities'):\n"
+        "    kwargs.pop(name, None)\n"
+        "agent = AIAgent(model='claude-haiku-5-5', quiet_mode=True, skip_context_files=True, skip_memory=True, **kwargs)\n"
+        "client = agent._anthropic_client\n"
+        "headers = {k.lower(): v for k, v in client.default_headers.items()}\n"
+        "out['agent'] = {'api_mode': agent.api_mode, 'oauth': agent._is_anthropic_oauth,\n"
+        "                'x_api_key': client.api_key == os.environ['OPENAI_API_KEY'], 'bearer': client.auth_token,\n"
+        "                'betas': headers.get('anthropic-beta', ''), 'user_agent': headers.get('user-agent', '')}\n"
+        "print(json.dumps(out))\n"
+    )
+
+    def test_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code(self):
+        # The main key of a router on Anthropic's own API, of the shape the Console issues now, through the
+        # real wrapper, bridge and preflight, and the agent upstream builds for it, as the launcher runs
+        # upstream's code. An OAuth token, which only works as a Bearer, keeps the identity it needs.
+        endpoint = self.ANTHROPIC_ENDPOINT
+        key = "sk-ant-usr-" + "k" * 40
+        started = self.wrapper_env(endpoint, key=key)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        main = Path("/usr/lib/hermes-agent/site-packages/hermes_cli/main.py")
+        original = main.read_bytes()
+        self.addCleanup(main.write_bytes, original)
+        main.write_text(self.API_KEY_PROBE)
+        result = subprocess.run(["/usr/bin/hermes", "gateway", "run", "--external-supervisor"],
+                                env=gateway_json(started.stdout), check=False, capture_output=True, text=True,
+                                cwd="/", timeout=120)
+        self.assertEqual(result.returncode, 0, "rc %d: %s" % (result.returncode, result.stderr[-600:]))
+        self.assertNotIn(key, result.stdout + result.stderr)
+        seen = json.loads(result.stdout.strip().splitlines()[-1])
+        shape = {"console-usr": False, "console-api": False, "console-admin": False, "oauth-token": True}
+        self.assertEqual(seen["shape"], shape)
+        self.assertEqual(seen["route"], shape)
+        self.assertTrue(seen["adapter_sees_it"], "the adapter holds upstream's own test of the key")
+        agent = seen["agent"]
+        self.assertEqual(agent["api_mode"], "anthropic_messages")
+        self.assertTrue(agent["x_api_key"], agent)
+        self.assertFalse(agent["oauth"], agent)
+        self.assertIsNone(agent["bearer"], agent)
+        self.assertNotIn("claude-code", agent["betas"] + agent["user_agent"], agent)
+        self.assertNotIn("oauth", agent["betas"], agent)
+
     def test_messages_api_only_for_anthropic_itself(self):
         # The other way. A look-alike host, which upstream's host test refuses as Anthropic's, stays on
         # chat completions like any other endpoint.
