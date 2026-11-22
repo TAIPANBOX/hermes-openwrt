@@ -3476,6 +3476,10 @@ start_service; echo "start=$?"
     # balance is too low". @measured 2026-11-22 with curl and a Console key of that shape, one token on
     # claude-haiku-5-5: x-api-key answered, the Claude Code form was refused with that message.
     API_KEY_PROBE = (
+        # main.py's own directory is first on sys.path, and hermes_cli/gateway.py there would shadow
+        # upstream's `gateway` package; upstream's own main.py puts its root first before it imports any.
+        "import sys\n"
+        "sys.path.pop(0)\n"
         "import json, os\n"
         "from agent.anthropic_credentials import _is_oauth_token, anthropic_route_is_oauth\n"
         "import agent.anthropic_adapter as adapter\n"
