@@ -612,6 +612,17 @@ mutants = [
     ("netryx written into openwrt-mcp's read policy", 'hermes-agent.init',
      'for scope in $MCP_READ_UBUS; do printf', 'for scope in $MCP_READ_UBUS $MCP_CRON_READ_UBUS; do printf',
      'test_service_state_and_package_settings_are_reads'),
+    # 0.21.5-r27: a Console key goes to Anthropic as an API key, never as Claude Code; an OAuth token keeps its identity.
+    ('the key test of upstream left as it is', 'hermes-start', 'sys.meta_path.insert(0, _ApiKeyShapes())', 'pass',
+     'test_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code'),
+    ('the key test not put where the adapter takes it', 'hermes-start', '    module._is_oauth_token = _is_oauth_token\n',
+     '    pass\n', 'test_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code'),
+    ('an OAuth token loses the identity it needs', 'hermes-start', '_OAUTH_PREFIX = "sk-ant-oat"',
+     '_OAUTH_PREFIX = "sk-ant-api"', 'test_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code'),
+    ('a Console key of the new shape still taken for OAuth', 'hermes-start',
+     '        if isinstance(key, str) and key.startswith("sk-ant-") and not key.startswith(_OAUTH_PREFIX):\n            return False\n',
+     '        if isinstance(key, str) and key.startswith("sk-ant-api"):\n            return False\n',
+     'test_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code'),
     # 0.21.5-r20: the main model from llm-gateway, the router's own gateway to the house's model servers.
     ('the agent left on base_url with the gateway on', 'hermes-agent.init',
      '\t\tbase_url=$(llm_gateway_endpoint "$model") || return 1',

@@ -159,6 +159,41 @@ The jobs were Haiku 5.5 on the Max plan's API credit, a few model calls each. Th
 (`test_scheduled_job_may_read_netryx_but_still_cannot_change_anything`) reads the list as procd is
 handed it and asks the unlock plugin about the six reads, twelve other calls and every change tool.
 
+## A Console key is an API key
+
+Anthropic's Console keys begin `sk-ant-usr-` now. Upstream's own test of a key's shape calls any `sk-ant-`
+key that does not begin `sk-ant-api` an OAuth token, and for `api.anthropic.com` an OAuth token goes out as
+Claude Code: Authorization: Bearer, the `claude-code` and `oauth` betas, a claude-code user agent and a
+"You are Claude Code" system line. Anthropic refuses an API key in that form, so every request a router
+made with its own Console key came back "Your credit balance is too low to access the Anthropic API", as
+the main model and as a provider section alike. Since 0.21.5-r27 `hermes-start` replaces that test, as
+upstream's module loads, with one that says OAuth only for `sk-ant-oat` tokens and upstream's other two
+shapes.
+
+Measured on 2026-11-22, one token each, with the lab's own key and `claude-haiku-5-5`, from a workstation
+with curl:
+
+| request | answer |
+|---|---|
+| `x-api-key` | a message, `stop_reason: max_tokens` |
+| Bearer, the two betas, a claude-code user agent, the Claude Code system line | 400, "Your credit balance is too low" |
+
+On the Beryl AX (OpenWrt 25.12.6, owner profile, the agent started by the package's own init), the headers
+upstream built for a key of that shape, caught before they left the process: `Authorization: Bearer`,
+`anthropic-beta: ...claude-code-20250219,oauth-2025-04-20`, a `claude-code/2.1.74` user agent.
+
+| a scheduled job, "Run uptime with the terminal tool and tell me the load average in one sentence." | 12:17 to 12:20 London |
+|---|---|
+| r27's main as it stands | failed, HTTP 400 "Your credit balance is too low" |
+| with this change's `hermes-start` over the installed one, the gateway restarted | answered: 2 model calls, 15 817 and 16 786 tokens in (94 % of the second from cache), 333 and 177 out |
+
+The same key answered through the same route earlier the same day (10:42 and 11:03), before the check
+began to refuse it, so the refusal is Anthropic's, and the shape test is what lets it reach a key that
+works. The runtime gate's new test (`test_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code`)
+builds the agent upstream builds for a Console-shaped fake key and checks the client holds it as
+`x-api-key` with no Bearer, no Claude Code beta and no claude-code user agent, and that an `sk-ant-oat`
+token keeps the identity it needs.
+
 ## Re-run on the published release, 2026-10-04
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](rerun.svg)

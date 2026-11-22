@@ -19,6 +19,22 @@
 #
 # Fail closed: a Hermes whose threads keep musl's default would die at its first tool, and silently,
 # so one that cannot have the stack does not start.
+#
+# It also keeps a Console key from being sent as Claude Code (0.21.5-r27). Upstream's
+# agent/anthropic_credentials.py `_is_oauth_token` calls any `sk-ant-` key that does not begin `sk-ant-api`
+# an OAuth token, and for api.anthropic.com an OAuth token goes out as Claude Code: Authorization: Bearer,
+# the claude-code and oauth betas, a claude-code user agent and a "You are Claude Code" system line.
+# Anthropic's Console keys begin `sk-ant-usr-` now, so on 2026-11-22 every request a router made with its
+# own API key was refused with "Your credit balance is too low to access the Anthropic API", where the
+# same key sent as x-api-key answered. An OAuth token begins `sk-ant-oat` (upstream's own credential pool
+# classifies by that prefix), so here the shape test says OAuth only for those, and for the other shapes
+# it already knew (eyJ, cc-); every other `sk-ant-` key is an API key. The package never signs in to
+# Anthropic with a subscription, so no key it hands a provider is meant to be anything else.
+# It is done as a hook on the import, not by importing upstream here: main.py sets up its environment
+# before it imports anything of upstream's, and this file must not import any of it first. Upstream's
+# modules take the function by name when they are imported, which is after the hook has run.
+import importlib.abc
+import importlib.machinery
 import os
 import runpy
 import sys
@@ -42,6 +58,51 @@ except Exception as e:  # noqa: BLE001 -- any failure leaves musl's default in f
     sys.stderr.write("hermes: cannot give the agent's threads a %d KiB stack (%s); not starting\n"
                      % (THREAD_STACK // 1024, e))
     raise SystemExit(1)
+
+_CREDENTIALS = "agent.anthropic_credentials"
+_OAUTH_PREFIX = "sk-ant-oat"
+
+
+def _api_key_shapes(module):
+    original = getattr(module, "_is_oauth_token", None)
+    if not callable(original) or not hasattr(module, "anthropic_route_is_oauth"):
+        # Fail closed, as with the stack: an upstream whose key test is not where this expects would
+        # send a Console key as Claude Code, and silently refused for credit.
+        raise ImportError("hermes: upstream's Anthropic key test is not where hermes-start expects it; not starting")
+
+    def _is_oauth_token(key):
+        if isinstance(key, str) and key.startswith("sk-ant-") and not key.startswith(_OAUTH_PREFIX):
+            return False
+        return original(key)
+
+    _is_oauth_token.__doc__ = original.__doc__
+    module._is_oauth_token = _is_oauth_token
+
+
+class _PatchedLoader:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def create_module(self, spec):
+        return self._inner.create_module(spec)
+
+    def exec_module(self, module):
+        self._inner.exec_module(module)
+        _api_key_shapes(module)
+
+
+class _ApiKeyShapes(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name != _CREDENTIALS:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(name, path)
+        if spec is None or spec.loader is None:
+            return None
+        spec.loader = _PatchedLoader(spec.loader)
+        return spec
+
+
+sys.meta_path.insert(0, _ApiKeyShapes())
 
 if len(sys.argv) < 2:
     sys.stderr.write("hermes-start: run by /usr/bin/hermes with upstream's main.py as its first argument\n")

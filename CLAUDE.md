@@ -1391,6 +1391,39 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     the feed with the Anthropic change's two helpers), a stand-in rpcd plugin answering the six names and the
     `netryx_reads` policy for `hermes-main`: see docs/measured.md, "A scheduled job reads netryx".
 
+36. `@decided 2026-11-22` (the owner's, paraphrased): the key in a key file that the package hands a provider,
+    the main model's and every provider section's, always goes to Anthropic as an API key (`x-api-key`) and
+    never as Claude Code. `@claude` 2026-11-22, why and how (0.21.5-r27): upstream's
+    `agent/anthropic_credentials.py` `_is_oauth_token` calls any `sk-ant-` key that does not begin `sk-ant-api`
+    an OAuth token, and for `api.anthropic.com` such a token is sent as Claude Code (Authorization: Bearer, the
+    claude-code and oauth betas, a claude-code user agent and a "You are Claude Code" system line,
+    `agent/anthropic_adapter.py` `_auth_style`). Anthropic's Console keys begin `sk-ant-usr-` now, so every
+    request a router made with its own key was refused with "Your credit balance is too low to access the
+    Anthropic API", where the same key as x-api-key answered. The payload stays unpatched (invariant 17):
+    `hermes-start`, which the launcher runs in front of upstream's main.py (invariant 33), puts a hook on the
+    import of that one module and, as it is loaded, replaces `_is_oauth_token` by a test that says OAuth only
+    for `sk-ant-oat` tokens and the other shapes upstream already knew (`eyJ`, `cc-`), and API key for every
+    other `sk-ant-` key. Upstream's own credential pool classifies by the same prefix. The hook is on the
+    import, not an import of upstream's code from `hermes-start`, because main.py sets up its environment
+    before it imports anything of upstream's. It fails closed: an upstream whose key test is not where the hook
+    expects stops the start. The package has no sign-in to Anthropic with a subscription, so an OAuth token in
+    a key file, which only works as a Bearer, keeps the identity it needs and is the operator's own choice.
+    Not covered: a process that is not started through `hermes-start` (the unlock plugin's and the helpers'
+    own python makes no Anthropic call). (gate: `scripts/gate-runtime.sh`
+    `check_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code`, bound to `features/runtime.feature`,
+    the real wrapper, bridge and preflight and the agent upstream builds, a Console-shaped fake key; teeth:
+    `scripts/teeth-runtime.py`, four mutants.) Red first, the test committed alone (ea2ab32): its CI run, `gh run view
+    45021282923 --log-failed`, failed 1 of 103 for the wrong reason (the probe's own sys.path put
+    hermes_cli/gateway.py ahead of upstream's gateway package, `No module named 'gateway.config'`), fixed in 168fda0,
+    so the red that counts is the hardware one. `@measured` 2026-11-22 on a Beryl AX (25.12.6, r26's payload with r27's
+    main helpers), the test's own probe run by main's `hermes-start` and then by this one, with a Console-shaped
+    fake key: main's gave `console-usr` and `console-admin` true, the agent holding the key as a Bearer with the
+    claude-code and oauth betas and a `claude-code/2.1.74` user agent; this one gave all three Console shapes false,
+    `x-api-key`, no Bearer, no Claude Code beta, `Anthropic/Python 0.87.0`, and `sk-ant-oat01` still true. `@measured` 2026-11-22 on a Beryl AX (25.12.6,
+    owner profile, r26's package with the r27 main's helpers), the lab's own Console key and
+    `claude-haiku-5-5`: a scheduled job asked to run `uptime` failed with that credit message; with this
+    `hermes-start` over the installed one and the gateway restarted, the same job answered in two model calls.
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.

@@ -787,6 +787,16 @@ Feature: What is set on the router is what the gateway runs with
     Then the start goes ahead, and the agent reaches that address with that key in Anthropic's own protocol
     # -> check_anthropic_api_key_as_the_main_model_starts_on_the_messages_api
 
+  # @decided 2026-11-22 (the owner's, paraphrased): the key in a key file that the package hands a provider
+  # always goes to Anthropic as an API key, never as Claude Code. @measured the same day on a Flint 2: a
+  # Console key beginning sk-ant-usr- was taken for an OAuth token by upstream, and Anthropic refused every
+  # request in that form with "Your credit balance is too low" while the same key answered as x-api-key.
+  Scenario: a Console key is sent to Anthropic as an API key and never as Claude Code
+    Given Anthropic's own API as the main endpoint and a Console key of the shape the Console issues now
+    When the agent upstream builds is asked how it will authenticate
+    Then it sends the key as x-api-key with no Claude Code identity, and an OAuth token, which only works as a Bearer, keeps the identity it needs
+    # -> check_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code
+
   Scenario: only Anthropic's own address is spoken to that way
     Given a main endpoint that is not Anthropic's, a look-alike name included
     When the service starts
