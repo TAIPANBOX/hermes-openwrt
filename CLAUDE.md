@@ -1412,9 +1412,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     own python makes no Anthropic call). (gate: `scripts/gate-runtime.sh`
     `check_a_console_key_is_sent_as_an_api_key_and_never_as_claude_code`, bound to `features/runtime.feature`,
     the real wrapper, bridge and preflight and the agent upstream builds, a Console-shaped fake key; teeth:
-    `scripts/teeth-runtime.py`, four mutants.) Red first, the test committed alone (ea2ab32) and run
-    against r27's main: `@measured` `gh run view 45021282923 --log-failed` 2026-11-22, 103 ran with 1 failure,
-    the new test. `@measured` 2026-11-22 on a Beryl AX (25.12.6,
+    `scripts/teeth-runtime.py`, four mutants.) Red first, the test committed alone (ea2ab32): its CI run, `gh run view
+    45021282923 --log-failed`, failed 1 of 103 for the wrong reason (the probe's own sys.path put
+    hermes_cli/gateway.py ahead of upstream's gateway package, `No module named 'gateway.config'`), fixed in 168fda0,
+    so the red that counts is the hardware one. `@measured` 2026-11-22 on a Beryl AX (25.12.6, r26's payload with r27's
+    main helpers), the test's own probe run by main's `hermes-start` and then by this one, with a Console-shaped
+    fake key: main's gave `console-usr` and `console-admin` true, the agent holding the key as a Bearer with the
+    claude-code and oauth betas and a `claude-code/2.1.74` user agent; this one gave all three Console shapes false,
+    `x-api-key`, no Bearer, no Claude Code beta, `Anthropic/Python 0.87.0`, and `sk-ant-oat01` still true. `@measured` 2026-11-22 on a Beryl AX (25.12.6,
     owner profile, r26's package with the r27 main's helpers), the lab's own Console key and
     `claude-haiku-5-5`: a scheduled job asked to run `uptime` failed with that credit message; with this
     `hermes-start` over the installed one and the gateway restarted, the same job answered in two model calls.
