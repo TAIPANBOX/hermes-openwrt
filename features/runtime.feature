@@ -768,6 +768,28 @@ Feature: What is set on the router is what the gateway runs with
     Then it is spoken to as before, and on OpenAI's own address a route left the old way stops the start
     # -> check_responses_api_only_for_openai_itself
 
+  # @decided 2026-11-22: an Anthropic API key works as the router's main model, as it does as a further
+  # provider. @measured the same day on a Beryl AX with r26: every start with Anthropic's own address
+  # as the main endpoint was refused, since upstream speaks Anthropic's own protocol to that host and
+  # the bridge wrote the OpenAI-compatible one.
+  Scenario: an Anthropic API key works as the main model
+    Given the router's configuration names Anthropic's own API as the main endpoint, with an API key
+    When the service starts
+    Then the start goes ahead, and the agent reaches that address with that key in Anthropic's own protocol
+    # -> check_anthropic_api_key_as_the_main_model_starts_on_the_messages_api
+
+  Scenario: only Anthropic's own address is spoken to that way
+    Given a main endpoint that is not Anthropic's, a look-alike name included
+    When the service starts
+    Then it is spoken to as before, and on Anthropic's own address a route left the old way stops the start
+    # -> check_messages_api_only_for_anthropic_itself
+
+  Scenario: an Anthropic main model and an Anthropic provider section keep each its own key
+    Given Anthropic as the main model and again as a further provider, each with a key of its own
+    When the service starts
+    Then the main route uses the main key and the provider section its own
+    # -> check_anthropic_main_model_keeps_its_key_from_a_provider_section
+
   Scenario: a ChatGPT subscription keeps working beside an OpenAI API key
     Given an OpenAI API key as the main model and a ChatGPT subscription signed in
     When the service starts

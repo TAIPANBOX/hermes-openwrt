@@ -3352,7 +3352,13 @@ start_service; echo "start=$?"
         "for name in ('model', 'request_overrides', 'capabilities'):\n"
         "    kwargs.pop(name, None)\n"
         "agent = AIAgent(model='runtime-model', quiet_mode=True, skip_context_files=True, skip_memory=True, **kwargs)\n"
-        "got = (agent.api_mode, str(agent.client.base_url).rstrip('/'), agent.client.api_key == os.environ['OPENAI_API_KEY'])\n"
+        "if mode == 'anthropic_messages':\n"
+        # Upstream's native Messages client is not agent.client: it keeps its own, and the address
+        # it was given is the endpoint as UCI names it (the SDK adds /v1/messages itself).
+        "    got = (agent.api_mode, agent._anthropic_base_url.rstrip('/'),\n"
+        "           agent._anthropic_client.api_key == os.environ['OPENAI_API_KEY'])\n"
+        "else:\n"
+        "    got = (agent.api_mode, str(agent.client.base_url).rstrip('/'), agent.client.api_key == os.environ['OPENAI_API_KEY'])\n"
         "assert got == (mode, endpoint, True), got\n"
     )
 
@@ -3398,6 +3404,75 @@ start_service; echo "start=$?"
         self.assertIn("startup refused", pre.stderr)
         self.assertNotIn("main-key-canary", pre.stdout + pre.stderr)
         self.assertEqual(self.config(), config)
+
+    # Anthropic's own API as the main endpoint (0.21.5-r27). The package's bridge wrote chat_completions
+    # for it and the preflight required that, while upstream speaks Anthropic's native Messages protocol
+    # to api.anthropic.com whatever a config says (hermes_cli/providers.py host_mandated_api_mode), so
+    # every start with `hermes.main.base_url` at https://api.anthropic.com/v1 was "startup refused
+    # (upstream provider, endpoint, model or credential conflicts with UCI)". As a further provider
+    # section (`hermes.claude`) the same endpoint always worked, since that entry names no mode.
+    ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1"
+
+    def test_anthropic_api_key_as_the_main_model_starts_on_the_messages_api(self):
+        endpoint = self.ANTHROPIC_ENDPOINT
+        configured = self.configure(endpoint=endpoint, model="claude-haiku-5-5")
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertEqual(self.config()["model"]["api_mode"], "anthropic_messages")
+        # The real wrapper, bridge and preflight included, down to the gateway's exec.
+        started = self.wrapper_env(endpoint, key="main-key-canary")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertNotIn("main-key-canary", started.stderr)
+        self.assertEqual(self.config()["model"]["api_mode"], "anthropic_messages")
+        check = subprocess.run(["python3", "-c", self.ROUTES_CHECK, endpoint, "anthropic_messages"],
+                               env=gateway_json(started.stdout), check=False, capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
+
+    def test_messages_api_only_for_anthropic_itself(self):
+        # The other way. A look-alike host, which upstream's host test refuses as Anthropic's, stays on
+        # chat completions like any other endpoint.
+        endpoint = "https://api.anthropic.com.example.test/v1"
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        self.assertEqual(self.config()["model"]["api_mode"], "chat_completions")
+        started = self.wrapper_env(endpoint, key="main-key-canary")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        check = subprocess.run(["python3", "-c", self.ROUTES_CHECK, endpoint, "chat_completions"],
+                               env=gateway_json(started.stdout), check=False, capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
+        # On Anthropic's own host, a route left on chat completions (what r26 wrote) is not one the
+        # bridge chose: the start is refused and the file left as it is.
+        endpoint = self.ANTHROPIC_ENDPOINT
+        self.assertEqual(self.configure(endpoint=endpoint).returncode, 0)
+        config = self.config()
+        config["model"]["api_mode"] = "chat_completions"
+        (self.home / "config.yaml").write_text(yaml.safe_dump(config))
+        env = dict(self.env, OPENAI_BASE_URL=endpoint, CUSTOM_BASE_URL=endpoint, HERMES_MODEL="runtime-model",
+                   OPENAI_API_KEY="main-key-canary")
+        pre = subprocess.run(["python3", str(FILES / "runtime-check.py")], env=env, check=False,
+                             capture_output=True, text=True)
+        self.assertNotEqual(pre.returncode, 0, "a chat-completions route on Anthropic's own host started")
+        self.assertIn("startup refused", pre.stderr)
+        self.assertNotIn("main-key-canary", pre.stdout + pre.stderr)
+        self.assertEqual(self.config(), config)
+
+    def test_anthropic_main_model_keeps_its_key_from_a_provider_section(self):
+        # Anthropic as the main model and again as a further provider, each with its own key, as the
+        # Flint 2's test bot has it: the main route uses the main key, the section its own.
+        endpoint = self.ANTHROPIC_ENDPOINT
+        raw = f"claude|Anthropic|{endpoint}|/etc/hermes-agent/claude.key|claude-haiku-5-5"
+        configured = self.configure_providers(raw, endpoint=endpoint)
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertEqual(self.config()["model"]["api_mode"], "anthropic_messages")
+        code = (
+            "import os\n"
+            "from hermes_cli.runtime_provider import resolve_runtime_provider as r\n"
+            "main = r()\n"
+            "assert (main['api_mode'], main['api_key']) == ('anthropic_messages', 'main-key-canary'), main\n"
+            "side = r(requested='claude')\n"
+            "assert side['api_key'] == 'claude-key-canary' and side['base_url'].rstrip('/') == os.environ['OPENAI_BASE_URL'], side\n"
+        )
+        check = self.upstream(code, HERMES_PROVIDER_CLAUDE_KEY="claude-key-canary", OPENAI_BASE_URL=endpoint,
+                              CUSTOM_BASE_URL=endpoint, HERMES_MODEL="runtime-model")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr[-2000:])
 
     def test_chatgpt_subscription_works_beside_an_openai_api_key(self):
         # A router may hold both: an OpenAI API key as the main model and a ChatGPT subscription

@@ -1338,6 +1338,38 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     openwrt-mcp 0.5.0.11-r1, luci-app-hermes 0.21.5-r8; the installed launcher (sha256 068de96c...) and
     `hermes-start` (8f4caba1...) the files run on the Beryl AX; r25 no longer served.
 
+34. `@decided 2026-11-22` (paraphrased): Anthropic's own API works as the main provider, as it does as a
+    further provider section: `hermes.main.base_url='https://api.anthropic.com/v1'`, a Claude model and a
+    key file with an Anthropic key. `@claude` 2026-11-22, why and how (0.21.5-r27): upstream speaks
+    Anthropic's native Messages protocol to that host whatever a config says (`hermes_cli/providers.py`
+    `host_mandated_api_mode`, exact host name), while the bridge wrote `api_mode: chat_completions` and the
+    preflight required it, so the resolver answered `anthropic_messages` and every start was "startup
+    refused (upstream provider, endpoint, model or credential conflicts with UCI)". The bridge's
+    `_main_api_mode` now answers `codex_responses` for OpenAI's own hosts (invariant 8), `anthropic_messages`
+    where upstream's `host_mandated_api_mode` says so, and `chat_completions` for everything else; the
+    preflight asks the same two upstream tests, so a look-alike name keeps chat completions and on
+    Anthropic's host a route left on chat completions (what r26 wrote) is refused with the file untouched.
+    Upstream's test also says `anthropic_messages` for a third-party address ending in `/anthropic` and for
+    Kimi's `/coding`; those follow it too, with the main key going where UCI names. The main key stays the
+    UCI key (the `uci` entry's `key_env` is `OPENAI_API_KEY`) and a `claude` provider section on the same
+    address keeps its own. Not gated: a `/model` switch on that endpoint, which upstream checks against
+    Anthropic's model list and the gate runs offline (gate: `scripts/gate-runtime.sh`
+    `check_anthropic_api_key_as_the_main_model_starts_on_the_messages_api`,
+    `check_messages_api_only_for_anthropic_itself`,
+    `check_anthropic_main_model_keeps_its_key_from_a_provider_section`, bound to `features/runtime.feature`;
+    teeth: `scripts/teeth-runtime.py`, five mutants). Red first, the tests committed alone (8ad0898) and run
+    against the r26 package: `@measured` `gh run view 45013081647 --log-failed` 2026-11-22, 101 ran with 2
+    failures, the first and the third test; the second holds the other way and passed, since r26 refused
+    every Anthropic start. `@measured` 2026-11-22 10:35 to 10:45 London on a Beryl AX (25.12.6, owner
+    profile), 0.21.5-r26 from the feed: `scripts/hw-flow.sh model start` with `BASE_URL=https://api.anthropic.com/v1
+    MODEL=claude-haiku-5-5` and a lab key read from the Keychain file on standard input: refused six times and
+    procd gave up; with this change's `set-toolsets.py` and `runtime-check.py` copied over
+    `/usr/libexec/hermes-set-toolsets` and `hermes-runtime-check` (the package itself unchanged otherwise) the
+    start passed, the gateway ran as hermes at 178 MB, `config.yaml` held `api_mode: anthropic_messages`, and a
+    scheduled job asked to run `uptime` with the terminal tool answered in two model calls (`provider=custom`,
+    16 858 tokens in, 230 out), the gateway running on. The router was then put back as found: package, feed
+    line, key, data and configuration removed. Not run on a router: the built r27 package itself.
+
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
 It makes no model API call. Test credentials are synthetic. Host tools are not installed.
