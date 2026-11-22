@@ -1329,6 +1329,14 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     three times each answered in a one-shot chat (rc 0, 52 s, 3 calls, 2 tool turns) and as a scheduled
     job in the gateway (3 calls, 2 tool turns, one gateway life from start to the stop that ended the
     run, no exit 139); 57.3 C before, 58.1 C at most, 57.9 C after.
+    Published 2026-11-22 from main CI run 44975254604 (main 21e0d5b, success),
+    `FROM_CI=44975254604 ./scripts/publish-feed.sh` from a clean clone with the Keychain key: gate-feed 3 of
+    3, gh-pages pushed; the r25 feed is kept under the tag `feed-0.21.5-r25`. `@measured` 2026-11-22 from a
+    clean client, a fresh OpenWrt 25.12.6 container on forge with OpenWrt's keys and the feed's
+    `hermes-openwrt.pem` (sha256 b218189a8ffb35cc...), `apk --root --arch aarch64_cortex-a53 --initdb add
+    hermes-agent luci-app-hermes` without --allow-untrusted: 109 packages, hermes-agent 0.21.5-r26,
+    openwrt-mcp 0.5.0.11-r1, luci-app-hermes 0.21.5-r8; the installed launcher (sha256 068de96c...) and
+    `hermes-start` (8f4caba1...) the files run on the Beryl AX; r25 no longer served.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.
