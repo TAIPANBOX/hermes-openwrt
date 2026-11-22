@@ -1318,7 +1318,17 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     against r25's launcher and green with hermes-start (gate:
     `scripts/gate-runtime.sh` `check_tool_turn_completes_in_a_chat_and_in_a_scheduled_job`,
     `check_agent_threads_have_room_for_deep_input`, bound to `features/runtime.feature`; teeth:
-    `scripts/teeth-runtime.py`, six mutants).
+    `scripts/teeth-runtime.py`, six mutants). Red first, the tests committed alone (c13146d) and run
+    against the r25 package: `@measured` `gh run view 44970762223 --log-failed` 2026-11-22, 98 ran with 3
+    failures, all `-11 != 0`, the two new tests (one in both launcher branches); with the fix, CI run
+    44971811420: 98 of 98, six mutants red, gate-unlock 61 of 61. `@measured` 2026-11-22 02:04 to 02:13
+    London on the Beryl AX (25.12.6, owner profile, Hermes on a USB stick), r25 with r26's `/usr/bin/hermes`
+    and `hermes-start` copied over it and put back after (sha256 of the launcher equal to before): the
+    stand-in Anthropic turn on loopback SIGSEGV after 33 s on r25 and answered in 29 s with `uptime` run on
+    r26; with `claude-haiku-5-5`, the turn that shows the WAN address and pings the gateway and 1.1.1.1
+    three times each answered in a one-shot chat (rc 0, 52 s, 3 calls, 2 tool turns) and as a scheduled
+    job in the gateway (3 calls, 2 tool turns, one gateway life from start to the stop that ended the
+    run, no exit 139); 57.3 C before, 58.1 C at most, 57.9 C after.
 
 Run builds before gates. `gate-runtime.sh` uses a disposable privileged container with
 its own cgroup namespace and read-only host mounts; never use host cgroup namespace.

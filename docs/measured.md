@@ -87,6 +87,18 @@ smallest power of two above that. A stack is reserved address space, not memory:
 resident size of the tool turn was 145.7, 146.3 and 148.7 MB at 1, 4 and 8 MiB, a run-to-run
 difference, while the virtual size grew by the reservation of its seven or eight threads.
 
+On the Beryl AX itself, the same day, with r25 installed and r26's launcher and `hermes-start` put over
+it for the run (then put back, checksummed equal):
+
+| On the Beryl AX, OpenWrt 25.12.6 | r25 | r26 |
+|---|---|---|
+| the stand-in turn, `Run uptime and tell me the load average.` | SIGSEGV after 33 s | answered in 29 s, `uptime` ran |
+| a real turn, one-shot chat: show the WAN address, ping the gateway and 1.1.1.1 three times each | SIGSEGV | answered in 52 s: 3 model calls, 2 tool turns, both pings 3 of 3 |
+| the same turn as a scheduled job, in the gateway | the gateway went down | answered: 3 model calls, 2 tool turns, the gateway ran on |
+
+The real turns used `claude-haiku-5-5` through an Anthropic provider section: six calls, 1 456 tokens out.
+The processor stayed between 57.3 and 58.1 C.
+
 ## Re-run on the published release, 2026-10-04
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](rerun.svg)
