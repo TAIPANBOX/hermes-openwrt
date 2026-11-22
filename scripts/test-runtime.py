@@ -2559,6 +2559,45 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
             restore()
         return policies, result.stderr
 
+    # netryx, the router's own console and light IPS, answers over ubus with an object of six methods, each
+    # a read. The owner grants the agent's client those reads with a policy of their own in openwrt-mcp
+    # (`netryx_reads`, ubus_call, scope netryx.*), and in a chat they work. A scheduled job never got
+    # there: the package refuses a job any ubus method its init does not list as a read, and netryx was
+    # not listed (@measured 2026-11-22 on a Flint 2 with r26: five one-off jobs, each refused with "a
+    # scheduled job cannot change the router (ubus_call netryx.devices)" and no line in openwrt-mcp's audit).
+    NETRYX_READS = ("status", "devices", "rules", "alerts", "apps", "usage")
+
+    def test_scheduled_job_may_read_netryx_but_still_cannot_change_anything(self):
+        parsed, _raw = self._service_instance_json()
+        handed = parsed["instances"]["instance1"]["env"]["HERMES_OPENWRT_READ_UBUS"]
+        probe = r"""
+import json, os, openwrt_unlock as u
+def refused(obj, method, tool="ubus_call"):
+    return u._refuses("mcp__openwrt__" + tool, {"object": obj, "method": method})
+print(json.dumps({
+    "reads": {m: refused("netryx", m) for m in json.loads(os.environ["READS"])},
+    "others": {name: refused(*name.split(".", 1)) for name in json.loads(os.environ["OTHERS"])},
+    "tools": {t: refused("netryx", "status", t) for t in ("uci_apply", "uci_confirm", "exec", "apk_add", "ubus_list", "uci_get")},
+}))
+"""
+        others = ["netryx.serve", "netryx.set", "netryx.reload", "netryx.devices2", "netryx.*", "system.reboot",
+                  "service.list", "rc.init", "uci.set", "file.exec", "network.wireless.status", "hermes.status"]
+        env = dict(self.env, HERMES_OPENWRT_READ_UBUS=handed, READS=json.dumps(list(self.NETRYX_READS)),
+                   OTHERS=json.dumps(others))
+        result = subprocess.run(["python3", "-c", probe], env=env, check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        answer = json.loads(result.stdout.strip().splitlines()[-1])
+        # The six reads, and those only: by name, never `netryx.*`, so a method netryx adds later, a
+        # write included, is a change to the package until it is listed here.
+        self.assertEqual(answer["reads"], {m: None for m in self.NETRYX_READS}, handed)
+        for name, why in answer["others"].items():
+            self.assertTrue(why, "a scheduled job may " + name)
+        # What is not a ubus read keeps the verdict it had: reads of uci, the log and a method list pass,
+        # every change tool is refused.
+        self.assertEqual({t: bool(answer["tools"][t]) for t in answer["tools"]},
+                         {"uci_apply": True, "uci_confirm": True, "exec": True, "apk_add": True,
+                          "ubus_list": False, "uci_get": False})
+
     def test_service_state_and_package_settings_are_reads(self):
         # Measured 2026-10-09 on a Flint 2 with r13, the owner profile through Telegram: the agent
         # installed vnstat2, adguardhome and transmission-daemon and started them, and could not
@@ -2591,6 +2630,9 @@ print(json.dumps({"cron": sent(cron), "chat": sent(chat), "cron_platform": cron.
                 self.assertTrue(covers(read_ubus["scopes"], "rc.list"), read_ubus["scopes"])
                 for refused in ("service.list", "service.set", "service.state", "rc.init"):
                     self.assertFalse(covers(read_ubus["scopes"], refused), (refused, read_ubus["scopes"]))
+                # netryx's reads are the owner's own grant (a `netryx_reads` policy of their own): the
+                # package lets a scheduled job make the call, and writes nothing that answers it.
+                self.assertFalse(covers(read_ubus["scopes"], "netryx.devices"), read_ubus["scopes"])
                 self.assertFalse([s for s in read_ubus["scopes"] if s.split(".")[0] == "service"], read_ubus["scopes"])
                 if missing:
                     self.assertEqual(read_uci["scopes"], narrow)

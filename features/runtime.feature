@@ -768,6 +768,15 @@ Feature: What is set on the router is what the gateway runs with
     Then it is spoken to as before, and on OpenAI's own address a route left the old way stops the start
     # -> check_responses_api_only_for_openai_itself
 
+  # @decided 2026-11-22 (the owner's, paraphrased): a scheduled job of the agent may read netryx, which it
+  # could already do in a chat under the policy the owner wrote for it in openwrt-mcp. @measured the same
+  # day on a Flint 2 with r26: every such call from a job was refused by the package itself.
+  Scenario: a scheduled job may read netryx and still cannot change anything
+    Given netryx's six ubus reads, and the owner's own openwrt-mcp policy that grants them to the agent
+    When a scheduled job calls one of them, or any other netryx method, a change tool, or another object's change
+    Then the six are let through to openwrt-mcp by name, everything else a scheduled job asked for is refused as before, and the package writes no policy that answers a netryx call
+    # -> check_scheduled_job_may_read_netryx_but_still_cannot_change_anything
+
   # @decided 2026-11-22: an Anthropic API key works as the router's main model, as it does as a further
   # provider. @measured the same day on a Beryl AX with r26: every start with Anthropic's own address
   # as the main endpoint was refused, since upstream speaks Anthropic's own protocol to that host and
