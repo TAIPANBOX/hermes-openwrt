@@ -143,6 +143,7 @@ PYTHONPATH=/usr/lib/hermes-agent/site-packages \
 # HERMES_OPENWRT_FACTOR, HERMES_OPENWRT_READ_UBUS, HERMES_OPENWRT_APPROVALS and
 # HERMES_OPENWRT_APPROVER_ID stay in the environment for it too; none is a secret.
 export HERMES_OPENWRT_UNLOCK_URL="$mcp_effective"
+[ -z "${owner:-}" ] || export OPENWRT_MCP_OWNER_TOKEN="$owner"
 # Questions from netryx, the router's console (hermes.api): the init turns them on in the owner
 # profile only and hands over the key file's path; the key is read here, as root, and exported for
 # the gateway's own exec alone, after both helpers, as HERMES_OPENWRT_API_KEY, which the gateway's

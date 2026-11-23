@@ -905,11 +905,11 @@ Feature: What is set on the router is what the gateway runs with
     And a check that fails refuses every tool while the questions are on
     # -> check_console_question_reads_and_never_changes_writes_or_sends
 
-  Scenario: the console's turn is upstream's own API turn, and its change meets the refusal there
-    Given upstream's API server adapter running one turn, its agent asking for a change
-    When the turn runs in upstream's worker thread
+  Scenario: the console's turn is built as upstream builds an API turn, and its change meets the refusal there
+    Given the gateway's own model and configuration, and an agent that asks for a change
+    When the plugin runs a question's turn in a worker thread
     Then it is bound to the platform api_server, starts with no history and the console's own note, and the change is refused
-    And the agent is built so that no background review writes memories or skills afterwards
+    And the agent gets the console's tools alone, no memory provider, no session database and no background review that writes memories or skills
     # -> check_console_turn_is_upstreams_api_turn_and_its_change_is_refused
 
   Scenario: one route, with the key, within the hour's count and the day's budget

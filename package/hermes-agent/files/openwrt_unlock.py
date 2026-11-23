@@ -888,10 +888,11 @@ def pre_tool_call(tool_name=None, args=None, **ctx):
 # on the router's loopback, with a key only root can read. Upstream's own API server is not used: it
 # needs aiohttp, which the router package does not carry, and it answers some forty routes (sessions
 # and their messages, scheduled jobs that deliver to Telegram, runs, uploads, other profiles'
-# platforms). This is one route over the standard library, in a thread of the gateway's own, and the
-# turn it runs is upstream's: APIServerAdapter._run_agent, which binds the turn to the platform
-# api_server in the worker thread that runs it, builds the agent from platform_toolsets.api_server and
-# delivers nothing anywhere. pre_tool_call above then lets that turn use openwrt-mcp's reads alone.
+# platforms); its module cannot even be imported without aiohttp. This is one route over the standard
+# library, in a thread of the gateway's own, and its turn is run the way upstream's API server runs one
+# (_run_console_turn): bound to the platform api_server in the worker thread that runs it, the agent
+# built from platform_toolsets.api_server, nothing delivered anywhere. pre_tool_call above then lets
+# that turn use openwrt-mcp's reads alone.
 API_ROUTE = "/v1/ask"
 API_HOST = "127.0.0.1"
 API_USAGE_FILE = "openwrt-api-usage.json"
@@ -921,7 +922,6 @@ HTTP_REASONS = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 404: "Not Fo
 _api_state_lock = threading.Lock()
 _api_busy = False
 _API_KEY = ""
-_api_adapter = None
 _api_server = None
 
 
@@ -1052,23 +1052,39 @@ def _question_from(raw: bytes):
     return message, None
 
 
-def _console_adapter():
-    """Upstream's API server adapter, never connected: what runs a turn as upstream runs an API turn,
-    with one change, that a question leaves nothing behind but its transcript (no background review
-    that writes memories or skills)."""
-    global _api_adapter
-    if _api_adapter is None:
-        from gateway.config import PlatformConfig
-        from gateway.platforms.api_server import APIServerAdapter
+def _run_console_turn(message: str, session_id: str, agent_ref: list):
+    """One question as one agent turn, the way upstream's API server runs one, in the thread that runs
+    it: the turn bound to the platform api_server with nothing to deliver to, the agent built from the
+    gateway's own model and from platform_toolsets.api_server, with no memory provider, no background
+    review that writes memories or skills, and no session database, so nothing is kept. Upstream's
+    adapter itself cannot be imported here: its module needs aiohttp."""
+    from gateway.run import (_checkpoint_agent_kwargs, _current_max_iterations, _load_gateway_config,
+                             _resolve_gateway_model, _resolve_runtime_agent_kwargs, GatewayRunner)
+    from gateway.session_context import clear_session_vars, set_session_vars
+    from hermes_cli.tools_config import _get_platform_tools
+    from run_agent import AIAgent
+    tokens = set_session_vars(platform="api_server", chat_id=session_id, session_key=session_id,
+                              session_id=session_id, async_delivery=False, cron_session="")
+    try:
+        runtime = _resolve_runtime_agent_kwargs()
+        model = runtime.pop("model", None) or _resolve_gateway_model()
+        runtime.pop("_fallback_notice", None)
+        config = _load_gateway_config()
+        agent = AIAgent(
+            model=model, **runtime, **_checkpoint_agent_kwargs(config),
+            max_iterations=_current_max_iterations(), quiet_mode=True, verbose_logging=False,
+            ephemeral_system_prompt=API_NOTE, enabled_toolsets=sorted(_get_platform_tools(config, "api_server")),
+            session_id=session_id, platform="api_server", skip_memory=True, skip_background_review=True,
+            fallback_model=GatewayRunner._load_fallback_model(),
+            reasoning_config=GatewayRunner._load_reasoning_config(model))
+        agent_ref[0] = agent
+        return agent.run_conversation(user_message=message, conversation_history=[], task_id=session_id)
+    finally:
+        clear_session_vars(tokens)
 
-        class ConsoleAdapter(APIServerAdapter):
-            def _create_agent(self, *args, **kwargs):
-                agent = super()._create_agent(*args, **kwargs)
-                agent.skip_background_review = True
-                return agent
 
-        _api_adapter = ConsoleAdapter(PlatformConfig(enabled=True, extra={"host": API_HOST, "port": 0, "key": ""}))
-    return _api_adapter
+# What runs a question's turn; the tests put a stand-in here.
+_console_turn_runner = _run_console_turn
 
 
 async def answer(method: str, path: str, headers: dict, raw: bytes):
@@ -1092,9 +1108,10 @@ async def answer(method: str, path: str, headers: dict, raw: bytes):
         return refusal
     agent_ref = [None]
     try:
-        task = asyncio.ensure_future(_console_adapter()._run_agent(
-            user_message=message, conversation_history=[], ephemeral_system_prompt=API_NOTE,
-            session_id=CONSOLE_SESSION_PREFIX + uuid.uuid4().hex, agent_ref=agent_ref))
+        import contextvars
+        task = asyncio.get_running_loop().run_in_executor(
+            None, contextvars.copy_context().run, _console_turn_runner, message,
+            CONSOLE_SESSION_PREFIX + uuid.uuid4().hex, agent_ref)
     except BaseException as exc:  # noqa: BLE001
         _record_cost(0.0)
         log.warning("the console's question could not start (%s)", type(exc).__name__)
@@ -1114,7 +1131,7 @@ async def answer(method: str, path: str, headers: dict, raw: bytes):
     cost = _turn_cost(agent_ref[0])
     _record_cost(cost)
     try:
-        result, _usage = task.result()
+        result = task.result()
     except Exception as exc:  # noqa: BLE001
         log.warning("the console's question failed (%s)", type(exc).__name__)
         return _refusal(502, "agent_failed", "The agent could not answer (%s)." % type(exc).__name__)

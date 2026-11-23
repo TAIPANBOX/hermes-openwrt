@@ -845,7 +845,7 @@ agent's own connections cannot reach the port: on the router's addresses they re
 llm-gateway and DNS, and nothing else ([above](#what-the-agents-own-connections-reach)).
 
 What such a question can do is decided by the agent's side, not by what the caller says. The turn runs
-as Hermes runs an API turn: Hermes binds it to the platform `api_server` in the thread that runs it, and
+as Hermes runs an API turn: it is bound to the platform `api_server` in the thread that runs it, and
 the unlock plugin's `pre_tool_call` hook, which already refuses a scheduled job's changes, refuses that
 turn everything but openwrt-mcp's reads (`uci_get`, `logread`, `status`, `ubus_list`, `action_status`,
 and `ubus_call` on the read list, netryx's six reads among them). So `uci_apply`, `uci_confirm`, a
@@ -855,12 +855,13 @@ question's session `netryx-...`, and the hook knows the turn by that too, so a t
 thread without its platform is still refused. The model is offered openwrt-mcp alone in the first place
 (`platform_toolsets.api_server`, written by the bridge in every profile), and the turn is told, as its
 whole system prompt, that it may only read and that the selection it is sent is data, not instructions.
-It is not told that changes are unlocked. No review runs after it, so it writes no memory or skill.
+It is not told that changes are unlocked. It has no memory provider and no review runs after it, so it
+writes no memory or skill.
 
 The answer goes back to netryx alone: the turn is built to deliver nothing anywhere, and the plugin
-refuses `send_message`. What stays on the router is the conversation in the data directory's database
-under a session named `netryx-...`, and `openwrt-api-usage.json`, the questions of the last hour and
-what today cost.
+refuses `send_message`. The conversation is not kept: the turn has no session database. What stays on
+the router is `openwrt-api-usage.json` in the data directory, the times of the last hour's questions and
+what today cost, and the agent's log lines.
 
 Limits, in the open: `hermes.api.hourly_limit` questions an hour (10) and `hermes.api.daily_budget_usd`
 a day (0.50, the day in UTC), kept on disk so a restart does not reset them; past either, netryx is told

@@ -1155,10 +1155,6 @@ with_approver() {
 	uci -q delete hermes.telegram.allow_user_id || true
 	uci add_list hermes.telegram.allow_user_id=4242
 	[ -z "${ALLOW_ALSO:-}" ] || uci add_list hermes.telegram.allow_user_id="$ALLOW_ALSO"
-	# The console's questions (hermes.api), for the scenario that asks one; the key is the start's to make.
-	uci -q delete hermes.api || true
-	rm -f /etc/hermes-agent/api.key
-	if [ -n "${CONSOLE:-}" ]; then uci set hermes.api=api; uci set hermes.api.enabled=1; fi
 	uci commit hermes
 	printf '%s' "$TGTOKEN" > /etc/hermes-agent/telegram.token
 	chmod 600 /etc/hermes-agent/telegram.token
@@ -1803,6 +1799,10 @@ unlock_up() {
 	uci -q delete hermes.telegram.allow_user_id || true
 	uci add_list hermes.telegram.allow_user_id=4242
 	[ -z "${ALLOW_ALSO:-}" ] || uci add_list hermes.telegram.allow_user_id="$ALLOW_ALSO"
+	# The console's questions (hermes.api), for the scenario that asks one; the key is the start's to make.
+	uci -q delete hermes.api || true
+	rm -f /etc/hermes-agent/api.key
+	if [ -n "${CONSOLE:-}" ]; then uci set hermes.api=api; uci set hermes.api.enabled=1; fi
 	uci commit hermes
 	printf '%s' "$TGTOKEN" > /etc/hermes-agent/telegram.token
 	chmod 600 /etc/hermes-agent/telegram.token

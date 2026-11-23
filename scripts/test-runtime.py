@@ -2750,47 +2750,57 @@ print(json.dumps({
                          {k for k, (t, _a) in self.CONSOLE_CALLS.items() if t.startswith("mcp__openwrt__")})
 
     def test_console_turn_is_upstreams_api_turn_and_its_change_is_refused(self):
-        # Upstream's own path, not a stand-in for it: APIServerAdapter._run_agent binds the turn in the
-        # worker thread that runs it, and a change the agent then asks for meets the hook there. Only
-        # the agent is replaced, by one that asks for that change instead of calling a model.
+        # The turn as the plugin builds it, with upstream's own pieces: the gateway's model and config,
+        # platform_toolsets.api_server as the bridge wrote it, upstream's session binding in the worker
+        # thread. Only the agent class is replaced, by one that records what it was built with and asks
+        # for a change instead of calling a model.
+        result = self.configure(tools="terminal,file,memory,skills", mcp="http://127.0.0.1:8730/mcp",
+                                endpoint="http://127.0.0.1:9/v1", profile="owner")
+        self.assertEqual(result.returncode, 0, result.stderr)
         answer = self._console_probe(r"""
-            import asyncio, json, openwrt_unlock as u
-            from gateway.platforms.api_server import APIServerAdapter
+            import asyncio, contextvars, json, os, openwrt_unlock as u
+            import gateway.run as gr, run_agent
             from gateway.session_context import get_session_env
+            from hermes_cli.tools_config import _get_platform_tools
+            gr._resolve_runtime_agent_kwargs = lambda: {"model": "runtime-model", "provider": "custom",
+                                                       "base_url": "http://127.0.0.1:9/v1", "api_key": "x"}
             seen = {}
             class Agent:
-                session_cost_status, session_estimated_cost_usd = "estimated", 0.002
-                skip_background_review = False
+                def __init__(self, **kw):
+                    seen["kw"] = {k: kw.get(k) for k in ("platform", "skip_memory", "skip_background_review",
+                                                         "ephemeral_system_prompt", "enabled_toolsets", "session_db")}
                 def run_conversation(self, user_message, conversation_history, task_id, **kw):
                     seen["platform"] = get_session_env("HERMES_SESSION_PLATFORM", "")
                     seen["history"] = conversation_history
-                    seen["change"] = u.pre_tool_call(tool_name="mcp__openwrt__uci_apply", args={}, session_id=task_id, task_id=task_id)
-                    seen["read"] = u.pre_tool_call(tool_name="mcp__openwrt__uci_get", args={"config": "dhcp"}, session_id=task_id, task_id=task_id)
-                    seen["terminal"] = u.pre_tool_call(tool_name="terminal", args={"command": "id"}, session_id=task_id, task_id=task_id)
+                    seen["change"] = u.pre_tool_call(tool_name="mcp__openwrt__uci_apply", args={}, session_id="x", task_id="x")
+                    seen["read"] = u.pre_tool_call(tool_name="mcp__openwrt__uci_get", args={"config": "dhcp"}, session_id="x", task_id="x")
+                    seen["terminal"] = u.pre_tool_call(tool_name="terminal", args={"command": "id"}, session_id="x", task_id="x")
                     return {"final_response": "read only: " + user_message}
-            made = []
-            def create(self, *a, **kw):
-                made.append(kw.get("ephemeral_system_prompt"))
-                return Agent()
-            APIServerAdapter._create_agent = create
-            adapter = u._console_adapter()
+            run_agent.AIAgent = Agent
             ref = [None]
-            result, usage = asyncio.run(adapter._run_agent(user_message="who is on my network?", conversation_history=[],
-                                                           ephemeral_system_prompt=u.API_NOTE, session_id="netryx-x", agent_ref=ref))
-            seen["skip_review"] = ref[0].skip_background_review
-            seen["answer"] = result["final_response"]
-            seen["subclass"] = isinstance(adapter, APIServerAdapter)
-            seen["note"] = made == [u.API_NOTE]
+            async def go():
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, contextvars.copy_context().run, u._run_console_turn, "who is on my network?", "netryx-x", ref)
+            seen["answer"] = asyncio.run(go())["final_response"]
+            seen["after"] = get_session_env("HERMES_SESSION_PLATFORM", "")
+            seen["expected_tools"] = sorted(_get_platform_tools(gr._load_gateway_config(), "api_server"))
             print(json.dumps(seen))
         """)
+        kw = answer["kw"]
         self.assertEqual(answer["platform"], "api_server")
         self.assertEqual(answer["history"], [])
         self.assertTrue(answer["change"] and "console can only read" in answer["change"]["message"], answer["change"])
         self.assertIsNone(answer["read"])
         self.assertTrue(answer["terminal"], answer)
-        self.assertTrue(answer["skip_review"], "a question from the console may start a review that writes memories")
         self.assertEqual(answer["answer"], "read only: who is on my network?")
-        self.assertTrue(answer["subclass"] and answer["note"], answer)
+        self.assertEqual(kw["platform"], "api_server")
+        self.assertTrue(kw["skip_memory"] and kw["skip_background_review"], kw)
+        self.assertIsNone(kw["session_db"])
+        self.assertEqual(kw["enabled_toolsets"], answer["expected_tools"])
+        self.assertIn("openwrt", kw["enabled_toolsets"])
+        for name in ("terminal", "file", "memory", "skills"):
+            self.assertNotIn(name, kw["enabled_toolsets"])
+        self.assertTrue(kw["ephemeral_system_prompt"].startswith("This turn is a question from netryx"))
 
     def test_console_route_answers_once_with_the_key_and_within_its_limits(self):
         answer = self._console_probe(r"""
@@ -2806,12 +2816,12 @@ print(json.dumps({
                     self.session_prompt_tokens, self.session_completion_tokens = tokens
             class Fake:
                 cost, status, tokens, delay = 0.1, "estimated", (0, 0), 0
-                async def _run_agent(self, **kw):
-                    calls.append(kw)
-                    kw["agent_ref"][0] = Agent(Fake.cost, Fake.status, Fake.tokens)
-                    await asyncio.sleep(Fake.delay)
-                    return {"final_response": "answer to: " + kw["user_message"]}, {}
-            u._api_adapter = Fake()
+            def runner(message, session_id, agent_ref):
+                calls.append({"message": message, "session_id": session_id})
+                agent_ref[0] = Agent(Fake.cost, Fake.status, Fake.tokens)
+                time.sleep(Fake.delay)
+                return {"final_response": "answer to: " + message}
+            u._console_turn_runner = runner
             out = {"started": u.start_console_server(), "env_key_left": "HERMES_OPENWRT_API_KEY" in os.environ}
             def req(method, path, body=None, auth=key, raw=None):
                 data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
@@ -2839,9 +2849,7 @@ print(json.dumps({
             status, body, _h = req("POST", "/v1/ask", q)
             out["first"] = [status, body]
             c = calls[0]
-            out["turn"] = {"note": c["ephemeral_system_prompt"] == u.API_NOTE, "history": c["conversation_history"],
-                           "session": c["session_id"].startswith("netryx-"), "message": c["user_message"],
-                           "keys": sorted(c)}
+            out["turn"] = {"session": c["session_id"].startswith("netryx-"), "message": c["message"]}
             path = u._usage_path()
             out["usage_mode"] = oct(stat.S_IMODE(os.stat(path).st_mode))
             out["spent"] = json.load(open(path))["spent_usd"]
@@ -2904,11 +2912,8 @@ print(json.dumps({
         self.assertEqual(body["asks_left_this_hour"], 3)
         self.assertEqual(body["budget_left_usd"], 0.15)
         turn = answer["turn"]
-        self.assertTrue(turn["note"] and turn["session"], turn)
-        self.assertEqual(turn["history"], [])
-        self.assertIn("<console_selection>\n14:02-14:05", turn["message"])
-        # Nothing the caller says chooses the model, the session or the history.
-        self.assertEqual(turn["keys"], ["agent_ref", "conversation_history", "ephemeral_system_prompt", "session_id", "user_message"])
+        self.assertTrue(turn["session"], turn)
+        self.assertTrue(turn["message"].startswith("What made this spike?\n\n<console_selection>\n14:02-14:05"), turn)
         self.assertEqual(answer["usage_mode"], "0o600")
         self.assertEqual(answer["spent"], 0.1)
         self.assertEqual((answer["second"], answer["third"]), (200, 200))

@@ -1436,10 +1436,11 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     runs. Upstream's own API server is NOT used: it needs aiohttp, which the base payload (extras cron,
     mcp, anthropic) and the Telegram add-on do not carry, and it serves some forty routes. The unlock plugin
     serves one route, `POST /v1/ask` on 127.0.0.1, over asyncio streams in a thread of its own, and runs the
-    turn through upstream's `APIServerAdapter._run_agent` (a never-connected subclass whose `_create_agent`
-    sets `skip_background_review`), which binds the turn to the platform `api_server` in its worker thread
-    and builds the agent from `platform_toolsets.api_server`, which the bridge writes as `[openwrt]` (or
-    `[no_mcp]`) in every profile. `pre_tool_call` reads the turn's source from upstream's session
+    turn as upstream's `APIServerAdapter._run_agent` does (whose module cannot be imported without aiohttp):
+    upstream's `set_session_vars(platform="api_server", async_delivery=False)` in the worker thread, the
+    gateway's own model resolution, `AIAgent` with `skip_memory`, `skip_background_review`, no session
+    database and `enabled_toolsets` from `platform_toolsets.api_server`, which the bridge writes as
+    `[openwrt]` (or `[no_mcp]`) in every profile. `pre_tool_call` reads the turn's source from upstream's session
     context and from the `netryx-` session and task id the route itself gives the turn, never from the caller: `api_server` gets openwrt-mcp's reads alone (the scheduled-job read
     list, nothing outside openwrt-mcp), whatever the window, the session id or the profile; with the
     questions on, a gateway turn bound to no platform but Telegram is treated as a scheduled job; a hook
@@ -1449,8 +1450,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     cannot be read refuses rather than restart the count, one question at a time, 110 s and then a
     timeout whose turn keeps its place and is charged when it ends, an unpriced turn charged at 15 and 75
     USD per million tokens. Limits named and not fixed: the data directory is the agent's to write, so a
-    chat turn's terminal could reset the record; the conversation stays in the session database under
-    `netryx-...`; a timed-out turn's thread cannot be killed. (gate: `scripts/gate-runtime.sh`
+    chat turn's terminal could reset the record; a timed-out turn's thread cannot be killed. (gate: `scripts/gate-runtime.sh`
     `check_console_question_reads_and_never_changes_writes_or_sends`,
     `check_console_turn_is_upstreams_api_turn_and_its_change_is_refused`,
     `check_console_route_answers_once_with_the_key_and_within_its_limits`,

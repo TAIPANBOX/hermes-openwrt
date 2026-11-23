@@ -1005,8 +1005,10 @@ def console_ask(question, context="", key=None, timeout=150):
 
 def check_console_question_reads_and_cannot_change():
     gateway_is_wired()
+    said = [line.strip() for line in open("/tmp/start.log", errors="replace") if "console" in line or "hermes.api" in line] \
+        if os.path.exists("/tmp/start.log") else ["no /tmp/start.log"]
     need(os.path.exists(API_KEY_FILE) and len(open(API_KEY_FILE).read().strip()) == 64,
-         "measured nothing: the start wrote no key for the console's questions")
+         "measured nothing: the start wrote no key for the console's questions; it said: %s" % (said[-2:] or "nothing of them"))
     unlock("/unlock " + PIN)
     need(not locked(), "the PIN did not open changes")
     change = {"name": "mcp__openwrt__uci_apply", "arguments": CHANGE}

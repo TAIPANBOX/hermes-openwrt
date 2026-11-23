@@ -794,7 +794,7 @@ mutants = [
      '        if note is None or _turn_source(ctx) != "chat":', '        if note is None or _is_scheduled(ctx):',
      'test_console_question_reads_and_never_changes_writes_or_sends'),
     ('a review after a question from the console', 'openwrt_unlock.py',
-     '                agent.skip_background_review = True', '                agent.skip_background_review = False',
+     'skip_memory=True, skip_background_review=True,', 'skip_memory=True, skip_background_review=False,',
      'test_console_turn_is_upstreams_api_turn_and_its_change_is_refused'),
     ('any key answered', 'openwrt_unlock.py',
      '    if len(_API_KEY) < 32 or not hmac.compare_digest(', '    if False and not hmac.compare_digest(',
