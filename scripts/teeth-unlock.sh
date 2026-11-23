@@ -345,7 +345,7 @@ plant "$PLUGIN" '    if bare:
 expect_red "the line left in the replayed history" check_agent_told_window_is_open
 
 # ---- 40. a scheduled job told the window is open ----
-plant "$PLUGIN" '        if note is None or _is_scheduled(ctx):' '        if note is None:'
+plant "$PLUGIN" '        if note is None or _turn_source(ctx) != "chat":' '        if note is None:'
 expect_red "a scheduled job told the window is open" check_agent_told_window_is_open
 
 # ---- 41. a window that never runs out for the agent ----

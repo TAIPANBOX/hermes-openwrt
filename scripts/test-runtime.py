@@ -2944,6 +2944,7 @@ print(json.dumps({
     def _api_instance(self, extra):
         script = f'''
 uci set hermes.api=api
+uci set hermes.main.profile=owner
 {extra}
 uci commit hermes
 '''

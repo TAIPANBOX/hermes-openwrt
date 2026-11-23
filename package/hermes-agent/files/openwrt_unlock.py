@@ -1153,8 +1153,10 @@ async def _serve_one(reader, writer):
         pass
     try:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        retry = (body.get("error") or {}).get("retry_after") if isinstance(body, dict) else None
+        extra = "Retry-After: %d\r\n" % retry if isinstance(retry, int) else ""
         writer.write(("HTTP/1.1 %d %s\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: %d\r\n"
-                      "Connection: close\r\n\r\n" % (status, HTTP_REASONS.get(status, "Error"), len(data))).encode("latin-1") + data)
+                      "%sConnection: close\r\n\r\n" % (status, HTTP_REASONS.get(status, "Error"), len(data), extra)).encode("latin-1") + data)
         await writer.drain()
     except Exception:  # noqa: BLE001
         pass
