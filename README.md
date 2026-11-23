@@ -18,21 +18,23 @@ routers.
 
 ![The agent runs on the router, the model runs elsewhere, and the router itself is reached through a narrow audited window](docs/hero.svg)
 
-**Current release**, in the feed since 2026-11-22 ([taipanbox.github.io/hermes-openwrt](https://taipanbox.github.io/hermes-openwrt/)):
-`hermes-agent` 0.21.5-r26, `openwrt-mcp` 0.5.0.11-r1, `luci-app-hermes` 0.21.5-r8,
-`hermes-agent-telegram` 0.21.5-r2. r26 fixes a crash: on r25 every turn that needed a tool (a ping, a
-diagnosis) could end the agent, and a scheduled job the whole gateway, because musl gave the agent's
-threads too little stack; they now get 4 MiB ([Thread stacks](docs/measured.md#thread-stacks)). The router can ask you for an approval itself, through a Telegram bot
-of its own: the Security page sets it up in about two minutes, and the card and your answer then never
-pass through the agent ([approval.md](docs/approval.md)). You send the PIN and the code in one message or
-two, the code as the app shows it, and the agent restarts by itself once your chat is bound, even with the
-page closed. openwrt-mcp's part that the agent talks to runs
-with no root and no capability, and its part that holds root does not listen. The previous release stays
-installable, signed with the same key, from the tag
-[`feed-0.21.5-r25`](https://github.com/TAIPANBOX/hermes-openwrt/tree/feed-0.21.5-r25). It can take its model
-from [a computer in your house](#a-model-on-a-computer-in-your-house) through llm-gateway, and it
-carries the security updates of eleven libraries under Hermes. A router set up before 2026-10-22
-runs the `wget` line of [step 1](#install) once more: the feed has a new signing key since then.
+**Current release** ([taipanbox.github.io/hermes-openwrt](https://taipanbox.github.io/hermes-openwrt/)):
+`hermes-agent` 0.21.5-r28, `openwrt-mcp` 0.5.0.11-r1, `luci-app-hermes` 0.21.5-r8,
+`hermes-agent-telegram` 0.21.5-r2. r28 lets [netryx](https://github.com/TAIPANBOX/netryx), the traffic
+console on the same router, ask the agent what a stretch of traffic was, and such a question can only read
+the router ([questions from netryx](#questions-from-netryx-the-console-on-the-router)). r27 made
+Anthropic's own API work as the main model, with a Console key (`sk-ant-usr-`) sent as an API key, and let
+a scheduled job read netryx. r26 fixed a crash: every turn that needed a tool (a ping, a diagnosis) could
+end the agent, because musl gave its threads too little stack; they now get 4 MiB
+([Thread stacks](docs/measured.md#thread-stacks)). The router can ask you for an approval itself, through a
+Telegram bot of its own: the Security page sets it up in about two minutes, and the card and your answer
+then never pass through the agent ([approval.md](docs/approval.md)). openwrt-mcp's part that the agent
+talks to runs with no root and no capability, and its part that holds root does not listen. The previous
+release stays installable, signed with the same key, from the tag
+[`feed-0.21.5-r27`](https://github.com/TAIPANBOX/hermes-openwrt/tree/feed-0.21.5-r27). It can take its
+model from [a computer in your house](#a-model-on-a-computer-in-your-house) through llm-gateway, and it
+carries the security updates of eleven libraries under Hermes. A router set up before 2026-10-22 runs the
+`wget` line of [step 1](#install) once more: the feed has a new signing key since then.
 
 ## What it does
 

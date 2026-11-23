@@ -1424,7 +1424,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     `claude-haiku-5-5`: a scheduled job asked to run `uptime` failed with that credit message; with this
     `hermes-start` over the installed one and the gateway restarted, the same job answered in two model calls.
 
-30. `@decided 2026-11-22` (the owner's, paraphrased): netryx, the console on the same router, asks the
+37. `@decided 2026-11-22` (the owner's, paraphrased): netryx, the console on the same router, asks the
     agent about a stretch of traffic it selected and shows the answer; such a question may only read, the
     answer goes back to the console and never to Telegram, with an hourly count and a daily cost budget.
     `@claude` 2026-11-22, how (0.21.5-r28): `hermes.api` (enabled 0, port 8642, key_file, hourly_limit 10,

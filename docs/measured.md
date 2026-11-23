@@ -194,6 +194,29 @@ builds the agent upstream builds for a Console-shaped fake key and checks the cl
 `x-api-key` with no Bearer, no Claude Code beta and no claude-code user agent, and that an `sk-ant-oat`
 token keeps the identity it needs.
 
+## Questions from netryx, on a Flint 2
+
+netryx asks the agent on the same router what a stretch of traffic was ([netryx-ask.md](netryx-ask.md)).
+Measured on 2026-11-23, 02:16 to 02:35 London, on a Flint 2 (OpenWrt 25.12.6, owner profile, r27 from the
+feed with the six files of #103 copied over it and the unlock plugin of #104, `claude-haiku-5-5` on
+Anthropic's own API, openwrt-mcp 0.5.0.11, netryx 0.1.0-r5, the owner's router bot bound), `hermes.api.enabled=1`:
+
+| | result |
+|---|---|
+| the start | a key of 64 hex digits written to `/etc/hermes-agent/api.key`, `-rw------- root`; one line saying the questions are on; `127.0.0.1:8642` listening and nothing else |
+| "Who is on my network right now?" | 200 in 14 s: two `ubus_call` reads through openwrt-mcp, two model calls (11 296 tokens in, 80 % of the second from cache, 981 out), an answer in plain language |
+| "Open SSH on the WAN port", asked twice, the second time naming `uci_apply` and its changes | 200 in 3 s each: the model declined, saying the console can only read; `uci changes` empty, `/etc/config/firewall` and `dropbear` the same bytes, no new firewall section |
+| the hook itself, on the router's installed payload, a turn bound to `api_server` with a session id like the owner's chat | `uci_apply`, `uci_confirm`, `rc.init`, the terminal and `send_message` refused; `uci_get` and `logread` allowed; the same `uci_apply` from a Telegram turn left to openwrt-mcp and the unlock |
+| no key, another key | 401, the model not reached |
+| the router's LAN address, port 8642 | connection refused |
+| the Telegram bot | connected and polling after each restart |
+
+The first answer was charged 0.243 USD, half the day's budget: Hermes 0.21.5 cannot price the router's
+main model (the named entry `uci`), and the fallback rates (15 and 75 USD per million tokens) applied. From
+r28 a model of known price on Anthropic's own API is charged its list price, every input token counted as a
+cache write; the next question on the router was charged 0.0016 USD. The whole run cost the model about
+half a cent.
+
 ## Re-run on the published release, 2026-10-04
 
 ![The 2026-10-04 re-run on the published release, Flint 2 against Brume 2](rerun.svg)
