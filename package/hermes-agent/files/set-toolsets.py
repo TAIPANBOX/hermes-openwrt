@@ -482,6 +482,13 @@ def main() -> int:
             extras = [name for name in previous if isinstance(name, str)
                       and (name not in TOOLSETS or name in plugins)]
             platforms[platform] = list(dict.fromkeys(wanted + extras))
+        # The console's questions (hermes.api) run on upstream's API server, which builds its agent from
+        # platform_toolsets.api_server: the package's openwrt-mcp connection, by its name, which also keeps
+        # every other MCP server out, and none of the UCI selection; without that connection no MCP server
+        # at all. The unlock plugin then refuses such a turn anything but openwrt-mcp's reads; this is what
+        # the model is shown. Written in every profile, so nothing an operator left there outlives it.
+        mcp_here = profile == "owner" and len(sys.argv) >= 4 and bool(sys.argv[3])
+        platforms["api_server"] = ["openwrt"] if mcp_here else ["no_mcp"]
 
         if len(sys.argv) >= 4:
             url = sys.argv[3]

@@ -174,10 +174,14 @@ expect_red "wg_new_client back in the change policy" check_change_policy_hands_o
 PLUGIN=usr/lib/hermes-agent/site-packages/openwrt_unlock.py
 
 # ---- 13. a scheduled job's change let through ----
-plant "$PLUGIN" '        if not _is_scheduled(ctx):
-            return None' '        if True:
-            return None'
+plant "$PLUGIN" '    if _is_scheduled(ctx):
+        return "scheduled"' '    if False:
+        return "scheduled"'
 expect_red "a scheduled job told apart from nobody" check_scheduled_job_cannot_change
+
+# ---- 13b. a question from the console given the owner's chat's say ----
+plant "$PLUGIN" '        if source == "console":' '        if source == "never":'
+expect_red "a question from the console told apart from nobody" check_console_question_reads_and_cannot_change
 
 # ---- 14. the PIN sent to the daemon backwards ----
 plant "$PLUGIN" '        return {"pin": tokens[0]}' '        return {"pin": tokens[0][::-1]}'
@@ -341,7 +345,7 @@ plant "$PLUGIN" '    if bare:
 expect_red "the line left in the replayed history" check_agent_told_window_is_open
 
 # ---- 40. a scheduled job told the window is open ----
-plant "$PLUGIN" '        if note is None or _is_scheduled(ctx):' '        if note is None:'
+plant "$PLUGIN" '        if note is None or _turn_source(ctx) != "chat":' '        if note is None:'
 expect_red "a scheduled job told the window is open" check_agent_told_window_is_open
 
 # ---- 41. a window that never runs out for the agent ----
@@ -686,6 +690,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 100 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 100 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 101 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 101 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 100 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 101 faults (shard $SHARD), $N distinct checks, controls green"

@@ -32,3 +32,13 @@ def take_owner_token():
     global _owner_token
     token, _owner_token = _owner_token, ""
     return token
+
+
+# The console's key (hermes.api), for the unlock plugin's one route alone, taken out the same way.
+_api_key = os.environ.pop("HERMES_OPENWRT_API_KEY", "")
+
+
+def take_api_key():
+    global _api_key
+    key, _api_key = _api_key, ""
+    return key
