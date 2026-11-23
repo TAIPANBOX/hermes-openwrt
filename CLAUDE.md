@@ -1448,8 +1448,10 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     is open. The preflight refuses a `.env` naming `API_SERVER_*` or `HERMES_OPENWRT_API*`. Limits: the
     count and the budget live in `openwrt-api-usage.json` in the data directory (UTC day), a record that
     cannot be read refuses rather than restart the count, one question at a time, 110 s and then a
-    timeout whose turn keeps its place and is charged when it ends, an unpriced turn charged at 15 and 75
-    USD per million tokens. Limits named and not fixed: the data directory is the agent's to write, so a
+    timeout whose turn keeps its place and is charged when it ends; a turn Hermes cannot price is charged
+    on api.anthropic.com at the model's list price (`ANTHROPIC_PRICES`, 2026-11-03, input as cache write)
+    and anywhere else at 15 and 75 USD per million tokens. `@measured` 2026-11-23 on a Flint 2: before
+    that table, one Haiku 5.5 question was charged 0.243 USD, about a hundred times its price. Limits named and not fixed: the data directory is the agent's to write, so a
     chat turn's terminal could reset the record; a timed-out turn's thread cannot be killed. (gate: `scripts/gate-runtime.sh`
     `check_console_question_reads_and_never_changes_writes_or_sends`,
     `check_console_turn_is_upstreams_api_turn_and_its_change_is_refused`,

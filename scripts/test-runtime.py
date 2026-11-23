@@ -2992,6 +2992,37 @@ print(json.dumps({
         self.assertEqual(answer["after_slow"], [False, 0.1])
         self.assertTrue(answer["loopback_only"])
 
+    def test_console_turn_cost_follows_the_price_of_the_model_on_anthropics_api(self):
+        # Hermes 0.21.5 cannot price the router's main model (the named entry `uci`); on Anthropic's own
+        # API the model's list price applies, every input token charged as a cache write; any other
+        # model or endpoint, the rates above any model in use. Measured on a Flint 2 on 2026-11-23: one
+        # question on claude-haiku-5-5, 11296 input and 981 output tokens, was charged 0.243 USD at the
+        # fallback rates, half the day's budget, against about 0.002 at Haiku 5.5's price.
+        answer = self._console_probe(r"""
+            import json, openwrt_unlock as u
+            class A:
+                def __init__(self, model, base, tin, tout, status="unknown", cost=0.0):
+                    self.model, self.base_url = model, base
+                    self.session_prompt_tokens, self.session_completion_tokens = tin, tout
+                    self.session_cost_status, self.session_estimated_cost_usd = status, cost
+            out = {
+                "haiku": u._turn_cost(A("claude-haiku-5-5", "https://api.anthropic.com/v1", 11296, 981)),
+                "haiku_long": u._turn_cost(A("claude-haiku-5-5", "https://api.anthropic.com/v1", 200000, 1000)),
+                "opus": u._turn_cost(A("claude-opus-5-5", "https://api.anthropic.com/v1", 10000, 1000)),
+                "elsewhere": u._turn_cost(A("claude-haiku-5-5", "https://anthropic.example.net/v1", 11296, 981)),
+                "unknown_model": u._turn_cost(A("claude-haiku-9", "https://api.anthropic.com/v1", 11296, 981)),
+                "priced_by_upstream": u._turn_cost(A("claude-haiku-5-5", "https://api.anthropic.com/v1", 11296, 981, "estimated", 0.004)),
+            }
+            print(json.dumps(out))
+        """)
+        self.assertAlmostEqual(answer["haiku"], (11296 * 0.10 * 1.25 + 981 * 0.50) / 1e6, places=9)
+        self.assertAlmostEqual(answer["haiku_long"], (200000 * 0.50 * 1.25 + 1000 * 2.50) / 1e6, places=9)
+        self.assertAlmostEqual(answer["opus"], (10000 * 4.00 * 1.25 + 1000 * 20.00) / 1e6, places=9)
+        fallback = 11296 * 15e-6 + 981 * 75e-6
+        self.assertAlmostEqual(answer["elsewhere"], fallback, places=9)
+        self.assertAlmostEqual(answer["unknown_model"], fallback, places=9)
+        self.assertEqual(answer["priced_by_upstream"], 0.004)
+
     def test_console_questions_stay_off_unless_the_owner_profile_turns_them_on(self):
         answer = self._console_probe(r"""
             import json, os, openwrt_unlock as u

@@ -60,9 +60,11 @@ Only this one route is served. Any other path, `GET`, or the same path with some
  "asks_left_this_hour": 9, "budget_left_usd": 0.4969}
 ```
 
-`answer` is plain text for a person. `cost_usd` is what this question cost the model, as Hermes priced
-it, or, for a model it cannot price, at 15 USD per million input tokens and 75 per million output,
-above any model a router is set up with today, so the budget errs on the side of refusing.
+`answer` is plain text for a person. `cost_usd` is what this question cost the model: as Hermes priced
+it, or on Anthropic's own API at the model's list price with every input token charged as a cache write
+(a question on Claude Haiku 5.5 costs a fraction of a cent), or, for a model or endpoint neither knows,
+at 15 USD per million input tokens and 75 per million output, above any model a router is set up with
+today, so the budget errs on the side of refusing.
 
 Everything else is JSON of one shape, whose `message` is written to be shown to the person as it is:
 
