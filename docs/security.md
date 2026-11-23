@@ -868,7 +868,8 @@ a day (0.50, the day in UTC), kept on disk so a restart does not reset them; pas
 so plainly, with when to ask again. One question runs at a time, and one that takes more than 110
 seconds is answered with a timeout and asked to stop; Hermes runs it in a thread that cannot be killed,
 so its place stays taken and its cost is counted when it ends. A model Hermes cannot price is charged at
-rates above any model in use, so the budget errs on the side of refusing.
+rates above any model in use, so the budget errs on the side of refusing; on Anthropic's own API a
+model of known price is charged that price, every input token as a cache write.
 
 With the questions on, a turn the gateway bound to no platform at all, which no turn should be, is
 treated as a scheduled job: it may read and not change. What a question reads goes to the model

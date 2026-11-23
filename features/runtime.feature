@@ -921,6 +921,13 @@ Feature: What is set on the router is what the gateway runs with
     And one question runs at a time, a turn too slow is cut off at the time limit and still counted, and a turn upstream cannot price is charged at rates above any model in use
     # -> check_console_route_answers_once_with_the_key_and_within_its_limits
 
+  Scenario: a question is charged what its model costs
+    Given a turn Hermes could not price, on Anthropic's own API with a model of known price, or anywhere else
+    When its cost is counted against the day's budget
+    Then on Anthropic's API it is the model's list price with every input token charged as a cache write, Haiku's long-prompt rate past 100K tokens
+    And any other model or endpoint is charged at rates above any model in use, and a turn Hermes priced keeps its own price
+    # -> check_console_turn_cost_follows_the_price_of_the_model_on_anthropics_api
+
   Scenario: no route without the owner profile's start and its key
     Given the questions off, or on with no key, or with a key too short
     When the gateway's plugin loads
