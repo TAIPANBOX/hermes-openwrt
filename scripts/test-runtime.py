@@ -2840,6 +2840,48 @@ print(json.dumps({
                              ("POST", "/p/default/v1/ask"), ("POST", "/v1/ask/"), ("GET", "/v1/ask"))}
             out["no_key"] = req("POST", "/v1/ask", q, auth=None)[0]
             out["wrong_key"] = req("POST", "/v1/ask", q, auth="k" * 63 + "x")[0]
+            out["prefix_key"] = req("POST", "/v1/ask", q, auth="k" * 32)[0]
+            out["longer_key"] = req("POST", "/v1/ask", q, auth="k" * 65)[0]
+            out["empty_key"] = req("POST", "/v1/ask", q, auth="")[0]
+            def raw_request(data, wait=5.0):
+                c = socket.create_connection(("127.0.0.1", port), timeout=wait)
+                c.sendall(data)
+                got = b""
+                try:
+                    while True:
+                        chunk = c.recv(4096)
+                        if not chunk:
+                            break
+                        got += chunk
+                except socket.timeout:
+                    got += b"<still open>"
+                c.close()
+                return got.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+            head = "POST /v1/ask HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer " + key + "\r\n"
+            body = json.dumps(q)
+            out["chunked"] = raw_request((head + "Transfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n0\r\n\r\n" % (len(body), body)).encode())
+            out["no_length"] = raw_request((head + "\r\n" + body).encode(), wait=3.0)
+            # A client that sends half a request and stops holds nothing: another is answered meanwhile,
+            # and the half one is closed at the read limit.
+            slow = socket.create_connection(("127.0.0.1", port), timeout=20)
+            slow.sendall(b"POST /v1/ask HTTP/1.1\r\nHost: x\r\n")
+            t0 = time.time()
+            out["while_slow"] = req("POST", "/v1/ask", {"question": "   "})[0]
+            slow.settimeout(20)
+            first = slow.recv(4096)
+            out["slow_closed"] = [first.split(b"\r\n", 1)[0].decode("latin-1"), round(time.time() - t0) <= 13]
+            slow.close()
+            # Where it listens: 127.0.0.1 and nothing else, not ::1 and not every address.
+            listening = [line.split()[1] for line in open("/proc/net/tcp").read().splitlines()[1:]
+                         if line.split()[3] == "0A" and line.split()[1].endswith(":%04X" % port)]
+            listening6 = [line.split()[1] for line in open("/proc/net/tcp6").read().splitlines()[1:]
+                          if line.split()[3] == "0A" and line.split()[1].endswith(":%04X" % port)]
+            out["listening"] = [listening, listening6]
+            try:
+                socket.create_connection(("::1", port), timeout=2).close()
+                out["v6"] = "answered"
+            except OSError:
+                out["v6"] = "refused"
             out["bad"] = {"not_json": req("POST", "/v1/ask", raw=b"what")[0],
                           "model": req("POST", "/v1/ask", dict(q, model="claude-opus-5-5"))[0],
                           "empty": req("POST", "/v1/ask", {"question": "  "})[0],
@@ -2876,10 +2918,22 @@ print(json.dumps({
             Fake.status, Fake.tokens = "unknown", (1000, 1000)
             out["unpriced"] = req("POST", "/v1/ask", q)[1]["cost_usd"]
             Fake.status, Fake.tokens = "estimated", (0, 0)
-            # One question at a time.
+            # One question at a time: two at once, one answered and one told the agent is busy.
             u._api_busy = True
             out["busy"] = req("POST", "/v1/ask", q)[0]
             u._api_busy = False
+            import threading
+            Fake.delay = 1.5
+            both = []
+            threads = [threading.Thread(target=lambda: both.append(req("POST", "/v1/ask", q)[0])) for _ in range(2)]
+            for th in threads:
+                th.start()
+                time.sleep(0.3)
+            for th in threads:
+                th.join()
+            Fake.delay = 0
+            out["parallel"] = sorted(both)
+            os.unlink(path)
             # A record that cannot be read refuses, and is left for the owner.
             open(path, "w").write("{not json")
             out["unreadable"] = req("POST", "/v1/ask", q)[1]["error"]["code"]
@@ -2901,8 +2955,14 @@ print(json.dumps({
         expected = {path: 404 for path in answer["others"]}
         expected["/v1/ask"] = 405
         self.assertEqual(answer["others"], expected)
-        self.assertEqual(answer["no_key"], 401)
-        self.assertEqual(answer["wrong_key"], 401)
+        for name in ("no_key", "wrong_key", "prefix_key", "longer_key", "empty_key"):
+            self.assertEqual(answer[name], 401, name)
+        self.assertEqual(answer["chunked"], "HTTP/1.1 400 Bad Request")
+        self.assertEqual(answer["no_length"], "HTTP/1.1 400 Bad Request")
+        self.assertEqual(answer["while_slow"], 400)
+        self.assertEqual(answer["slow_closed"], ["HTTP/1.1 400 Bad Request", True])
+        self.assertEqual(answer["listening"], [["0100007F:%04X" % 18642], []])
+        self.assertEqual(answer["v6"], "refused")
         self.assertEqual(answer["bad"], {"not_json": 400, "model": 400, "empty": 400, "long": 400, "huge": 413})
         self.assertEqual(answer["calls_before"], 0, "a refused request reached the agent")
         status, body = answer["first"]
@@ -2925,6 +2985,7 @@ print(json.dumps({
         self.assertEqual((answer["hour_later"], answer["day_later"]), (200, 200))
         self.assertAlmostEqual(answer["unpriced"], 1000 * 15e-6 + 1000 * 75e-6, places=6)
         self.assertEqual(answer["busy"], 409)
+        self.assertEqual(answer["parallel"], [200, 409])
         self.assertEqual(answer["unreadable"], "usage_unreadable")
         self.assertEqual(answer["slow"], 504)
         self.assertTrue(answer["busy_while_slow"], "a second question could start while the slow one still runs")

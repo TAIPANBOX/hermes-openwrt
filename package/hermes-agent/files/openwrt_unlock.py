@@ -1159,7 +1159,7 @@ async def _serve_one(reader, writer):
                 name, value = line.split(":", 1)
                 headers[name.strip().lower()] = value.strip()
         length = int(headers.get("content-length", "0") or "0")
-        if "transfer-encoding" in headers:
+        if "transfer-encoding" in headers or (method == "POST" and "content-length" not in headers):
             status, body = _refusal(400, "bad_request", "Send the body with Content-Length.")
         elif length < 0 or length > API_BODY_MAX:
             status, body = _refusal(413, "too_large", "A question with its selection may be at most %d bytes." % API_BODY_MAX)
