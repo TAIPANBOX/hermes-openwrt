@@ -1440,7 +1440,7 @@ any other `RELEASE`, and the next publish drops `24.10/` from the feed.
     sets `skip_background_review`), which binds the turn to the platform `api_server` in its worker thread
     and builds the agent from `platform_toolsets.api_server`, which the bridge writes as `[openwrt]` (or
     `[no_mcp]`) in every profile. `pre_tool_call` reads the turn's source from upstream's session
-    context, never from the caller: `api_server` gets openwrt-mcp's reads alone (the scheduled-job read
+    context and from the `netryx-` session and task id the route itself gives the turn, never from the caller: `api_server` gets openwrt-mcp's reads alone (the scheduled-job read
     list, nothing outside openwrt-mcp), whatever the window, the session id or the profile; with the
     questions on, a gateway turn bound to no platform but Telegram is treated as a scheduled job; a hook
     that raises refuses every tool while the questions are on. The console's turn is not told the window

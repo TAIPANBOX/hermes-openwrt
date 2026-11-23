@@ -825,6 +825,11 @@ def _turn_source(ctx: dict) -> str:
     owner's Telegram: no turn of the gateway should look like that, and one that does is treated as
     a scheduled job, which may read and not change. Without the API a turn with no platform is the
     owner's own `hermes chat` in a shell, as before."""
+    # The session id the console's route gives every question it runs, and upstream's task id with
+    # it: chosen by this file and never by the caller, and carried by every tool call of the turn
+    # whatever thread it runs in, so a turn whose bound platform went missing on the way is still known.
+    if any(str(ctx.get(k) or "").startswith(CONSOLE_SESSION_PREFIX) for k in ("session_id", "task_id")):
+        return "console"
     if _is_scheduled(ctx):
         return "scheduled"
     try:
@@ -840,6 +845,7 @@ def _turn_source(ctx: dict) -> str:
     return "chat"
 
 
+CONSOLE_SESSION_PREFIX = "netryx-"
 CONSOLE_REFUSAL = ("Refused: a question from the router's console can only read the router (%s). "
                    "Answer from what you can read, and say what the owner could ask for in the chat.")
 
@@ -1088,7 +1094,7 @@ async def answer(method: str, path: str, headers: dict, raw: bytes):
     try:
         task = asyncio.ensure_future(_console_adapter()._run_agent(
             user_message=message, conversation_history=[], ephemeral_system_prompt=API_NOTE,
-            session_id="netryx-" + uuid.uuid4().hex, agent_ref=agent_ref))
+            session_id=CONSOLE_SESSION_PREFIX + uuid.uuid4().hex, agent_ref=agent_ref))
     except BaseException as exc:  # noqa: BLE001
         _record_cost(0.0)
         log.warning("the console's question could not start (%s)", type(exc).__name__)

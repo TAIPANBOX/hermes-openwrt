@@ -850,8 +850,9 @@ the unlock plugin's `pre_tool_call` hook, which already refuses a scheduled job'
 turn everything but openwrt-mcp's reads (`uci_get`, `logread`, `status`, `ubus_list`, `action_status`,
 and `ubus_call` on the read list, netryx's six reads among them). So `uci_apply`, `uci_confirm`, a
 service restart, `apk_add`, the terminal, code, every file tool, memory, skills, `send_message`, jobs and
-subagents are refused, even while you have changes unlocked, and the session id or anything else the
-caller could choose does not change that. The model is offered openwrt-mcp alone in the first place
+subagents are refused, even while you have changes unlocked, and nothing the caller sends changes that. The route also names every
+question's session `netryx-...`, and the hook knows the turn by that too, so a tool call that reached a
+thread without its platform is still refused. The model is offered openwrt-mcp alone in the first place
 (`platform_toolsets.api_server`, written by the bridge in every profile), and the turn is told, as its
 whole system prompt, that it may only read and that the selection it is sent is data, not instructions.
 It is not told that changes are unlocked. No review runs after it, so it writes no memory or skill.

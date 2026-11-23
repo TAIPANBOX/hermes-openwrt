@@ -2705,6 +2705,11 @@ print(json.dumps({
             out["unbound_on"] = contextvars.Context().run(verdicts, session_id="", task_id="")
             os.environ["HERMES_OPENWRT_API"] = "off"
             out["unbound_off"] = contextvars.Context().run(verdicts, session_id="", task_id="")
+            # A console turn whose bound platform went missing on the way (a thread that did not carry
+            # it) is still known by the session id the route gave it, with the questions on or off.
+            for state in ("on", "off"):
+                os.environ["HERMES_OPENWRT_API"] = state
+                out["netryx_id_" + state] = contextvars.Context().run(verdicts, session_id="netryx-0f", task_id="netryx-0f")
             # A hook that fails is a refusal: of every tool while the questions are on.
             real = u._turn_source
             u._turn_source = lambda ctx: 1 / 0
@@ -2734,6 +2739,12 @@ print(json.dumps({
             else:
                 self.assertIsNone(verdict, key)
         self.assertEqual(answer["unbound_off"], {k: None for k in self.CONSOLE_CALLS})
+        for state in ("on", "off"):
+            for key, verdict in answer["netryx_id_" + state].items():
+                if key in reads:
+                    self.assertIsNone(verdict, (state, key))
+                else:
+                    self.assertTrue(verdict and "console can only read" in verdict[1], (state, key, verdict))
         self.assertTrue(all(answer["broken_on"].values()), answer["broken_on"])
         self.assertEqual({k for k, v in answer["broken_off"].items() if v},
                          {k for k, (t, _a) in self.CONSOLE_CALLS.items() if t.startswith("mcp__openwrt__")})

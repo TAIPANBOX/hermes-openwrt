@@ -179,10 +179,8 @@ plant "$PLUGIN" '    if _is_scheduled(ctx):
         return "scheduled"'
 expect_red "a scheduled job told apart from nobody" check_scheduled_job_cannot_change
 
-# ---- 13b. a question from the console taken for the owner's chat ----
-plant "$PLUGIN" '    if "api_server" in (platform, source):
-        return "console"' '    if False:
-        return "console"'
+# ---- 13b. a question from the console given the owner's chat's say ----
+plant "$PLUGIN" '        if source == "console":' '        if source == "never":'
 expect_red "a question from the console told apart from nobody" check_console_question_reads_and_cannot_change
 
 # ---- 14. the PIN sent to the daemon backwards ----
