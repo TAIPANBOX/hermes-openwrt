@@ -690,6 +690,6 @@ if NOT_BUILT=check_a_scenario_with_no_check ONLY=check_a_scenario_with_no_check 
 grep -q 'NOT IMPLEMENTED' "$OUT" || { echo "TEETH FAIL: an unimplemented check failed, but not as NOT IMPLEMENTED"; tail -n 3 "$OUT"; exit 1; }
 echo "teeth ok: an unimplemented check -> NOT IMPLEMENTED"
 
-[ "$FAULT_K" = 100 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 100 expected; update the count with the faults"; exit 1; }
+[ "$FAULT_K" = 101 ] || { echo "TEETH FAIL: $FAULT_K faults planted, 101 expected; update the count with the faults"; exit 1; }
 [ "$RAN" -ge 1 ] || { echo "TEETH FAIL: shard $SHARD ran no fault, so it measured nothing"; exit 1; }
-echo "teeth-unlock: $RAN of 100 faults (shard $SHARD), $N distinct checks, controls green"
+echo "teeth-unlock: $RAN of 101 faults (shard $SHARD), $N distinct checks, controls green"

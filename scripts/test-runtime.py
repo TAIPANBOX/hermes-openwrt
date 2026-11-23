@@ -3009,6 +3009,7 @@ print(json.dumps({
 
     def _api_instance(self, extra):
         script = f'''
+uci -q delete hermes.api
 uci set hermes.api=api
 uci set hermes.main.profile=owner
 {extra}
