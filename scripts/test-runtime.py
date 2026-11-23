@@ -3064,15 +3064,15 @@ uci commit hermes
         url = "http://127.0.0.1:8730/mcp"
         for mcp in (url, None):
             with self.subTest(mcp=mcp):
-                result = self.configure(tools="terminal,file,memory,skills,web,cronjob,delegation,messaging",
+                result = self.configure(tools="terminal,file,memory,skills,web,cronjob,delegation,code_execution,session_search",
                                         mcp=mcp or "", endpoint="http://127.0.0.1:9/v1", profile="owner")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 config = self.config()
                 config.setdefault("mcp_servers", {})["operator_extra"] = {"url": "http://127.0.0.1:9999/mcp"}
                 tools = _get_platform_tools(config, "api_server")
                 self.assertEqual(config["platform_toolsets"]["api_server"], ["openwrt"] if mcp else ["no_mcp"])
-                for name in ("terminal", "file", "memory", "skills", "web", "cronjob", "delegation", "messaging",
-                             "code_execution", "operator_extra"):
+                for name in ("terminal", "file", "memory", "skills", "web", "cronjob", "delegation",
+                             "code_execution", "session_search", "operator_extra"):
                     self.assertNotIn(name, tools, (mcp, tools))
                 self.assertEqual("openwrt" in tools, bool(mcp), tools)
                 # The chat keeps what UCI selected.

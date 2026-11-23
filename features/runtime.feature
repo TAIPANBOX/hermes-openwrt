@@ -942,7 +942,7 @@ Feature: What is set on the router is what the gateway runs with
     # -> check_wrapper_hands_the_console_key_to_the_gateway_alone
 
   Scenario: the console's turn is shown openwrt-mcp and nothing else
-    Given a UCI selection with the terminal, files, memory, skills, the web, jobs, subagents and messages, and an operator's own MCP server
+    Given a UCI selection with the terminal, files, memory, skills, the web, jobs, subagents, code and past sessions, and an operator's own MCP server
     When the bridge writes the configuration
     Then the console's platform gets the package's openwrt-mcp connection alone, or no MCP server without it, while the chat keeps what UCI selected
     # -> check_console_turn_is_shown_openwrt_mcp_alone
