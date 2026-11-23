@@ -226,7 +226,12 @@ esac
 # 0.21.5-r27: Anthropic's own API (https://api.anthropic.com/v1) works as the main provider: the bridge
 # writes Anthropic's native Messages protocol for that host, as upstream picks it, and the preflight
 # requires it. r25 and r26 refused every such start (2026-11-22). CLAUDE.md, invariant 34.
-PKGREL=${PKGREL:-27}
+# 0.21.5-r28: netryx, the traffic console on the same router, may ask the agent a question that can only
+# read (hermes.api, off unless set, owner profile only): one route on 127.0.0.1, a key only root reads,
+# openwrt-mcp's reads alone even inside an open window, 10 an hour and 0.50 USD a day, the answer back to
+# the caller and never to Telegram; a question on Anthropic's API is charged its model's price (#103,
+# #104, Flint 2 2026-11-23). CLAUDE.md, invariant 37.
+PKGREL=${PKGREL:-28}
 
 # What the package needs from the OpenWrt feed. Declared once, used by every mkpkg call
 # in this file: two copies of this list is how r4 shipped without bash on one arch.

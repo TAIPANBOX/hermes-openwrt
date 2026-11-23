@@ -136,6 +136,8 @@ asyncio, multiprocessing, email, http, xml, decimal, curses, readline.
 - [x] A turn that needs a tool finishes on musl, in a chat and in a scheduled job: every thread the agent starts gets a 4 MiB stack, where musl gave 128 KiB and every such turn died with SIGSEGV (0.21.5-r26)
 - [x] Anthropic's own API starts as the main provider and answers a turn that needs a tool: the bridge and the preflight agree on its native Messages protocol, where r25 and r26 refused the start (0.21.5-r27)
 - [x] A Console key (`sk-ant-usr-`) goes to Anthropic as an API key, never as Claude Code, which Anthropic refuses with a credit message (0.21.5-r27)
+- [x] netryx, the console on the same router, asks the agent a question that can only read: one route on the router's loopback with a key only root reads, openwrt-mcp's reads alone even in an open window, ten an hour and 0.50 USD a day, the answer back to the console and never to Telegram (0.21.5-r28)
+- [x] A question on Anthropic's own API is charged its model's list price, not the fallback rates, so the day's budget counts what the model costs (0.21.5-r28)
 
 ## Prior art, and what is not ours
 
